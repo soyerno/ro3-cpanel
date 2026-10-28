@@ -196,9 +196,8 @@ CAREER_MAP = {
     1100: 'Swordman',
     1200: 'Knight',
     1210: 'Crusader',
-    1300: 'Lord Knight',
     1310: 'Paladin',
-    1400: 'Rune Knight',
+    1400: 'Lord Knight',     # aethai/ro3emu-server tests/Ro3Emu.Tests/CombatTableRulesTests.cs:36
     1410: 'Royal Guard',
     2100: 'Magician',
     2200: 'Wizard',
@@ -214,8 +213,7 @@ CAREER_MAP = {
     4100: 'Acolyte',
     4200: 'Priest',
     4210: 'Monk',
-    4300: 'High Priest',
-    4400: 'Archbishop',
+    4400: 'High Priest',     # CombatTableRulesTests.cs:41
     5100: 'Thief',
     5200: 'Assassin',
     5210: 'Rogue',
@@ -229,7 +227,7 @@ CAREER_MAP = {
 
 SCENE_MAP = {
     10100: 'Prontera',
-    10101: 'Prontera North',
+    10101: 'Izlude',         # tests/Ro3Emu.Tests/DungeonTests.Return.cs:534
     10102: 'Prontera West',
     10103: 'Prontera East',
     10104: 'Prontera South',
@@ -241,7 +239,6 @@ SCENE_MAP = {
     10401: 'Sunken Ship',
     10500: 'Morroc',
     10514: 'Morroc Field',
-    10600: 'Izlude',
     10700: 'Al De Baran',
     10800: 'Lutie',
     # Story/tutorial dungeon scenes (DungeonConfig scene entries), ids and names as listed in

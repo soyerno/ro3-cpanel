@@ -23,6 +23,19 @@ class TestNameLookups(unittest.TestCase):
         self.assertEqual(server.scene_name(1022001), "Payon Forest")
         self.assertEqual(server.scene_name(1010101), "Izlude")
 
+    def test_names_match_upstream_tests(self):
+        # aethai/ro3emu-server tests/Ro3Emu.Tests/CombatTableRulesTests.cs:36-43
+        self.assertEqual(server.career_name(1400), "Lord Knight")
+        self.assertEqual(server.career_name(4400), "High Priest")
+        self.assertEqual(server.career_name(2400), "Warlock")
+        # tests/Ro3Emu.Tests/DungeonTests.Return.cs:534 (const long izlude = 10101)
+        self.assertEqual(server.scene_name(10101), "Izlude")
+
+    def test_ids_whose_name_upstream_gives_to_another_id_fall_back(self):
+        self.assertEqual(server.career_name(1300), "Clase 1300")
+        self.assertEqual(server.career_name(4300), "Clase 4300")
+        self.assertEqual(server.scene_name(10600), "Mapa 10600")
+
     def test_unknown_career_falls_back(self):
         self.assertEqual(server.career_name(987654), "Clase 987654")
 
