@@ -74,10 +74,35 @@ RO3 CPanel operates as an autonomous daemon connecting to your `RO3Emu` database
 
 ---
 
+## Rankings
+
+The **🏆 Rankings** tab shows read-only, paginated leaderboards. Deleted characters (`deleted_time != 0`) are always excluded.
+
+```
+GET /api/admin/rankings?type=level|zeny|power|guilds&limit=20&page=1
+```
+
+| `type` | Ordering | `value` |
+|---|---|---|
+| `level` (default) | Base level, then job level, then base EXP | Base level |
+| `zeny` | Zeny held (currency item `1` in `role.currency`) | Zeny amount |
+| `power` | Leaderboard power stored by RO3Emu in `role.emblems` (`Power.CurrentNormal + Power.CurrentSeason`) | Power total |
+| `guilds` | Active members, then summed member base level | Member count |
+
+- `limit` defaults to `20` and is clamped to `1..100`; `page` starts at `1`. Each row carries its global `rank`.
+- Character rows include `id`, `name`, `account`, `career`, `career_name`, `level` and `job_level`; guild rows include `id`, `name`, `member_count` and `total_level`.
+- `power` lists only characters whose power has been published by the game server at least once; blobs that cannot be parsed are skipped.
+- `zeny` and `power` are decoded in Python from a single pass over the non-deleted characters (only the needed columns are loaded), so their cost grows with the number of characters.
+- On databases without the `guild` / `guild_member` tables, `type=guilds` returns an empty list with `"available": false` instead of an error.
+- An unknown `type` returns `400`. The endpoint requires an authenticated admin session, like every other `/api/admin/*` read.
+
+---
+
 ## Documentation Guides
 
 - [Hosting & Deployment Guide](docs/guide/hosting.md) (Windows Scheduled Tasks, Linux systemd, Docker, Nginx, Cloudflare)
 - [White-Label Customization Guide](docs/guide/white-label.md) (Theming, server branding, logo customization)
+- [Career and Scene Names](docs/guide/names.md) (Class and map names, custom `names_file`)
 - [Security Architecture](docs/guide/security.md) (PBKDF2 hashing, session tokens, audit trail)
 - [Testing Guide](docs/guide/testing.md) (Running the automated unit test suite)
 

@@ -127,8 +127,114 @@ SCENE_MAP = {
     10514: 'Morroc Field',
     10600: 'Izlude',
     10700: 'Al De Baran',
-    10800: 'Lutie'
+    10800: 'Lutie',
+    # Story/tutorial dungeon scenes (DungeonConfig scene entries), ids and names as listed in
+    # aethai/ro3emu-server docs/systems/dungeon-inventory.md. Entries named "Unknown Area",
+    # placeholder names ("@{1}") and test scenes are left out.
+    1000101: 'Job Advance Scene',
+    1010101: 'Izlude',
+    1011301: 'Prontera North Gate',
+    1020051: 'Payon',
+    1021301: 'Southern Payon',
+    1021851: 'Eastern Payon',
+    1022001: 'Payon Forest',
+    1023001: 'Payon Instance',
+    1030051: 'Geffen',
+    1032101: 'Goblin Forest',
+    1033051: 'Geffen East Gate',
+    1033052: 'Geffen East Gate',
+    1051001: 'Desert Crossroad',
+    1051051: 'Desert Crossroad',
+    1054001: 'Ant Hell',
+    3120402: 'Culvert',
+    3120702: 'Pharaoh',
+    3120703: 'Pharaoh',
+    3120802: 'Moonlight Flower',
+    3120902: 'Baphomet',
+    5000101: 'MVP Role-Playing Party',
+    8100001: 'Boss Challenge',
+    8100002: 'Boss Challenge',
+    8100003: 'Boss Challenge',
+    8100004: 'Boss Challenge',
+    8100005: 'Boss Challenge',
+    8100006: 'Boss Challenge',
+    8100007: 'Boss Challenge'
 }
+
+
+def _as_int(value):
+    """Return value as an int id, or None when it is not an integer id."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    try:
+        return int(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def career_name(career_id):
+    """Display name for a career (class) id; unknown ids render as "Clase <id>"."""
+    name = CAREER_MAP.get(_as_int(career_id))
+    return name if name is not None else f"Clase {career_id}"
+
+
+def scene_name(scene_id):
+    """Display name for a scene (map) id; unknown ids render as "Mapa <id>"."""
+    name = SCENE_MAP.get(_as_int(scene_id))
+    return name if name is not None else f"Mapa {scene_id}"
+
+
+def _parse_names_section(section_name, section):
+    """Keep only integer-id keys with non-empty string names; report what was skipped."""
+    parsed = {}
+    if section is None:
+        return parsed
+    if not isinstance(section, dict):
+        print(f"[Config Warning] names_file: '{section_name}' must be an object, ignored", file=sys.stderr)
+        return parsed
+    skipped = 0
+    for key, value in section.items():
+        key_id = _as_int(key)
+        if key_id is None or not isinstance(value, str) or not value.strip():
+            skipped += 1
+            continue
+        parsed[key_id] = value.strip()
+    if skipped:
+        print(f"[Config Warning] names_file: skipped {skipped} invalid '{section_name}' entries "
+              "(keys must be integer ids, names non-empty strings)", file=sys.stderr)
+    return parsed
+
+
+def load_names_file(path):
+    """Read a names_file ({"careers": {...}, "scenes": {...}}). Returns (careers, scenes); never raises."""
+    if path is None or not str(path).strip():
+        return {}, {}
+    path = str(path).strip()
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError) as e:
+        print(f"[Config Warning] names_file: cannot read '{path}', using built-in names: {e}", file=sys.stderr)
+        return {}, {}
+    if not isinstance(data, dict):
+        print(f"[Config Warning] names_file: '{path}' must contain a JSON object, using built-in names", file=sys.stderr)
+        return {}, {}
+    return (_parse_names_section("careers", data.get("careers")),
+            _parse_names_section("scenes", data.get("scenes")))
+
+
+def apply_names_file(path):
+    """Merge a names_file over CAREER_MAP / SCENE_MAP in place (overrides and extends the defaults)."""
+    careers, scenes = load_names_file(path)
+    CAREER_MAP.update(careers)
+    SCENE_MAP.update(scenes)
+    if careers or scenes:
+        print(f"[Config] names_file: loaded {len(careers)} career and {len(scenes)} scene names from {path}")
+
+
+apply_names_file(CONFIG.get("names_file"))
 
 @contextmanager
 def get_db():
@@ -217,6 +323,72 @@ def parse_currency(curr_str):
         pass
     return result
 
+# RO3Emu RoleStore: role.currency is "itemId:amount,..." where item 1 = Zeny.
+ZENY_ITEM_ID = 1
+
+RANKING_TYPES = ("level", "zeny", "power", "guilds")
+RANKING_DEFAULT_LIMIT = 20
+RANKING_MAX_LIMIT = 100
+
+
+def currency_amount(curr_str, item_id):
+    """Amount of one currency item in a role.currency string; malformed pairs are ignored."""
+    if not curr_str:
+        return 0
+    for part in str(curr_str).split(","):
+        key, sep, value = part.partition(":")
+        if not sep:
+            continue
+        try:
+            if int(key.strip()) == item_id:
+                return int(value.strip())
+        except ValueError:
+            continue
+    return 0
+
+
+def parse_power_total(emblems_blob):
+    """
+    Leaderboard power of a role, mirroring RO3Emu PowerService: the role.emblems blob is the
+    EmblemService.EmblemState JSON (default System.Text.Json, PascalCase) and the committed total is
+    Power.CurrentNormal + Power.CurrentSeason. Returns None when the blob is missing, unparsable,
+    or the power was never published.
+    """
+    if emblems_blob is None:
+        return None
+    try:
+        if isinstance(emblems_blob, (bytes, bytearray, memoryview)):
+            emblems_blob = bytes(emblems_blob).decode("utf-8")
+        state = json.loads(emblems_blob)
+        power = state.get("Power") if isinstance(state, dict) else None
+        if not isinstance(power, dict):
+            return None
+        normal = power.get("CurrentNormal", 0)
+        season = power.get("CurrentSeason", 0)
+        if isinstance(normal, bool) or isinstance(season, bool):
+            return None
+        if not isinstance(normal, int) or not isinstance(season, int):
+            return None
+        return normal + season
+    except (UnicodeDecodeError, ValueError, TypeError):
+        return None
+
+
+def parse_ranking_int(params, key, default, minimum, maximum=None):
+    try:
+        value = int(params.get(key, [default])[0])
+    except (TypeError, ValueError):
+        return default
+    value = max(value, minimum)
+    if maximum is not None:
+        value = min(value, maximum)
+    return value
+
+
+def career_label(career_id):
+    return CAREER_MAP.get(career_id, f"Clase {career_id}")
+
+
 def parse_stats(stats_str):
     result = {"str": 0, "agi": 0, "vit": 0, "int": 0, "dex": 0, "luk": 0}
     if not stats_str:
@@ -276,7 +448,7 @@ def format_role(r, include_progress=False):
         "name": r["name"],
         "sex": "M" if r.get("sex") == 1 else "F",
         "career": career_id,
-        "career_name": CAREER_MAP.get(career_id, f"Clase {career_id}"),
+        "career_name": career_name(career_id),
         "level": r.get("level", 1),
         "job_level": r.get("job_level", 1),
     }
@@ -288,7 +460,7 @@ def format_role(r, include_progress=False):
     if include_progress:
         data["bonus_points"] = r.get("bonus_points", 0)
     data["scene_id"] = scene_id
-    data["scene_name"] = SCENE_MAP.get(scene_id, f"Mapa {scene_id}")
+    data["scene_name"] = scene_name(scene_id)
     data["pos"] = {
         "x": round(r.get("pos_x") or 0, 1),
         "y": round(r.get("pos_y") or 0, 1),
@@ -631,9 +803,13 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
         if raw_path == '/api/admin/audit-log':
             return self.handle_audit_log(params)
 
-        # 8. Economy Log (read-only)
+        # 9. Economy Log (read-only)
         if raw_path == '/api/admin/economy':
             return self.handle_economy(params)
+
+        # 8. Rankings (read-only)
+        if raw_path == '/api/admin/rankings':
+            return self.handle_rankings(params)
 
         self.send_json(404, {"error": "Endpoint no encontrado"})
 
@@ -1094,6 +1270,111 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
 
         result = query_economy(account, character, from_ms, to_ms, page, page_size)
         return self.send_json(200, result)
+
+    def handle_rankings(self, params):
+        ranking_type = params.get('type', ['level'])[0].strip().lower() or 'level'
+        if ranking_type not in RANKING_TYPES:
+            return self.send_json(400, {
+                "error": "Tipo de ranking inválido. Valores permitidos: " + ", ".join(RANKING_TYPES)
+            })
+
+        limit = parse_ranking_int(params, 'limit', RANKING_DEFAULT_LIMIT, 1, RANKING_MAX_LIMIT)
+        page = parse_ranking_int(params, 'page', 1, 1)
+        offset = (page - 1) * limit
+
+        with get_db() as con:
+            if ranking_type == 'level':
+                rows, total = self.rank_by_level(con, limit, offset)
+            elif ranking_type == 'zeny':
+                rows, total = self.rank_by_metric(con, 'currency', lambda v: currency_amount(v, ZENY_ITEM_ID), limit, offset)
+            elif ranking_type == 'power':
+                rows, total = self.rank_by_metric(con, 'emblems', parse_power_total, limit, offset)
+            else:
+                try:
+                    rows, total = self.rank_guilds(con, limit, offset)
+                except sqlite3.OperationalError as e:
+                    if "no such table" not in str(e).lower():
+                        raise
+                    return self.send_json(200, {
+                        "type": ranking_type, "page": page, "limit": limit,
+                        "total": 0, "available": False, "rankings": []
+                    })
+
+        for index, row in enumerate(rows):
+            row["rank"] = offset + index + 1
+
+        return self.send_json(200, {
+            "type": ranking_type,
+            "page": page,
+            "limit": limit,
+            "total": total,
+            "available": True,
+            "rankings": rows
+        })
+
+    @staticmethod
+    def character_row(r, value):
+        career_id = r["career"] or 1000
+        return {
+            "id": r["id"],
+            "name": r["name"],
+            "account": r["account"],
+            "career": career_id,
+            "career_name": career_label(career_id),
+            "level": r["level"],
+            "job_level": r["job_level"],
+            "value": value
+        }
+
+    def rank_by_level(self, con, limit, offset):
+        total = con.execute("SELECT COUNT(*) FROM role WHERE deleted_time = 0").fetchone()[0]
+        rows = con.execute("""
+            SELECT id, account, name, career, level, job_level
+            FROM role
+            WHERE deleted_time = 0
+            ORDER BY level DESC, job_level DESC, exp DESC, id ASC
+            LIMIT ? OFFSET ?
+        """, (limit, offset)).fetchall()
+        return [self.character_row(r, r["level"]) for r in rows], total
+
+    def rank_by_metric(self, con, column, extract, limit, offset):
+        # The metric lives inside a TEXT/BLOB column, so it is decoded in Python. Only the columns
+        # needed for the row are loaded (one tuple per non-deleted character) to bound memory.
+        query = (
+            "SELECT id, account, name, career, level, job_level, " + column + " AS metric "
+            "FROM role WHERE deleted_time = 0"
+        )
+        scored = []
+        for r in con.execute(query):
+            value = extract(r["metric"])
+            if value is None:
+                continue
+            scored.append((value, r))
+        scored.sort(key=lambda item: (-item[0], item[1]["id"]))
+        page = scored[offset:offset + limit]
+        return [self.character_row(r, value) for value, r in page], len(scored)
+
+    def rank_guilds(self, con, limit, offset):
+        total = con.execute("SELECT COUNT(*) FROM guild").fetchone()[0]
+        rows = con.execute("""
+            SELECT g.id, g.name,
+                   COUNT(r.id) AS member_count,
+                   COALESCE(SUM(r.level), 0) AS total_level
+            FROM guild g
+            LEFT JOIN guild_member gm ON gm.guild_id = g.id
+            LEFT JOIN role r ON r.id = gm.role_id AND r.deleted_time = 0
+            GROUP BY g.id, g.name
+            ORDER BY member_count DESC, total_level DESC, g.id ASC
+            LIMIT ? OFFSET ?
+        """, (limit, offset)).fetchall()
+        result = [{
+            "id": r["id"],
+            "name": r["name"],
+            "member_count": r["member_count"],
+            "total_level": r["total_level"],
+            "value": r["member_count"]
+        } for r in rows]
+        return result, total
 
 def main():
     print("=" * 60)

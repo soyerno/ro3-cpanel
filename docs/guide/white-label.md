@@ -15,6 +15,7 @@ In `config.json` (or `.env`):
 | `logo_text` | Text or acronym displayed in the logo square | `"RO3"` |
 | `admin_users` | List of admin accounts allowed to log in | `[{"username": "admin", "password": "..."}]` |
 | `session_ttl_hours` | How long a login session remains valid | `24` |
+| `names_file` | Optional JSON file with career and scene names; see [Career and Scene Names](names.md) | `""` (disabled) |
 
 ### Example Rebranding for "Midgard RO3"
 

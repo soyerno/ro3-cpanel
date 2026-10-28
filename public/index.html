@@ -81,6 +81,9 @@
     <button class="tab-btn" data-tab="dashboard">
       <span>📊 Dashboard</span>
     </button>
+    <button class="tab-btn" data-tab="rankings">
+      <span>🏆 Rankings</span>
+    </button>
     <button class="tab-btn" data-tab="audit">
       <span>📜 Registro de Auditoría</span>
     </button>
@@ -213,7 +216,43 @@
       </div>
     </section>
 
-    <!-- Vista 3: Registro de Auditoría -->
+    <!-- Vista 3: Rankings (solo lectura) -->
+    <section id="tab-view-rankings" hidden>
+      <div class="toolbar-card">
+        <div>
+          <h3 style="font-size: 15px; font-weight: 700; color: #fff;">Rankings del Servidor</h3>
+          <span style="font-size: 12px; color: var(--text-muted);">Personajes eliminados excluidos</span>
+        </div>
+
+        <div class="filter-group">
+          <select id="ranking-type-select" class="select-filter" aria-label="Tipo de ranking">
+            <option value="level">Por Nivel</option>
+            <option value="zeny">Por Zeny</option>
+            <option value="power">Por Poder</option>
+            <option value="guilds">Clanes</option>
+          </select>
+
+          <button id="ranking-prev" class="btn btn-secondary" title="Página anterior">◀ Anterior</button>
+          <span id="ranking-page-label" style="font-size: 12px; color: var(--text-muted);">Página 1</span>
+          <button id="ranking-next" class="btn btn-secondary" title="Página siguiente">Siguiente ▶</button>
+        </div>
+      </div>
+
+      <div class="table-container">
+        <table class="data-table">
+          <thead id="rankings-thead"></thead>
+          <tbody id="rankings-tbody">
+            <tr>
+              <td colspan="6" style="text-align: center; color: var(--text-muted); padding: 32px;">
+                Cargando rankings...
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Vista 4: Registro de Auditoría -->
     <section id="tab-view-audit" hidden>
       <div class="toolbar-card">
         <h3 style="font-size: 15px; font-weight: 700; color: #fff;">Historial de Acciones de Administración</h3>

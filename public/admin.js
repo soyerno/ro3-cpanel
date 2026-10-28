@@ -19,6 +19,10 @@
     accounts: [],
     filteredAccounts: [],
     auditLogs: [],
+    rankingType: 'level',
+    rankingPage: 1,
+    rankingTotal: 0,
+    rankingLimit: 20,
     activeTab: 'accounts',
     searchQuery: '',
     statusFilter: 'all',
@@ -92,6 +96,13 @@
     economyPrev: document.getElementById('economy-prev'),
     economyNext: document.getElementById('economy-next'),
     economyPageInfo: document.getElementById('economy-page-info'),
+    tabViewRankings: document.getElementById('tab-view-rankings'),
+    rankingTypeSelect: document.getElementById('ranking-type-select'),
+    rankingPrev: document.getElementById('ranking-prev'),
+    rankingNext: document.getElementById('ranking-next'),
+    rankingPageLabel: document.getElementById('ranking-page-label'),
+    rankingsThead: document.getElementById('rankings-thead'),
+    rankingsTbody: document.getElementById('rankings-tbody'),
 
     // Modals
     modalDetail: document.getElementById('modal-detail'),
@@ -764,6 +775,93 @@
     loadEconomy();
   }
 
+  // --- Rankings (read-only) ---
+  var RANKING_METRIC_LABELS = {
+    level: 'Nivel Base',
+    zeny: 'Zeny',
+    power: 'Poder'
+  };
+
+  function renderRankingsHead(type) {
+    if (!els.rankingsThead) return;
+    if (type === 'guilds') {
+      els.rankingsThead.innerHTML = '<tr>' +
+        '<th style="width: 10%;">#</th>' +
+        '<th>Clan</th>' +
+        '<th style="width: 22%;">Miembros Activos</th>' +
+        '<th style="width: 22%;">Nivel Total</th>' +
+      '</tr>';
+      return;
+    }
+    els.rankingsThead.innerHTML = '<tr>' +
+      '<th style="width: 8%;">#</th>' +
+      '<th>Personaje</th>' +
+      '<th style="width: 18%;">Cuenta</th>' +
+      '<th style="width: 18%;">Clase</th>' +
+      '<th style="width: 14%;">Nivel / Job</th>' +
+      '<th style="width: 16%;">' + escapeHtml(RANKING_METRIC_LABELS[type] || '') + '</th>' +
+    '</tr>';
+  }
+
+  function renderRankingsPager() {
+    var totalPages = Math.max(1, Math.ceil(state.rankingTotal / state.rankingLimit));
+    if (els.rankingPageLabel) {
+      els.rankingPageLabel.textContent = 'Página ' + state.rankingPage + ' de ' + totalPages +
+        ' (' + formatNumber(state.rankingTotal) + ')';
+    }
+    if (els.rankingPrev) els.rankingPrev.disabled = state.rankingPage <= 1;
+    if (els.rankingNext) els.rankingNext.disabled = state.rankingPage >= totalPages;
+  }
+
+  function loadRankings() {
+    var type = state.rankingType;
+    var url = '/api/admin/rankings?type=' + encodeURIComponent(type) +
+      '&limit=' + state.rankingLimit + '&page=' + state.rankingPage;
+    renderRankingsHead(type);
+    apiFetch(url)
+      .then(function (data) {
+        if (!els.rankingsTbody) return;
+        var rows = data.rankings || [];
+        var colspan = type === 'guilds' ? 4 : 6;
+        state.rankingTotal = data.total || 0;
+        renderRankingsPager();
+
+        if (data.available === false) {
+          els.rankingsTbody.innerHTML = '<tr><td colspan="' + colspan + '" style="text-align: center; color: var(--text-muted); padding: 24px;">La base de datos no tiene tablas de clanes todavía.</td></tr>';
+          return;
+        }
+        if (!rows.length) {
+          els.rankingsTbody.innerHTML = '<tr><td colspan="' + colspan + '" style="text-align: center; color: var(--text-muted); padding: 24px;">No hay datos para este ranking.</td></tr>';
+          return;
+        }
+
+        var html = '';
+        rows.forEach(function (r) {
+          if (type === 'guilds') {
+            html += '<tr>' +
+              '<td><strong style="color: var(--gold);">' + r.rank + '</strong></td>' +
+              '<td><strong style="color: #fff;">' + escapeHtml(r.name) + '</strong></td>' +
+              '<td>' + formatNumber(r.member_count) + '</td>' +
+              '<td>' + formatNumber(r.total_level) + '</td>' +
+            '</tr>';
+            return;
+          }
+          html += '<tr>' +
+            '<td><strong style="color: var(--gold);">' + r.rank + '</strong></td>' +
+            '<td><strong style="color: #fff;">' + escapeHtml(r.name) + '</strong></td>' +
+            '<td style="color: var(--text-muted);">' + escapeHtml(r.account) + '</td>' +
+            '<td>' + escapeHtml(r.career_name) + '</td>' +
+            '<td>' + formatNumber(r.level) + ' / ' + formatNumber(r.job_level) + '</td>' +
+            '<td><strong>' + formatNumber(r.value) + '</strong></td>' +
+          '</tr>';
+        });
+        els.rankingsTbody.innerHTML = html;
+      })
+      .catch(function (err) {
+        showToast('Error cargando rankings: ' + err.message, 'error');
+      });
+  }
+
   // --- Tabs Switching ---
   function switchTab(tabId) {
     state.activeTab = tabId;
@@ -775,11 +873,14 @@
     if (els.tabViewAccounts) els.tabViewAccounts.hidden = (tabId !== 'accounts');
     if (els.tabViewAudit) els.tabViewAudit.hidden = (tabId !== 'audit');
     if (els.tabViewEconomy) els.tabViewEconomy.hidden = (tabId !== 'economy');
+    if (els.tabViewRankings) els.tabViewRankings.hidden = (tabId !== 'rankings');
 
     if (tabId === 'audit') {
       loadAuditLog();
     } else if (tabId === 'economy') {
       loadEconomy();
+    } else if (tabId === 'rankings') {
+      loadRankings();
     } else if (tabId === 'dashboard') {
       loadStats();
     } else if (tabId === 'accounts') {
@@ -834,6 +935,30 @@
     if (els.pagerNext) {
       els.pagerNext.addEventListener('click', function () {
         goToAccountsPage(state.accountsPage + 1);
+      });
+    }
+
+    if (els.rankingTypeSelect) {
+      els.rankingTypeSelect.addEventListener('change', function () {
+        state.rankingType = this.value;
+        state.rankingPage = 1;
+        loadRankings();
+      });
+    }
+
+    if (els.rankingPrev) {
+      els.rankingPrev.addEventListener('click', function () {
+        if (state.rankingPage > 1) {
+          state.rankingPage -= 1;
+          loadRankings();
+        }
+      });
+    }
+
+    if (els.rankingNext) {
+      els.rankingNext.addEventListener('click', function () {
+        state.rankingPage += 1;
+        loadRankings();
       });
     }
 
