@@ -11,11 +11,15 @@ import json
 import re
 import sqlite3
 import hashlib
+import hmac
 import secrets
+import threading
 import time
 import math
 import socket
 import http.client
+import argparse
+import getpass
 import urllib.request
 import urllib.error
 import urllib.parse
@@ -88,6 +92,103 @@ STATIC_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "public"))
 # unusable. Sessions normally live in the `admin_session` table so they survive a
 # restart. Keyed by the SHA-256 hash of the token, never by the raw token.
 ACTIVE_SESSIONS = {}
+
+
+class LoginThrottle:
+    """
+    Thread-safe sliding-window limiter for FAILED login attempts.
+
+    Each key (e.g. "ip:1.2.3.4" or "user:admin") keeps the timestamps of its
+    recent failures. A key is blocked while it holds `max_failures` or more
+    failures inside the last `window_seconds`.
+    """
+
+    # Above this many tracked keys, expired keys are swept on every new failure.
+    _SWEEP_THRESHOLD = 10000
+
+    def __init__(self, max_failures=5, window_seconds=900, clock=time.monotonic):
+        self.max_failures = max(1, int(max_failures))
+        self.window_seconds = max(1, int(window_seconds))
+        self._clock = clock
+        self._failures = {}
+        self._lock = threading.Lock()
+
+    def _prune(self, key, now):
+        timestamps = self._failures.get(key)
+        if not timestamps:
+            self._failures.pop(key, None)
+            return []
+        cutoff = now - self.window_seconds
+        recent = [ts for ts in timestamps if ts > cutoff]
+        if recent:
+            self._failures[key] = recent
+        else:
+            del self._failures[key]
+        return recent
+
+    def _retry_after_locked(self, keys, now):
+        wait = 0.0
+        for key in keys:
+            recent = self._prune(key, now)
+            if len(recent) >= self.max_failures:
+                # Allowed again once enough failures leave the window.
+                unblock_at = recent[-self.max_failures] + self.window_seconds
+                wait = max(wait, unblock_at - now)
+        return max(1, math.ceil(wait)) if wait > 0 else 0
+
+    def _record_locked(self, keys, now):
+        if len(self._failures) > self._SWEEP_THRESHOLD:
+            for stale_key in list(self._failures):
+                self._prune(stale_key, now)
+        for key in keys:
+            self._prune(key, now)
+            self._failures.setdefault(key, []).append(now)
+
+    def retry_after(self, *keys):
+        """Seconds until every key is allowed again; 0 when allowed now."""
+        with self._lock:
+            return self._retry_after_locked(keys, self._clock())
+
+    def record_failure(self, *keys):
+        with self._lock:
+            self._record_locked(keys, self._clock())
+
+    def reserve(self, *keys):
+        """
+        Atomically admit one attempt: returns the wait in seconds if blocked
+        (nothing recorded), else records the attempt as a failure up front and
+        returns 0. Call reset() when the attempt succeeds. Checking and
+        recording in separate steps would let a parallel burst exceed the limit.
+        """
+        with self._lock:
+            now = self._clock()
+            wait = self._retry_after_locked(keys, now)
+            if wait == 0:
+                self._record_locked(keys, now)
+            return wait
+
+    def reset(self, *keys):
+        with self._lock:
+            for key in keys:
+                self._failures.pop(key, None)
+
+    def failure_count(self, key):
+        with self._lock:
+            return len(self._prune(key, self._clock()))
+
+
+def _positive_int_config(key, default):
+    try:
+        value = int(CONFIG.get(key, default))
+    except (TypeError, ValueError):
+        print(f"[Config Warning] Invalid '{key}', using default {default}", file=sys.stderr)
+        return default
+    return value if value > 0 else default
+
+
+LOGIN_MAX_FAILURES = _positive_int_config("login_max_failures", 5)
+LOGIN_WINDOW_SECONDS = _positive_int_config("login_window_minutes", 15) * 60
+LOGIN_THROTTLE = LoginThrottle(max_failures=LOGIN_MAX_FAILURES, window_seconds=LOGIN_WINDOW_SECONDS)
 
 # RO Class & Map Dictionaries
 CAREER_MAP = {
@@ -1119,10 +1220,48 @@ def format_guild_summary(row):
         "total_level": row["total_level"],
     }
 
+ADMIN_HASH_SCHEME = "pbkdf2_sha256"
+ADMIN_HASH_ITERATIONS = 100000
+
+
+def make_admin_password_hash(password, iterations=ADMIN_HASH_ITERATIONS, salt=None):
+    """
+    Encodes a password for the `password_hash` field of an `admin_users` entry:
+    pbkdf2_sha256$<iterations>$<salt_hex>$<hash_hex> (PBKDF2-HMAC-SHA256, 32-byte key,
+    16-byte random salt by default; same parameters as RO3Emu).
+    """
+    if salt is None:
+        salt = secrets.token_bytes(16)
+    derived = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt, int(iterations), 32)
+    return f"{ADMIN_HASH_SCHEME}${int(iterations)}${salt.hex()}${derived.hex()}"
+
+
+def verify_admin_password_hash(password, encoded):
+    """Returns True only if `password` matches `encoded`; malformed input returns False."""
+    if not isinstance(password, str) or not isinstance(encoded, str):
+        return False
+    parts = encoded.split("$")
+    if len(parts) != 4 or parts[0] != ADMIN_HASH_SCHEME:
+        return False
+    try:
+        iterations = int(parts[1])
+        salt = bytes.fromhex(parts[2])
+        expected = bytes.fromhex(parts[3])
+    except ValueError:
+        return False
+    if iterations <= 0 or not salt or not expected:
+        return False
+    derived = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt, iterations, len(expected))
+    return hmac.compare_digest(derived, expected)
+
+
 def authenticate_admin(username, password):
     """
     Checks if username & password match any configured admin,
     OR verifies against ro3emu.db account if user is in admin list.
+
+    A config entry may hold `password_hash` (preferred, see make_admin_password_hash)
+    or a plain `password`. When `password_hash` is present, `password` is ignored.
     """
     clean_user = username.strip().lower()
     admin_list = CONFIG.get("admin_users", [])
@@ -1130,11 +1269,19 @@ def authenticate_admin(username, password):
     for admin_entry in admin_list:
         entry_user = admin_entry.get("username", "").strip().lower()
         if clean_user == entry_user:
-            # 1. Direct password check in config
-            if "password" in admin_entry and admin_entry["password"]:
-                if password == admin_entry["password"]:
+            # 1. Direct credential check in config
+            if admin_entry.get("password_hash"):
+                if verify_admin_password_hash(password, admin_entry["password_hash"]):
                     return True, admin_entry.get("username", username)
-            
+            elif "password" in admin_entry and admin_entry["password"]:
+                stored = admin_entry["password"]
+                if (
+                    isinstance(password, str)
+                    and isinstance(stored, str)
+                    and hmac.compare_digest(password.encode('utf-8'), stored.encode('utf-8'))
+                ):
+                    return True, admin_entry.get("username", username)
+
             # 2. Check in database account table using PBKDF2
             try:
                 with get_db() as con:
@@ -1555,10 +1702,26 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
         if not username or not password:
             return self.send_json(400, {"error": "Debe ingresar usuario y contraseña"})
 
+        # Failures are tracked per IP and per username. X-Forwarded-For can be spoofed to
+        # rotate the IP key, so the username key is what stops a distributed guess on one
+        # admin. Tradeoff (accepted): anyone can lock an admin out for the window.
+        throttle_keys = ("ip:" + client_ip, "user:" + username.lower())
+        # reserve() counts this attempt as a failure up front; success resets it below.
+        retry_after = LOGIN_THROTTLE.reserve(*throttle_keys)
+        if retry_after > 0:
+            log_audit("system", "login_throttled", username, f"Reintentar en {retry_after}s", client_ip)
+            return self.send_json(
+                429,
+                {"error": f"Demasiados intentos fallidos. Intente nuevamente en {retry_after} segundos."},
+                {"Retry-After": str(retry_after)}
+            )
+
         valid, resolved_user = authenticate_admin(username, password)
         if not valid:
             log_audit("system", "login_failed", username, "Credenciales inválidas", client_ip)
             return self.send_json(401, {"error": "Acceso denegado: credenciales de administrador inválidas."})
+
+        LOGIN_THROTTLE.reset(*throttle_keys)
 
         token = secrets.token_urlsafe(32)
         create_session(token, resolved_user, client_ip)
@@ -2329,14 +2492,62 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
         } for r in rows]
         return result, total
 
-def main():
+
+def warn_plaintext_admin_passwords(admin_users, stream=None):
+    """Writes a warning for each admin entry that relies on a plain `password`. Returns their usernames."""
+    stream = stream if stream is not None else sys.stderr
+    warned = []
+    for entry in admin_users or []:
+        if not isinstance(entry, dict):
+            continue
+        if entry.get("password") and not entry.get("password_hash"):
+            name = entry.get("username", "")
+            warned.append(name)
+            print(
+                f"[Security Warning] Admin user '{name}' uses a plain-text 'password' in the config. "
+                "Generate a 'password_hash' with: python server.py --hash-password",
+                file=stream
+            )
+    return warned
+
+
+def prompt_admin_password_hash():
+    """Interactive helper behind --hash-password. Returns a process exit code."""
+    password = getpass.getpass("New admin password: ")
+    confirm = getpass.getpass("Confirm password: ")
+    if not password:
+        print("Error: password must not be empty.", file=sys.stderr)
+        return 1
+    if password != confirm:
+        print("Error: passwords do not match.", file=sys.stderr)
+        return 1
+    print(make_admin_password_hash(password))
+    return 0
+
+
+def parse_args(argv=None):
+    parser = argparse.ArgumentParser(description="RO3 CPanel administration server.")
+    parser.add_argument(
+        "--hash-password",
+        action="store_true",
+        help="Prompt for a password, print a 'password_hash' value for admin_users and exit."
+    )
+    return parser.parse_args(argv)
+
+
+def main(argv=None):
+    args = parse_args(argv)
+    if args.hash_password:
+        return prompt_admin_password_hash()
+
     print("=" * 60)
     print(f" {CONFIG.get('server_title', 'RO3 CPanel')} - White-Label Administration")
     print("=" * 60)
     print(f" Database: {DB_PATH}")
     print(f" Status Endpoint: {RO3_STATUS_URL}")
     print(f" Static Assets: {STATIC_DIR}")
-    
+    warn_plaintext_admin_passwords(CONFIG.get("admin_users", []))
+
     init_tables()
     server_address = (HOST, PORT)
     httpd = ThreadingHTTPServer(server_address, CPanelRequestHandler)
@@ -2349,4 +2560,4 @@ def main():
         httpd.server_close()
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

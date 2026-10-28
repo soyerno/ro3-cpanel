@@ -47,7 +47,7 @@ Inspirado en los paneles clásicos de Ragnarok Online (FluxCP / CeresCP), desarr
 | Paso | Acción |
 |:---:|---|
 | **1** | **Clona el repositorio:**<br><code>git clone https://github.com/soyerno/ro3-cpanel.git</code><br><code>cd ro3-cpanel</code> |
-| **2** | **Configura tu servidor:**<br><code>cp config.example.json config.json</code><br>Indica la ruta hacia tu <code>ro3emu.db</code> y define tu usuario y contraseña de administrador. |
+| **2** | **Configura tu servidor:**<br><code>cp config.example.json config.json</code><br>Indica la ruta hacia tu <code>ro3emu.db</code> y define tu usuario y contraseña de administrador.<br>Recomendado: ejecuta <code>python3 server.py --hash-password</code> y guarda el valor impreso como <code>password_hash</code> en lugar de una <code>password</code> en texto plano. El límite de intentos de login se ajusta con <code>login_max_failures</code> (por defecto 5) y <code>login_window_minutes</code> (por defecto 15). Consulta la <a href="docs/guide/security.md">guía de seguridad</a>. |
 | **3** | **Inicia el panel:**<br>Windows: <code>run.cmd</code> &nbsp;·&nbsp; Linux: <code>./run.sh</code> &nbsp;·&nbsp; Docker: <code>docker compose up -d</code><br>Ingresa en tu navegador a <a href="http://localhost:8095">http://localhost:8095</a>. |
 
 ---

@@ -52,7 +52,42 @@ CREATE TABLE IF NOT EXISTS admin_session (
 );
 ```
 
-## 4. Audit Logging
+## 4. Admin Login Hardening
+
+### Login throttling
+
+`POST /api/admin/login` counts **failed** attempts in a sliding window, tracked separately per client IP (`ip:<address>`) and per username (`user:<name>`, case-insensitive):
+
+| Key | Default | Meaning |
+|---|---|---|
+| `login_max_failures` | `5` | Failed attempts allowed inside the window before blocking. |
+| `login_window_minutes` | `15` | Length of the sliding window. |
+
+Once either key reaches the limit, every login for that IP or username (even with the correct password) is rejected with `429 Too Many Requests` and a `Retry-After` header (seconds) until enough failures leave the window. Throttled attempts are recorded as `login_throttled` in the audit log and do not extend the block. A successful login clears the counters for its IP and username. Counters live in memory and reset when the server restarts.
+
+**Tradeoff (accepted):** the client IP is taken from `X-Real-IP` / `X-Forwarded-For` when present, and those headers can be spoofed unless a reverse proxy overwrites them. The per-username key is what stops a guessing attack that rotates IPs, but it also means anyone who knows an admin username can lock that admin out for up to `login_window_minutes`. Keep admin usernames non-obvious and, when exposed to the internet, run behind a proxy that sets `X-Real-IP` itself (see [hosting.md](hosting.md)).
+
+### Hashed admin passwords (`password_hash`)
+
+Entries in `admin_users` can store a PBKDF2-HMAC-SHA256 hash instead of a plain-text `password`, using the same parameters as RO3Emu (100,000 iterations, 16-byte random salt, 32-byte key). Generate one without starting the server:
+
+```bash
+python3 server.py --hash-password
+```
+
+The command asks for the password twice and prints a single line in the format `pbkdf2_sha256$<iterations>$<salt_hex>$<hash_hex>`. Store it in `config.json`:
+
+```json
+"admin_users": [
+  { "username": "admin", "password_hash": "pbkdf2_sha256$100000$<salt_hex>$<hash_hex>" }
+]
+```
+
+- When `password_hash` is present, `password` is ignored for that entry.
+- Plain `password` keeps working, but the server prints a `[Security Warning]` on startup for each entry that has no `password_hash`.
+- All secret comparisons use constant-time `hmac.compare_digest`.
+
+## 5. Audit Logging
 
 Every state-modifying action is permanently recorded in the `admin_audit_log` table:
 
