@@ -69,6 +69,23 @@ RO3 CPanel operates as an autonomous daemon connecting to your `RO3Emu` database
     └── Live Status Ping  ──► [RO3Emu Server (Port 5380)]
 ```
 
+### Read-only character mail
+
+In the account sheet, **Ver correo** on a character card shows that character's mailbox, 10 letters per page.
+The panel never writes it. The endpoint is `GET /api/admin/characters/<role_id>/mail?page=1&page_size=20`
+(admin session required; `page_size` is 1–100, default 20).
+
+- RO3Emu has no mail table: each character's mail lives in the `role.mailbox` BLOB, a `MailService.Mailbox`
+  JSON document (`NextId`, `Letters`). The panel loads only that column, with `PRAGMA query_only = ON`, and decodes it in Python.
+- Letters are sorted newest first (`CreatedTime`, then `Id`, descending), as the game lists them.
+- Each mail returns `id`, `category`, `title`, `abstract`, `content`, `sender`, `sender_id`, `template_id`,
+  `important_type`, `created_at` / `remove_at` (ISO 8601 UTC; `remove_at` is `null` when the letter never expires),
+  `read`, `claimed`, `attachments` (`entry`, `count`, `bind`), `items` (`guid`, `entry`, `stack`), `currency` (`entry`, `amount`) and `attachment_count`.
+  Internal keys (`DeliveryKey`, `ContentParams`) and the raw blob are never returned.
+- Expired letters that the game has not purged yet are still listed; compare `remove_at` with the current time.
+- A missing or empty mailbox is an empty list. A blob that is not valid UTF-8 JSON in this shape returns `200` with
+  `"decodable": false` and no mails. A non-numeric or zero id returns `400`; an unknown or deleted character returns `404`.
+
 ---
 
 ## Documentation Guides
