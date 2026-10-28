@@ -71,6 +71,9 @@ RO3 CPanel operates as an autonomous daemon connecting to your `RO3Emu` database
     ├── SQLite Concurrency ──► [ro3emu.db (WAL Mode)]
     ├── Live Status Ping  ──► [RO3Emu Server (Port 5380)] /ro3emu/status
     └── Diagnostics       ──► [RO3Emu Server (Port 5380)] /ro3emu/online, /ro3emu/metrics (loopback only)
+
+    ├── Live Status Ping  ──► [RO3Emu Server (Port 5380)]
+    └── GM Tools (loopback) ──► [RO3Emu POST /ro3emu/gm]
 ```
 
 ### Online players and server metrics
@@ -99,6 +102,15 @@ The panel never writes it. The endpoint is `GET /api/admin/characters/<role_id>/
 - Expired letters that the game has not purged yet are still listed; compare `remove_at` with the current time.
 - A missing or empty mailbox is an empty list. A blob that is not valid UTF-8 JSON in this shape returns `200` with
   `"decodable": false` and no mails. A non-numeric or zero id returns `400`; an unknown or deleted character returns `404`.
+
+### GM tools
+
+The account detail view has a **GM Tools** panel (warp and unstuck) that relays commands to RO3Emu's
+loopback GM endpoint (`POST /ro3emu/gm?account=<account>`). RO3Emu only answers that endpoint on loopback,
+so it **only works when the panel runs on the same host as RO3Emu** (not from a separate machine or a
+bridged Docker container). Only commands listed in `gm_allowed_commands` (default `["warp"]`) are sent, the
+panel builds every `!` line itself from validated numbers, and every attempt is written to the audit log.
+See [Security Architecture](docs/guide/security.md#5-gm-tools).
 
 ---
 

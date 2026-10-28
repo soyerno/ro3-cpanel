@@ -8,6 +8,8 @@
   "ro3_status_url": "http://127.0.0.1:5380/ro3emu/status",
   "ro3_base_url": "",
   "show_player_ips": false,
+  "gm_allowed_commands": ["warp"],
+  "gm_unstuck_scene": 10111,
   "admin_users": [
     {
       "username": "admin",

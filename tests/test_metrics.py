@@ -353,7 +353,10 @@ class TestDashboardMarkup(unittest.TestCase):
         ids = set(re.findall(r"getElementById\('([^']+)'\)", js))
         for required in ("metrics-panel", "metrics-unavailable", "online-tbody", "online-unavailable"):
             self.assertIn(required, ids)
-        missing = sorted(i for i in ids if 'id="%s"' % i not in html)
+        # Ids are defined either in index.html or by markup that admin.js builds itself
+        # (for example the GM tools panel injected into the account detail).
+        js_defined = set(re.findall(r"""\.id = '([^']+)'""", js)) | set(re.findall(r'id="([^"]+)"', js))
+        missing = sorted(i for i in ids if 'id="%s"' % i not in html and i not in js_defined)
         self.assertEqual(missing, [])
 
 

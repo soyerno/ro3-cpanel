@@ -69,6 +69,9 @@ RO3 CPanel se ejecuta como un servicio autónomo conectado a la base de datos de
     ├── SQLite Concurrente (WAL) ──► [ro3emu.db]
     ├── Ping de Estado en Vivo  ──► [Servidor RO3Emu (Puerto 5380)] /ro3emu/status
     └── Diagnóstico             ──► [Servidor RO3Emu (Puerto 5380)] /ro3emu/online, /ro3emu/metrics (solo loopback)
+
+    ├── Ping de Estado en Vivo  ──► [Servidor RO3Emu (Puerto 5380)]
+    └── Herramientas GM (local) ──► [RO3Emu POST /ro3emu/gm]
 ```
 
 ### Jugadores en línea y métricas del servidor
@@ -97,6 +100,15 @@ El panel nunca lo modifica. El endpoint es `GET /api/admin/characters/<role_id>/
 - Las cartas vencidas que el juego todavía no purgó siguen apareciendo; compara `remove_at` con la hora actual.
 - Un buzón inexistente o vacío es una lista vacía. Un blob que no es JSON UTF-8 con esta forma devuelve `200` con
   `"decodable": false` y sin correos. Un id no numérico o cero devuelve `400`; un personaje inexistente o eliminado devuelve `404`.
+
+### Herramientas GM
+
+La ficha de cuenta incluye un panel **Herramientas GM** (teletransporte y desatascar) que envía comandos al
+endpoint GM local de RO3Emu (`POST /ro3emu/gm?account=<cuenta>`). RO3Emu solo atiende ese endpoint por
+loopback, así que **solo funciona si el panel corre en el mismo host que RO3Emu** (no desde otra máquina ni
+desde un contenedor Docker en red bridge). Solo se envían los comandos listados en `gm_allowed_commands`
+(por defecto `["warp"]`), el panel arma cada línea `!` a partir de números validados y cada intento queda en
+el registro de auditoría. Ver [Arquitectura de Seguridad](docs/guide/security.md#5-gm-tools).
 
 ---
 

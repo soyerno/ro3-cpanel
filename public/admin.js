@@ -593,6 +593,7 @@
 
         var notesField = document.getElementById('detail-acc-notes');
         if (notesField) notesField.value = acc.notes || '';
+        resetGmPanel();
 
         var charsContainer = document.getElementById('detail-chars-list');
         if (charsContainer) {
@@ -798,6 +799,98 @@
       })
       .catch(function (err) {
         showToast('Error guardando notas: ' + err.message, 'error');
+      });
+  }
+
+  // --- GM Tools (POST /api/admin/gm, relayed to RO3Emu's loopback GM endpoint) ---
+  function buildGmPanel() {
+    var body = document.querySelector('#modal-detail .modal-body');
+    if (!body || document.getElementById('gm-tools')) return;
+    var panel = document.createElement('div');
+    panel.id = 'gm-tools';
+    panel.className = 'gm-tools';
+    panel.innerHTML =
+      '<h4 class="gm-tools-title">Herramientas GM</h4>' +
+      '<p class="gm-tools-note">Solo funciona si el panel corre en el mismo host que RO3Emu (endpoint GM local) ' +
+        'y la cuenta tiene un personaje conectado. El resultado aparece en el chat del juego del jugador.</p>' +
+      '<form id="gm-warp-form" class="gm-warp-form" novalidate>' +
+        '<div><label class="form-label" for="gm-warp-scene">Escena</label>' +
+          '<input type="number" id="gm-warp-scene" class="form-input" min="1" step="1" required placeholder="10111"></div>' +
+        '<div><label class="form-label" for="gm-warp-x">X (opcional)</label>' +
+          '<input type="number" id="gm-warp-x" class="form-input" step="1" placeholder="150"></div>' +
+        '<div><label class="form-label" for="gm-warp-z">Z (opcional)</label>' +
+          '<input type="number" id="gm-warp-z" class="form-input" step="1" placeholder="190"></div>' +
+        '<div class="gm-warp-actions">' +
+          '<button type="submit" class="btn btn-secondary btn-sm">Teletransportar</button>' +
+          '<button type="button" id="gm-unstuck" class="btn btn-secondary btn-sm">Desatascar (Unstuck)</button>' +
+        '</div>' +
+      '</form>' +
+      '<p id="gm-tools-result" class="gm-tools-result" aria-live="polite"></p>';
+    body.appendChild(panel);
+
+    document.getElementById('gm-warp-form').addEventListener('submit', handleGmWarp);
+    document.getElementById('gm-unstuck').addEventListener('click', function () {
+      sendGmCommand('unstuck', {});
+    });
+  }
+
+  function resetGmPanel() {
+    ['gm-warp-scene', 'gm-warp-x', 'gm-warp-z'].forEach(function (id) {
+      var input = document.getElementById(id);
+      if (input) input.value = '';
+    });
+    setGmResult('', '');
+  }
+
+  function setGmResult(message, type) {
+    var result = document.getElementById('gm-tools-result');
+    if (!result) return;
+    result.textContent = message;
+    result.className = 'gm-tools-result' + (type ? ' ' + type : '');
+  }
+
+  function parseGmInt(id) {
+    var raw = (document.getElementById(id).value || '').trim();
+    if (raw === '') return null;
+    if (!/^-?\d+$/.test(raw)) return NaN;
+    return parseInt(raw, 10);
+  }
+
+  function handleGmWarp(e) {
+    e.preventDefault();
+    var scene = parseGmInt('gm-warp-scene');
+    var x = parseGmInt('gm-warp-x');
+    var z = parseGmInt('gm-warp-z');
+    if (scene === null || isNaN(scene) || scene < 1) {
+      setGmResult('Ingrese un número de escena válido.', 'error');
+      return;
+    }
+    if ((x === null) !== (z === null) || (x !== null && (isNaN(x) || isNaN(z)))) {
+      setGmResult('Ingrese X y Z como números enteros, o deje ambos vacíos.', 'error');
+      return;
+    }
+    var args = { scene: scene };
+    if (x !== null) {
+      args.x = x;
+      args.z = z;
+    }
+    sendGmCommand('warp', args);
+  }
+
+  function sendGmCommand(command, args) {
+    if (!state.selectedAccount) return;
+    setGmResult('Enviando…', '');
+    apiFetch('/api/admin/gm', {
+      method: 'POST',
+      body: { account: state.selectedAccount.name, command: command, args: args }
+    })
+      .then(function (data) {
+        setGmResult(data.sent + ': ' + data.message, 'success');
+        showToast('Comando GM enviado', 'success');
+      })
+      .catch(function (err) {
+        setGmResult(err.message, 'error');
+        showToast('Error GM: ' + err.message, 'error');
       });
   }
 
@@ -1340,6 +1433,8 @@
     if (btnEconomyReset) btnEconomyReset.addEventListener('click', resetEconomyFilters);
     if (els.economyPrev) els.economyPrev.addEventListener('click', function () { changeEconomyPage(-1); });
     if (els.economyNext) els.economyNext.addEventListener('click', function () { changeEconomyPage(1); });
+
+    buildGmPanel();
   }
 
   // Initialization
