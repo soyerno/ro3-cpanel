@@ -964,3 +964,30 @@ body {
   font-size: 12px;
   color: var(--text-muted);
 }
+
+/* Read-only guild and auction views */
+.readonly-notice {
+  background: rgba(229, 192, 123, 0.08);
+  border: 1px solid rgba(229, 192, 123, 0.25);
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+  font-size: 13px;
+  color: var(--gold);
+  margin-bottom: 16px;
+}
+
+.guild-summary {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  background: #0c1018;
+  padding: 12px;
+  border-radius: var(--radius-sm);
+  margin-bottom: 16px;
+  border: 1px solid var(--border-color);
+  font-size: 12px;
+}
+
+.guild-summary strong {
+  color: var(--text-muted);
+}

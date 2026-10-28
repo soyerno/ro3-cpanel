@@ -84,6 +84,12 @@
     <button class="tab-btn" data-tab="rankings">
       <span>🏆 Rankings</span>
     </button>
+    <button class="tab-btn" data-tab="guilds">
+      <span>🛡️ Gremios</span>
+    </button>
+    <button class="tab-btn" data-tab="auctions">
+      <span>💰 Subastas</span>
+    </button>
     <button class="tab-btn" data-tab="audit">
       <span>📜 Registro de Auditoría</span>
     </button>
@@ -309,7 +315,86 @@
       </div>
     </section>
 
-    <!-- Vista 4: Registro de Auditoría -->
+    <!-- Vista 4: Gremios (solo lectura) -->
+    <section id="tab-view-guilds" hidden>
+      <div class="toolbar-card">
+        <div class="search-box">
+          <span style="color: var(--text-muted);">🔍</span>
+          <input type="text" id="guild-search-input" placeholder="Buscar gremio por nombre..." aria-label="Buscar gremio por nombre">
+        </div>
+        <span style="font-size: 12px; color: var(--text-muted);">Vista de solo lectura</span>
+      </div>
+
+      <div id="guilds-unavailable" class="readonly-notice" hidden>
+        La base de datos de RO3Emu no contiene tablas de gremios.
+      </div>
+
+      <div class="table-container">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th style="width: 10%;">ID</th>
+              <th>Gremio</th>
+              <th style="width: 12%;">Nivel</th>
+              <th style="width: 14%;">Miembros</th>
+              <th style="width: 16%;">Nivel total</th>
+              <th style="width: 12%;">Acciones</th>
+            </tr>
+          </thead>
+          <tbody id="guilds-tbody">
+            <tr>
+              <td colspan="6" style="text-align: center; color: var(--text-muted); padding: 32px;">
+                Cargando gremios...
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <nav id="guilds-pager" class="pager" aria-label="Paginación de gremios" hidden>
+        <button id="guilds-pager-prev" type="button" class="btn btn-secondary btn-sm">← Anterior</button>
+        <span id="guilds-pager-info" class="pager-info" aria-live="polite"></span>
+        <button id="guilds-pager-next" type="button" class="btn btn-secondary btn-sm">Siguiente →</button>
+      </nav>
+    </section>
+
+    <!-- Vista 5: Subastas (solo lectura) -->
+    <section id="tab-view-auctions" hidden>
+      <div class="toolbar-card">
+        <div class="filter-group">
+          <select id="auction-view-select" class="select-filter" aria-label="Tipo de registro de subasta">
+            <option value="lots">Lotes en subasta</option>
+            <option value="prebuy">Pedidos de precompra</option>
+          </select>
+        </div>
+        <span style="font-size: 12px; color: var(--text-muted);">Vista de solo lectura</span>
+      </div>
+
+      <div id="auctions-unavailable" class="readonly-notice" hidden>
+        La base de datos de RO3Emu no contiene esta tabla de subastas.
+      </div>
+
+      <div class="table-container">
+        <table class="data-table">
+          <thead id="auctions-thead"></thead>
+          <tbody id="auctions-tbody">
+            <tr>
+              <td style="text-align: center; color: var(--text-muted); padding: 32px;">
+                Cargando subastas...
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <nav id="auctions-pager" class="pager" aria-label="Paginación de subastas" hidden>
+        <button id="auctions-pager-prev" type="button" class="btn btn-secondary btn-sm">← Anterior</button>
+        <span id="auctions-pager-info" class="pager-info" aria-live="polite"></span>
+        <button id="auctions-pager-next" type="button" class="btn btn-secondary btn-sm">Siguiente →</button>
+      </nav>
+    </section>
+
+    <!-- Vista 6: Registro de Auditoría -->
     <section id="tab-view-audit" hidden>
       <div class="toolbar-card">
         <h3 style="font-size: 15px; font-weight: 700; color: #fff;">Historial de Acciones de Administración</h3>
@@ -338,7 +423,7 @@
       </div>
     </section>
 
-    <!-- Vista 4: Registro de Economía (solo lectura) -->
+    <!-- Vista 7: Registro de Economía (solo lectura) -->
     <section id="tab-view-economy" hidden>
       <div class="toolbar-card" style="display: block;">
         <h3 style="font-size: 15px; font-weight: 700; color: #fff; margin-bottom: 4px;">Registro de Economía</h3>
@@ -435,6 +520,44 @@
           <div style="display: flex; justify-content: flex-end; margin-top: 6px;">
             <button id="btn-save-notes" class="btn btn-secondary btn-sm">Guardar Notas</button>
           </div>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-close-modal>Cerrar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Ficha de Gremio (solo lectura) -->
+  <div id="modal-guild" class="modal-backdrop" hidden>
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <div class="modal-title">
+          <span>🛡️ Gremio:</span>
+          <span id="guild-detail-name" style="color: var(--gold);">—</span>
+        </div>
+        <button class="modal-close" data-close-modal>&times;</button>
+      </div>
+
+      <div class="modal-body">
+        <div id="guild-detail-summary" class="guild-summary"></div>
+
+        <h4 style="font-size: 13px; font-weight: 700; color: #fff; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.5px;">
+          Miembros
+        </h4>
+        <div class="table-container">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Personaje</th>
+                <th>Cuenta</th>
+                <th>Clase</th>
+                <th style="width: 14%;">Nivel</th>
+              </tr>
+            </thead>
+            <tbody id="guild-members-tbody"></tbody>
+          </table>
         </div>
       </div>
 
