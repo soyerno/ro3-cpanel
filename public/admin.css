@@ -757,3 +757,56 @@ body {
   font-size: 11px;
   color: var(--text-dim);
 }
+
+/* Economy Log */
+.economy-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.economy-field {
+  display: flex;
+  flex-direction: column;
+  min-width: 160px;
+}
+
+.economy-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.economy-notice {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--danger);
+  background: var(--danger-bg);
+  color: var(--danger);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+}
+
+.economy-sub {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 2px;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.economy-delta-pos { color: var(--success); font-weight: 700; }
+.economy-delta-neg { color: var(--danger); font-weight: 700; }
+
+.economy-pager {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+  font-size: 12px;
+  color: var(--text-muted);
+}

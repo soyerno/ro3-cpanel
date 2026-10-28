@@ -35,6 +35,9 @@ Inspirado en los paneles clásicos de Ragnarok Online (FluxCP / CeresCP), desarr
     <td width="50%" valign="top"><b>Compatibilidad 1:1 con RO3Emu</b><br>El cálculo de contraseñas replica exactamente el algoritmo PBKDF2-SHA256 (100.000 iteraciones + sal de 16 bytes). Al suspender o cambiar claves, las sesiones del juego se revocan de inmediato.</td>
     <td width="50%" valign="top"><b>Gestión integral de cuentas</b><br>Buscador en tiempo real, fichas detalladas de personajes (Lv Base/Job, estadísticas, Zeny, Diamantes, coordenadas), creación de cuentas, reseteo de claves y auditoría.</td>
   </tr>
+  <tr>
+    <td colspan="2" valign="top"><b>Visor del registro de economía</b><br>Vista paginada y de solo lectura del libro <code>economy_entry</code> de RO3Emu unido a <code>operation_receipt</code> (el equivalente a los logs de zeny/pick de FluxCP) para auditar duplicaciones y disputas. Filtra por cuenta, personaje y rango de fechas UTC (<code>GET /api/admin/economy?account=&amp;character=&amp;from=AAAA-MM-DD&amp;to=AAAA-MM-DD&amp;page=&amp;page_size=</code>). Las consultas son parametrizadas y corren sobre una conexión <code>query_only</code>; si la base no tiene las tablas de economía responde <code>"available": false</code>.</td>
+  </tr>
 </table>
 
 ---
