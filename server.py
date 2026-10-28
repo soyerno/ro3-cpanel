@@ -786,7 +786,11 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
         log_audit(admin_user, "ban_account", username, f"Motivo: {reason}", client_ip)
         return self.send_json(200, {
             "success": True,
-            "message": f"Cuenta '{username}' suspendida exitosamente."
+            "enforced": False,
+            "message": (
+                f"Cuenta '{username}' marcada como suspendida en el panel y sus sesiones activas fueron revocadas. "
+                "RO3Emu no consulta esta suspensión al iniciar sesión: el jugador puede volver a entrar."
+            )
         })
 
     def handle_unban_account(self, admin_user, client_ip):
