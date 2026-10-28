@@ -1,127 +1,89 @@
-# RO3 CPanel (Panel de Administración Marca Blanca)
+<p align="center">
+  <img src="docs/assets/hero.svg" alt="RO3 CPanel: Panel de Administración Web para RO3Emu" width="100%">
+</p>
 
-[![Licencia: MIT](https://img.shields.io/badge/Licencia-MIT-gold.svg)](LICENSE)
-[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/)
-[![Sin dependencias externas](https://img.shields.io/badge/dependencias-0-success.svg)]()
+<p align="center">
+  <a href="#inicio-rápido-en-tres-pasos"><img src="docs/assets/button-quickstart.svg" alt="Inicio Rápido" height="44"></a>
+  &nbsp;
+  <a href="#por-qué-ro3-cpanel"><img src="docs/assets/button-features.svg" alt="Características" height="44"></a>
+  &nbsp;
+  <a href="https://github.com/aethai/ro3emu-server"><img src="docs/assets/button-ro3emu.svg" alt="Servidor RO3Emu" height="44"></a>
+</p>
 
-Panel de administración (CPanel) moderno, ligero y personalizable con **marca blanca** para servidores privados de **Ragnarok Online 3 / Ragnarok Origin PC (`RO3Emu`)**.
+<p align="center">
+  <a href="https://github.com/soyerno/ro3-cpanel/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/soyerno/ro3-cpanel/ci.yml?branch=main&label=pruebas&color=d8b46a&labelColor=1b2740" alt="Pruebas"></a>
+  <img src="https://img.shields.io/badge/python-3.10+-3fb950?labelColor=1b2740" alt="Python 3.10+">
+  <img src="https://img.shields.io/badge/dependencias-0-3fb950?labelColor=1b2740" alt="Sin dependencias externas">
+  <a href="https://github.com/aethai/ro3emu-server"><img src="https://img.shields.io/badge/compañero-RO3Emu-d8b46a?labelColor=1b2740" alt="Compañero para RO3Emu"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/licencia-MIT-8b949e?labelColor=1b2740" alt="Licencia MIT"></a>
+</p>
 
-Diseñado con una estética nórdica oscura inspirada en los paneles clásicos de Ragnarok Online (FluxCP / CeresCP), impulsado por un backend en Python 3 sin librerías externas y una aplicación web interactiva en vanilla JavaScript.
+Panel de administración (CPanel) moderno, ligero y personalizable con **marca blanca** para servidores privados de **Ragnarok Online 3 / Ragnarok Origin PC (`RO3Emu`)** ([aethai/ro3emu-server](https://github.com/aethai/ro3emu-server)).
 
----
-
-## ✨ Características Principales
-
-- **Marca Blanca Total:** Personaliza fácilmente el nombre del servidor, logotipo, subtítulo y pie de página desde `config.json` o variables de entorno `.env` sin modificar el código fuente.
-- **Cero Dependencias Externas:** Funciona con la biblioteca estándar de Python 3 (`http.server`, `sqlite3`, `hashlib`, `secrets`), sin necesidad de ejecutar `pip install` ni configurar Node.js.
-- **Servidor Web Embebido:** Sirve tanto los archivos estáticos de la interfaz (`public/`) como los endpoints RESTful en un solo proceso.
-- **Estética Ragnarok:** Paleta oscura con acentos dorados, distintivos de clases (`Novice`, `Swordman`, `Knight`, `Wizard`, etc.) con sus colores representativos y modales reactivos.
-- **Gestión Integral de Cuentas:**
-  - **Buscador en Tiempo Real:** Filtro instantáneo por nombre de usuario de la cuenta o nombres de sus personajes.
-  - **Filtros y Ordenamiento:** Filtra por cuentas activas, suspendidas/baneadas y ordena por fecha o cantidad de personajes.
-  - **Ficha del Jugador:** Información completa con niveles Base/Job, Monedero (Zeny y Diamantes), atributos (`STR, AGI, VIT, INT, DEX, LUK`), coordenadas del mapa y último inicio de sesión.
-  - **Gestión de Contraseñas:** Cálculo de hash exacto `PBKDF2-SHA256` (100.000 iteraciones + sal aleatoria de 16 bytes) compatible al 100% con `RO3Emu`. Al actualizar la clave, revoca tokens activos.
-  - **Creación de Cuentas:** Registro manual de nuevas cuentas directamente desde la interfaz web.
-  - **Suspensión / Baneo:** Bloqueo preventivo de cuentas con registro de motivo y desconexión inmediata de sesiones.
-  - **Eliminación Segura:** Confirmación con doble validación de seguridad (con protección contra el borrado de administradores).
-  - **Notas del GM:** Anotaciones privadas para Game Masters en cada cuenta.
-- **Métricas y Estado en Vivo:** Consulta en tiempo real al endpoint de `RO3Emu` para conocer jugadores en línea, tamaño de la base de datos y copias de seguridad disponibles.
-- **Registro de Auditoría:** Historial inmutable que documenta todas las acciones administrativas realizadas.
+Inspirado en los paneles clásicos de Ragnarok Online (FluxCP / CeresCP), desarrollado con una cuidada estética nórdica oscura, cero dependencias externas en Python y una interfaz SPA en vanilla JavaScript.
 
 ---
 
-## 🚀 Guía Rápida de Inicio
+## Por qué RO3 CPanel
 
-### 1. Requisitos
-- Python 3.10 o superior instalado.
-- Acceso a la base de datos SQLite de RO3Emu (`ro3emu.db`).
-
-### 2. Configuración
-Copia la plantilla de configuración:
-
-```bash
-cp config.example.json config.json
-```
-
-Edita `config.json` con los datos de tu servidor y tus credenciales de administrador:
-
-```json
-{
-  "server_title": "Mi Servidor RO3 - Control Panel",
-  "server_subtitle": "Gestión de Cuentas y Servidor",
-  "logo_text": "RO3",
-  "host": "0.0.0.0",
-  "port": 8095,
-  "ro3_db_path": "ruta/a/tu/ro3emu.db",
-  "ro3_status_url": "http://127.0.0.1:5380/ro3emu/status",
-  "admin_users": [
-    {
-      "username": "admin",
-      "password": "TuContraseñaSegura123!"
-    }
-  ]
-}
-```
-
-### 3. Puesta en Marcha
-
-**En Windows:**
-Doble clic en `run.cmd` o desde terminal:
-```cmd
-python server.py
-```
-
-**En Linux / macOS:**
-```bash
-chmod +x run.sh
-./run.sh
-```
-
-**Con Docker:**
-```bash
-docker compose up -d
-```
-
-Abre tu navegador en `http://localhost:8095`.
+<table>
+  <tr>
+    <td width="50%" valign="top"><b>Marca blanca inmediata</b><br>Personaliza todo el panel para tu servidor privado en segundos. El título, subtítulo, logotipo y textos se configuran desde <code>config.json</code> o <code>.env</code> sin modificar el frontend.</td>
+    <td width="50%" valign="top"><b>Cero dependencias externas</b><br>Funciona en Python 3.10+ estándar (<code>http.server</code>, <code>sqlite3</code>, <code>hashlib</code>). Sin <code>pip install</code>, sin Node.js, sin paquetes npm que auditar.</td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top"><b>Compatibilidad 1:1 con RO3Emu</b><br>El cálculo de contraseñas replica exactamente el algoritmo PBKDF2-SHA256 (100.000 iteraciones + sal de 16 bytes). Al suspender o cambiar claves, las sesiones del juego se revocan de inmediato.</td>
+    <td width="50%" valign="top"><b>Gestión integral de cuentas</b><br>Buscador en tiempo real, fichas detalladas de personajes (Lv Base/Job, estadísticas, Zeny, Diamantes, coordenadas), creación de cuentas, reseteo de claves y auditoría.</td>
+  </tr>
+</table>
 
 ---
 
-## 🌐 Configuración con Nginx (Proxy Inverso)
+## Inicio rápido en tres pasos
 
-Para integrarlo bajo tu dominio (ejemplo: `https://tuservidor.com/admin/`):
+| Paso | Acción |
+|:---:|---|
+| **1** | **Clona el repositorio:**<br><code>git clone https://github.com/soyerno/ro3-cpanel.git</code><br><code>cd ro3-cpanel</code> |
+| **2** | **Configura tu servidor:**<br><code>cp config.example.json config.json</code><br>Indica la ruta hacia tu <code>ro3emu.db</code> y define tu usuario y contraseña de administrador. |
+| **3** | **Inicia el panel:**<br>Windows: <code>run.cmd</code> &nbsp;·&nbsp; Linux: <code>./run.sh</code> &nbsp;·&nbsp; Docker: <code>docker compose up -d</code><br>Ingresa en tu navegador a <a href="http://localhost:8095">http://localhost:8095</a>. |
 
-```nginx
-# Panel de Control Web
-location /admin/ {
-    proxy_pass http://127.0.0.1:8095/;
-    proxy_http_version 1.1;
-    proxy_set_header Host $host;
-    proxy_set_header X-Real-IP $remote_addr;
-    proxy_set_header X-Forwarded-For $remote_addr;
-}
+---
 
-# API del Panel de Control
-location /api/admin/ {
-    proxy_pass http://127.0.0.1:8095/api/admin/;
-    proxy_http_version 1.1;
-    proxy_set_header Host $host;
-    proxy_set_header X-Real-IP $remote_addr;
-    proxy_set_header X-Forwarded-For $remote_addr;
-    proxy_read_timeout 60s;
-}
+## Arquitectura e Integración
+
+RO3 CPanel se ejecuta como un servicio autónomo conectado a la base de datos de `RO3Emu`:
+
+```
+[Navegador Web]
+    │  (HTTP / HTTPS)
+    ▼
+[Nginx / Proxy Inverso] (Opcional)
+    │  (Puerto 8095)
+    ▼
+[RO3 CPanel (server.py)]
+    ├── Servidor SPA Integrado (public/index.html, admin.css, admin.js)
+    ├── Endpoints REST API (/api/admin/*)
+    ├── SQLite Concurrente (WAL) ──► [ro3emu.db]
+    └── Ping de Estado en Vivo  ──► [Servidor RO3Emu (Puerto 5380)]
 ```
 
 ---
 
-## 🔒 Arquitectura de Seguridad
+## Guías de Documentación
 
-1. **Autenticación Estricta:** Solo los usuarios especificados en `admin_users` o cuentas válidas con permisos de GM pueden acceder.
-2. **Tokens de Sesión:** Cookies `HttpOnly`, con protección `SameSite=Lax` y tokens criptográficos aleatorios.
-3. **Concurrencia SQLite:** Total compatibilidad con el modo WAL (`Write-Ahead Logging`) de SQLite sin bloquear lecturas ni escrituras del emulador.
-4. **Trazabilidad:** La tabla `admin_audit_log` guarda cada cambio de clave, baneo, creación o eliminación junto con el usuario admin y la fecha UTC.
+- [Guía de Alojamiento y Despliegue](docs/guide/hosting.md) (Tareas programadas de Windows, Linux systemd, Docker, Nginx, Cloudflare)
+- [Guía de Personalización de Marca Blanca](docs/guide/white-label.md) (Temas, textos, logotipo y rutas)
+- [Arquitectura de Seguridad](docs/guide/security.md) (Hashes PBKDF2, cookies HttpOnly, registro de auditoría)
+- [Guía de Pruebas Automatizadas](docs/guide/testing.md) (Ejecución del test suite con unittest)
 
 ---
 
-## 📜 Licencia
+## Contribuir
+
+¡Las contribuciones son bienvenidas! Consulta [AGENTS.md](AGENTS.md) y [CONTRIBUTING.md](CONTRIBUTING.md) para conocer las pautas de estilo, la regla de cero dependencias y el flujo de Pull Requests.
+
+---
+
+## Licencia
 
 Distribuido bajo la [Licencia MIT](LICENSE).

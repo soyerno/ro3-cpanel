@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 50" width="240" height="50" role="img" aria-label="Quick Start">
+  <rect x="1" y="1" width="238" height="48" rx="9" fill="#d8b46a" stroke="#d8b46a" stroke-width="2"/>
+  <path d="M26 15l14 10-14 10z" fill="#1b1405"/>
+  <text x="135.0" y="31" text-anchor="middle" font-family="'Segoe UI', -apple-system, Helvetica, Arial, sans-serif" font-weight="700" font-size="17" fill="#1b1405">Quick Start</text>
+</svg>

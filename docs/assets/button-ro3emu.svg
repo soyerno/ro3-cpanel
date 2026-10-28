@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 50" width="240" height="50" role="img" aria-label="RO3Emu Server">
+  <rect x="1" y="1" width="238" height="48" rx="9" fill="#1b2740" stroke="#486581" stroke-width="2"/>
+  <path d="M22 17h16v16H22z" fill="none" stroke="#d8b46a" stroke-width="2"/>
+  <text x="135.0" y="31" text-anchor="middle" font-family="'Segoe UI', -apple-system, Helvetica, Arial, sans-serif" font-weight="700" font-size="17" fill="#e6edf3">RO3Emu Server</text>
+</svg>
