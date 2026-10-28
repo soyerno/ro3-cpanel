@@ -13,5 +13,6 @@
     }
   ],
   "session_ttl_hours": 24,
+  "item_names_file": "",
   "names_file": ""
 }

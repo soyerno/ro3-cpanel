@@ -35,7 +35,7 @@ Inspired by classic Ragnarok Online control panels (FluxCP / CeresCP), built wit
   </tr>
   <tr>
     <td width="50%" valign="top"><b>1:1 RO3Emu compatibility</b><br>Password hashing matches RO3Emu's PBKDF2-SHA256 (100,000 iterations + 16-byte random salt) exactly. Sessions and tokens are cleanly revoked upon password updates or bans.</td>
-    <td width="50%" valign="top"><b>Complete account management</b><br>Real-time search, player character sheets (Base/Job Lv, stats, Zeny, Diamonds, coordinates), account creation, password resets, suspension, and audit logs.</td>
+    <td width="50%" valign="top"><b>Complete account management</b><br>Real-time search, player character sheets (Base/Job Lv, stats, Zeny, Diamonds, coordinates, read-only inventory), account creation, password resets, suspension, and audit logs.</td>
   </tr>
   <tr>
     <td colspan="2" valign="top"><b>Economy log viewer</b><br>Read-only, paginated view of RO3Emu's <code>economy_entry</code> ledger joined with <code>operation_receipt</code> (the FluxCP zeny/pick log equivalent) to audit dupes and disputes. Filter by account, character, and UTC date range (<code>GET /api/admin/economy?account=&amp;character=&amp;from=YYYY-MM-DD&amp;to=YYYY-MM-DD&amp;page=&amp;page_size=</code>). Queries are parameterized and run on a <code>query_only</code> connection; databases without the economy tables report <code>"available": false</code>.</td>
@@ -73,6 +73,19 @@ RO3 CPanel operates as an autonomous daemon connecting to your `RO3Emu` database
 ```
 
 ---
+
+## Character Inventory
+
+Each character card in the account sheet has a **Ver inventario** button that lists the character's items, grouped by bag (`pack`: Items, Equipment, Cards, Totems, Emblems, Currency, Career special). The view is read-only: the panel only runs `SELECT` queries against the `item` table.
+
+- API: `GET /api/admin/characters/<role_id>/items` (requires an admin session). Returns `{character, items, total, available}`; each item has `guid`, `entry`, `name`, `stack`, `pack`, `pack_name`, `equipped`, `locked`, `bind_type`. `available` is `false` when the database has no `item` table yet.
+- Item names are not stored in SQLite (they live in the server's config tables). To show names, point `item_names_file` in `config.json` to a JSON object that maps item config ids (`entry`) to names:
+
+  ```json
+  { "100001": "Red Potion", "200002": "Sword" }
+  ```
+
+  Leave it empty (`""`, the default) to disable names. When the file is missing or invalid, a warning is printed once to stderr and items are shown as `#<entry>`.
 
 ## Rankings
 
