@@ -18,5 +18,7 @@
   ],
   "session_ttl_hours": 24,
   "item_names_file": "",
-  "names_file": ""
+  "names_file": "",
+  "login_max_failures": 5,
+  "login_window_minutes": 15
 }

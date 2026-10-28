@@ -49,7 +49,7 @@ Inspired by classic Ragnarok Online control panels (FluxCP / CeresCP), built wit
 | Step | Action |
 |:---:|---|
 | **1** | **Clone the repository:**<br><code>git clone https://github.com/soyerno/ro3-cpanel.git</code><br><code>cd ro3-cpanel</code> |
-| **2** | **Copy and edit your configuration:**<br><code>cp config.example.json config.json</code><br>Point <code>ro3_db_path</code> to your <code>ro3emu.db</code> and set your admin username and password. |
+| **2** | **Copy and edit your configuration:**<br><code>cp config.example.json config.json</code><br>Point <code>ro3_db_path</code> to your <code>ro3emu.db</code> and set your admin username and password.<br>Recommended: run <code>python3 server.py --hash-password</code> and store the printed value as <code>password_hash</code> instead of a plain <code>password</code>. Login throttling is tuned with <code>login_max_failures</code> (default 5) and <code>login_window_minutes</code> (default 15). See the <a href="docs/guide/security.md">Security guide</a>. |
 | **3** | **Launch the server:**<br>Windows: <code>run.cmd</code> &nbsp;·&nbsp; Linux: <code>./run.sh</code> &nbsp;·&nbsp; Docker: <code>docker compose up -d</code><br>Open your browser at <a href="http://localhost:8095">http://localhost:8095</a>. |
 
 ---
