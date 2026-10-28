@@ -319,8 +319,17 @@ class TestOnlineAndMetricsEndpoints(unittest.TestCase):
             free_port = s.getsockname()[1]
         server.RO3_STATUS_URL = "http://127.0.0.1:%d/ro3emu/status" % free_port
 
-        self.assert_unavailable("/api/admin/online", "conectar")
-        self.assert_unavailable("/api/admin/metrics", "conectar")
+        # A closed port is refused at once on Linux/macOS, but Windows retries the
+        # connection and the request ends as a timeout; both mean "unavailable".
+        for path in ("/api/admin/online", "/api/admin/metrics"):
+            with self.subTest(path=path):
+                status, data, _ = self._get(path)
+                self.assertEqual(status, 200)
+                self.assertIs(data["available"], False)
+                self.assertTrue(
+                    "conectar" in data["reason"] or "a tiempo" in data["reason"],
+                    data["reason"],
+                )
 
     # --- auth ---
 
