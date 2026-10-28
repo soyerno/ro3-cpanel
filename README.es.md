@@ -33,7 +33,7 @@ Inspirado en los paneles clásicos de Ragnarok Online (FluxCP / CeresCP), desarr
   </tr>
   <tr>
     <td width="50%" valign="top"><b>Compatibilidad 1:1 con RO3Emu</b><br>El cálculo de contraseñas replica exactamente el algoritmo PBKDF2-SHA256 (100.000 iteraciones + sal de 16 bytes). Al suspender o cambiar claves, las sesiones del juego se revocan de inmediato.</td>
-    <td width="50%" valign="top"><b>Gestión integral de cuentas</b><br>Buscador en tiempo real, fichas detalladas de personajes (Lv Base/Job, estadísticas, Zeny, Diamantes, coordenadas), creación de cuentas, reseteo de claves y auditoría.</td>
+    <td width="50%" valign="top"><b>Gestión integral de cuentas</b><br>Buscador en tiempo real, fichas detalladas de personajes (Lv Base/Job, estadísticas, Zeny, Diamantes, coordenadas, inventario de solo lectura), creación de cuentas, reseteo de claves y auditoría.</td>
   </tr>
 </table>
 
@@ -66,6 +66,21 @@ RO3 CPanel se ejecuta como un servicio autónomo conectado a la base de datos de
     ├── SQLite Concurrente (WAL) ──► [ro3emu.db]
     └── Ping de Estado en Vivo  ──► [Servidor RO3Emu (Puerto 5380)]
 ```
+
+---
+
+## Inventario de Personajes
+
+Cada tarjeta de personaje en la ficha de la cuenta tiene un botón **Ver inventario** que lista los objetos del personaje agrupados por bolsa (`pack`: Objetos, Equipo, Cartas, Tótems, Emblemas, Monedas, Especial de clase). La vista es de solo lectura: el panel solo ejecuta consultas `SELECT` sobre la tabla `item`.
+
+- API: `GET /api/admin/characters/<role_id>/items` (requiere sesión de administrador). Devuelve `{character, items, total, available}`; cada objeto incluye `guid`, `entry`, `name`, `stack`, `pack`, `pack_name`, `equipped`, `locked`, `bind_type`. `available` es `false` cuando la base todavía no tiene la tabla `item`.
+- Los nombres de los objetos no se guardan en SQLite (viven en las tablas de configuración del servidor). Para mostrarlos, apunta `item_names_file` en `config.json` a un objeto JSON que relacione el id de configuración del objeto (`entry`) con su nombre:
+
+  ```json
+  { "100001": "Poción Roja", "200002": "Espada" }
+  ```
+
+  Déjalo vacío (`""`, valor por defecto) para desactivar los nombres. Si el archivo no existe o es inválido, se imprime una advertencia una sola vez en stderr y los objetos se muestran como `#<entry>`.
 
 ---
 

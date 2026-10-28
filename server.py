@@ -129,6 +129,50 @@ SCENE_MAP = {
     10800: 'Lutie'
 }
 
+# RO3Emu PackType values stored in item.pack (aethai/ro3emu-server
+# src/Ro3Emu.Server/Protos/romsg/MG_Pack.proto, enum PackType).
+PACK_NAMES = {
+    0: 'Sin bolsa',
+    1: 'Objetos',
+    2: 'Equipo',
+    3: 'Cartas',
+    4: 'Tótems',
+    5: 'Emblemas',
+    20: 'Monedas',
+    100: 'Especial de clase'
+}
+
+# Max value of a signed 64-bit SQLite INTEGER.
+MAX_SQLITE_INT = 2 ** 63 - 1
+
+# Cache of the optional item names file ({"<entry>": "<name>"}).
+# "key" is (absolute path, mtime); "warned" holds paths already reported on stderr.
+ITEM_NAMES_STATE = {"key": None, "names": None, "warned": set()}
+
+def load_item_names():
+    """Returns the {entry: name} mapping from config 'item_names_file', or None when unavailable."""
+    path = str(CONFIG.get("item_names_file") or "").strip()
+    if not path:
+        return None
+    abs_path = os.path.abspath(path)
+    try:
+        key = (abs_path, os.path.getmtime(abs_path))
+        if ITEM_NAMES_STATE["key"] == key:
+            return ITEM_NAMES_STATE["names"]
+        with open(abs_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if not isinstance(data, dict):
+            raise ValueError("expected a JSON object {\"<entry>\": \"<name>\"}")
+        names = {str(k): v for k, v in data.items() if isinstance(v, str)}
+        ITEM_NAMES_STATE["key"] = key
+        ITEM_NAMES_STATE["names"] = names
+        return names
+    except (OSError, ValueError) as e:
+        if abs_path not in ITEM_NAMES_STATE["warned"]:
+            ITEM_NAMES_STATE["warned"].add(abs_path)
+            print(f"[Config Warning] Could not load item_names_file '{abs_path}', item names disabled: {e}", file=sys.stderr)
+        return None
+
 @contextmanager
 def get_db():
     """Open the RO3Emu database: commit on success, roll back on error, always close.
@@ -461,7 +505,12 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
             acc_name = raw_path[len('/api/admin/accounts/'):].strip()
             return self.handle_account_detail(acc_name)
 
-        # 7. Audit Log
+        # 7. Character Inventory: /api/admin/characters/<role_id>/items
+        if raw_path.startswith('/api/admin/characters/') and raw_path.endswith('/items'):
+            role_id_str = raw_path[len('/api/admin/characters/'):-len('/items')]
+            return self.handle_character_items(role_id_str)
+
+        # 8. Audit Log
         if raw_path == '/api/admin/audit-log':
             return self.handle_audit_log(params)
 
@@ -716,6 +765,58 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
                 "characters": formatted_roles
             }
             return self.send_json(200, data)
+
+    def handle_character_items(self, role_id_str):
+        """Read-only inventory of one character (SELECT only)."""
+        if not (role_id_str.isascii() and role_id_str.isdigit()) or not (0 < int(role_id_str) <= MAX_SQLITE_INT):
+            return self.send_json(400, {"error": "ID de personaje inválido: debe ser un entero positivo"})
+        role_id = int(role_id_str)
+
+        try:
+            with get_db() as con:
+                role = con.execute(
+                    "SELECT id, name, account, deleted_time FROM role WHERE id=?", (role_id,)
+                ).fetchone()
+                if not role or (role["deleted_time"] or 0) != 0:
+                    return self.send_json(404, {"error": "Personaje no encontrado"})
+                character = {"id": role["id"], "name": role["name"], "account": role["account"]}
+
+                has_item_table = con.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='item'"
+                ).fetchone()
+                if not has_item_table:
+                    return self.send_json(200, {"character": character, "items": [], "total": 0, "available": False})
+
+                rows = [dict(r) for r in con.execute(
+                    "SELECT * FROM item WHERE role_id=? ORDER BY pack, sort, guid", (role_id,)
+                ).fetchall()]
+        except sqlite3.Error as e:
+            print(f"[Inventory Error] {e}", file=sys.stderr)
+            return self.send_json(500, {"error": "Error leyendo el inventario del personaje"})
+
+        names = load_item_names() or {}
+        items = []
+        for r in rows:
+            entry = r.get("entry")
+            pack = r.get("pack")
+            items.append({
+                "guid": r.get("guid"),
+                "entry": entry,
+                "name": names.get(str(entry)),
+                "stack": r.get("stack"),
+                "pack": pack,
+                "pack_name": PACK_NAMES.get(pack),
+                "equipped": bool(r.get("grid") or 0),
+                "locked": bool(r.get("is_locked") or 0),
+                "bind_type": r.get("bind_type") or 0
+            })
+
+        return self.send_json(200, {
+            "character": character,
+            "items": items,
+            "total": len(items),
+            "available": True
+        })
 
     def handle_create_account(self, admin_user, client_ip):
         body = self.read_json_body()

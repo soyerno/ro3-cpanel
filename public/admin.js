@@ -458,6 +458,10 @@
                   '<div><div class="stat-box-lbl">DEX</div><div class="stat-box-val">' + c.stats.dex + '</div></div>' +
                   '<div><div class="stat-box-lbl">LUK</div><div class="stat-box-val">' + c.stats.luk + '</div></div>' +
                 '</div>' +
+                '<div style="display: flex; justify-content: flex-end; margin-top: 8px;">' +
+                  '<button class="btn btn-secondary btn-sm btn-view-inventory" data-role-id="' + escapeHtml(String(c.id)) + '" title="Ver objetos del personaje">Ver inventario</button>' +
+                '</div>' +
+                '<div class="char-inventory" hidden></div>' +
               '</div>';
             });
             charsContainer.innerHTML = charsHtml;
@@ -469,6 +473,84 @@
       .catch(function (err) {
         showToast('Error cargando ficha: ' + err.message, 'error');
       });
+  }
+
+  // --- Character Inventory (read-only) ---
+  function toggleCharacterInventory(btn) {
+    var card = btn.closest('.char-card-detail');
+    var container = card ? card.querySelector('.char-inventory') : null;
+    var roleId = btn.getAttribute('data-role-id');
+    if (!container || !roleId) return;
+
+    if (!container.hidden) {
+      container.hidden = true;
+      btn.textContent = 'Ver inventario';
+      return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = 'Cargando...';
+    apiFetch('/api/admin/characters/' + encodeURIComponent(roleId) + '/items')
+      .then(function (data) {
+        container.innerHTML = renderInventory(data);
+        container.hidden = false;
+        btn.textContent = 'Ocultar inventario';
+      })
+      .catch(function (err) {
+        btn.textContent = 'Ver inventario';
+        showToast('Error cargando inventario: ' + err.message, 'error');
+      })
+      .finally(function () {
+        btn.disabled = false;
+      });
+  }
+
+  function renderInventory(data) {
+    var boxStyle = 'margin-top: 8px; padding: 10px; background: #0c1018; border: 1px solid var(--border-color); border-radius: var(--radius-sm); font-size: 12px;';
+    if (!data || data.available === false) {
+      return '<div style="' + boxStyle + ' color: var(--text-muted);">El inventario no está disponible en esta base de datos.</div>';
+    }
+    var items = data.items || [];
+    if (!items.length) {
+      return '<div style="' + boxStyle + ' color: var(--text-muted);">Este personaje no tiene objetos.</div>';
+    }
+
+    // Group by pack, keeping the server order (pack, sort, guid).
+    var groups = [];
+    var byPack = {};
+    items.forEach(function (item) {
+      var key = String(item.pack);
+      if (!byPack[key]) {
+        byPack[key] = { pack: item.pack, packName: item.pack_name, items: [] };
+        groups.push(byPack[key]);
+      }
+      byPack[key].items.push(item);
+    });
+
+    var html = '<div style="' + boxStyle + '">' +
+      '<div style="color: var(--text-muted); margin-bottom: 8px;">Total de objetos: <strong style="color: #fff;">' + formatNumber(data.total) + '</strong></div>';
+    groups.forEach(function (g) {
+      var label = g.packName || ('Bolsa ' + g.pack);
+      html += '<div style="margin-bottom: 10px;">' +
+        '<span class="badge badge-admin">' + escapeHtml(label) + ' (' + g.items.length + ')</span>' +
+        '<table class="data-table" style="margin-top: 6px;">' +
+          '<thead><tr><th>Objeto</th><th>Cantidad</th><th>Estado</th></tr></thead><tbody>';
+      g.items.forEach(function (item) {
+        var name = item.name ? escapeHtml(item.name) : '#' + escapeHtml(String(item.entry));
+        var flags = [];
+        if (item.equipped) flags.push('<span class="badge badge-active">Equipado</span>');
+        if (item.locked) flags.push('<span class="badge badge-banned">Bloqueado</span>');
+        if (item.bind_type) flags.push('<span class="badge badge-admin">Ligado</span>');
+        html += '<tr>' +
+          '<td><strong style="color: #fff;">' + name + '</strong> <span style="color: var(--text-dim);">#' + escapeHtml(String(item.entry)) + '</span></td>' +
+          '<td>' + formatNumber(item.stack) + '</td>' +
+          '<td>' + (flags.length ? flags.join(' ') : '—') + '</td>' +
+        '</tr>';
+      });
+      html += '</tbody></table></div>';
+    });
+    html += '</div>';
+    return html;
   }
 
   function handleSaveNotes() {
@@ -776,6 +858,14 @@
 
     var formDel = document.getElementById('form-delete');
     if (formDel) formDel.addEventListener('submit', handleDeleteAccount);
+
+    var detailCharsList = document.getElementById('detail-chars-list');
+    if (detailCharsList) {
+      detailCharsList.addEventListener('click', function (e) {
+        var btn = e.target.closest('.btn-view-inventory');
+        if (btn) toggleCharacterInventory(btn);
+      });
+    }
 
     var btnSaveNotes = document.getElementById('btn-save-notes');
     if (btnSaveNotes) btnSaveNotes.addEventListener('click', handleSaveNotes);
