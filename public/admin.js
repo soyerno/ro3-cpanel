@@ -530,7 +530,7 @@
       body: { username: state.selectedAccount.name, reason: reason }
     })
       .then(function (data) {
-        showToast(data.message, 'success');
+        showToast(data.message, data.enforced === false ? 'info' : 'success');
         closeModal(els.modalBan);
         loadAccounts();
         loadStats();

@@ -16,6 +16,7 @@ import urllib.error
 import urllib.parse
 from http.server import HTTPServer, ThreadingHTTPServer, BaseHTTPRequestHandler
 from http.cookies import SimpleCookie
+from contextlib import contextmanager
 from datetime import datetime, timezone
 
 # --- Configuration Loading ---
@@ -128,12 +129,22 @@ SCENE_MAP = {
     10800: 'Lutie'
 }
 
+@contextmanager
 def get_db():
+    """Open the RO3Emu database: commit on success, roll back on error, always close.
+
+    sqlite3's own context manager never closes the connection, and an open handle
+    keeps the file locked on Windows.
+    """
     if not os.path.exists(DB_PATH):
         raise FileNotFoundError(f"RO3 database not found at '{DB_PATH}'. Please configure 'ro3_db_path'.")
     con = sqlite3.connect(DB_PATH, timeout=10.0)
     con.row_factory = sqlite3.Row
-    return con
+    try:
+        with con:
+            yield con
+    finally:
+        con.close()
 
 def init_tables():
     if not os.path.exists(DB_PATH):
@@ -786,7 +797,11 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
         log_audit(admin_user, "ban_account", username, f"Motivo: {reason}", client_ip)
         return self.send_json(200, {
             "success": True,
-            "message": f"Cuenta '{username}' suspendida exitosamente."
+            "enforced": False,
+            "message": (
+                f"Cuenta '{username}' marcada como suspendida en el panel y sus sesiones activas fueron revocadas. "
+                "RO3Emu no consulta esta suspensión al iniciar sesión: el jugador puede volver a entrar."
+            )
         })
 
     def handle_unban_account(self, admin_user, client_ip):
