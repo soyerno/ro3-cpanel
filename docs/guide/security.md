@@ -69,3 +69,40 @@ CREATE TABLE IF NOT EXISTS admin_audit_log (
 ```
 
 The audit trail cannot be modified or cleared from the web interface.
+
+## 5. GM Tools
+
+`POST /api/admin/gm` (the **GM Tools** panel in the account detail view) relays a GM command to RO3Emu's
+loopback endpoint `POST /ro3emu/gm?account=<account>`. Upstream behavior (`aethai/ro3emu-server`,
+`src/Ro3Emu.Server/ServerHost.cs`): the endpoint answers only to loopback callers, runs the `!command` line
+as that account's online character on the game loop, and replies `400 "not in game"` when the account has no
+character online, `200 "done"` otherwise, and `503` to every POST while the game loop is not accepting.
+The command's output goes to the player's in-game chat, not to the HTTP response, so `done` means
+"accepted", not "succeeded" (an unknown scene, for example, only produces a usage line in chat). When
+RO3Emu's `Ro3Emu:GmAccounts` list is not empty, the loopback tool only runs for the accounts on that list
+(upstream `docs/guide/gm-access.md`).
+
+Safeguards in the panel:
+
+- **Same host only.** The target is `ro3_base_url` when set, otherwise the origin of `ro3_status_url`. The
+  panel refuses to send anything unless that host is `localhost` or a loopback address (`127.0.0.0/8`,
+  `::1`). A target URL with userinfo (`user:password@host` or `name@host`) is refused. Requests go out
+  without environment proxies and redirects are never followed.
+- **Command allowlist.** `gm_allowed_commands` (default `["warp"]`) lists the panel commands an admin may
+  use. The panel builds every `!` line itself from validated integers (`warp`: `scene`, optional `x` and
+  `z`); there is no free-text passthrough. `unstuck` sends `!warp <gm_unstuck_scene>` (default `10111`, the
+  scene from upstream's example, with no coordinates so the player lands on the map's spawn point) and is
+  enabled by `"unstuck"` or `"warp"`. Names without a panel builder are ignored.
+- **Economy commands stay off.** RO3Emu also has `item`, `mail`, `zeny`, `lvl` and similar commands. The
+  panel has no builder for them on purpose: exposing them would let every panel admin mint items, currency
+  or levels. Do not add such commands without a separate review.
+- **Audit.** Every attempt, allowed, rejected or failed, is written to `admin_audit_log` with action
+  `gm_command`, the admin user, the target account, the exact command line and its outcome, and the client
+  IP.
+- **Errors.** `400` invalid or non-allowlisted command / non-loopback target / target with userinfo, `404`
+  unknown account, `409` account not in game, `503` RO3Emu not accepting commands, `502` endpoint
+  unreachable, timed out (3 s), `404` from RO3Emu, or any other unexpected answer. When RO3Emu sends an
+  error status but its body stalls or breaks, the panel maps the status code alone (an unread body cannot
+  match `not in game`), still answers, and still writes the audit row.
+
+RO3Emu has no kick, ban or mute command, so the panel cannot offer them.

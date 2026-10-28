@@ -603,6 +603,55 @@ body {
   box-shadow: 0 0 0 2px var(--gold-glow);
 }
 
+/* GM Tools in Details Modal */
+.gm-tools {
+  margin-top: 16px;
+  padding: 12px;
+  background: #0b0f17;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+}
+
+.gm-tools-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #fff;
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.gm-tools-note {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 10px;
+}
+
+.gm-warp-form {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  align-items: end;
+}
+
+.gm-warp-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.gm-tools-result {
+  font-size: 12px;
+  margin-top: 8px;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.gm-tools-result.success { color: var(--success); }
+.gm-tools-result.error { color: var(--danger); }
+
 /* Character Card in Details Modal */
 .char-card-detail {
   background: #0b0f17;

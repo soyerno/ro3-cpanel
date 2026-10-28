@@ -6,7 +6,7 @@ Zero-dependency, standalone server with embedded static assets and RESTful manag
 
 import sys
 import os
-import re
+import ipaddress
 import json
 import re
 import sqlite3
@@ -42,7 +42,10 @@ DEFAULT_CONFIG = {
         }
     ],
     "session_ttl_hours": 24,
-    "session_secret": secrets.token_hex(32)
+    "session_secret": secrets.token_hex(32),
+    # GM tools (POST /api/admin/gm): panel commands an admin may send through RO3Emu's loopback GM endpoint.
+    "gm_allowed_commands": ["warp"],
+    "gm_unstuck_scene": 10111
 }
 
 def load_config():
@@ -1079,6 +1082,188 @@ def authenticate_admin(username, password):
 
     return False, None
 
+# --- GM tools: RO3Emu's loopback GM endpoint ---
+# Upstream (aethai/ro3emu-server, src/Ro3Emu.Server/ServerHost.cs, MapPost("/ro3emu/gm")): answers only to
+# loopback callers (404 otherwise), reads the account from the `account` query parameter and one `!command`
+# line from the body, runs it as that account's online character, and answers 400 "not in game" when the
+# account has no character online, 200 "done" otherwise. Every POST gets 503 while the game loop is not
+# Accepting. The command's own output goes to the player's in-game chat, never to the HTTP body.
+
+GM_TIMEOUT_SECONDS = 3.0
+GM_DEFAULT_ALLOWED_COMMANDS = ["warp"]
+GM_DEFAULT_UNSTUCK_SCENE = 10111  # the scene in upstream docs/guide/gm-access.md's example (`!warp 10111 150 190`)
+GM_SCENE_MAX = 10 ** 9
+GM_COORD_LIMIT = 100000
+GM_ACCOUNT_MAX_LEN = 64
+GM_UNAVAILABLE = "Endpoint GM no disponible (requiere que el panel corra en el mismo host que RO3Emu)."
+
+
+class GmRequestError(Exception):
+    """A GM request refused before anything was sent to RO3Emu."""
+
+    def __init__(self, status, message):
+        super().__init__(message)
+        self.status = status
+        self.message = message
+
+
+def is_loopback_host(host):
+    """True only for localhost or a loopback IP literal (127.0.0.0/8, ::1)."""
+    if not host or not isinstance(host, str):
+        return False
+    if host.lower() == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
+def gm_endpoint_base():
+    """scheme://host:port of RO3Emu: `ro3_base_url` when set, else the origin of the status URL."""
+    source = CONFIG.get("ro3_base_url") or RO3_STATUS_URL
+    try:
+        parts = urllib.parse.urlsplit(str(source))
+        host = parts.hostname
+        parts.port  # raises ValueError on a malformed port
+    except ValueError:
+        host, parts = None, None
+    if parts is None or parts.scheme not in ("http", "https") or not is_loopback_host(host):
+        raise GmRequestError(400, (
+            "El endpoint GM de RO3Emu solo acepta conexiones locales: el panel debe correr en el mismo host "
+            "que RO3Emu y 'ro3_base_url' (o 'ro3_status_url') debe apuntar a 127.0.0.1, ::1 o localhost."
+        ))
+    # urlsplit's hostname drops userinfo but netloc keeps it; never send a URL that carries credentials.
+    if "@" in parts.netloc:
+        raise GmRequestError(400, (
+            "'ro3_base_url' (o 'ro3_status_url') no puede incluir usuario ni contraseña (usuario:clave@host)."
+        ))
+    return f"{parts.scheme}://{parts.netloc}"
+
+
+def gm_allowed_commands():
+    allowed = CONFIG.get("gm_allowed_commands", GM_DEFAULT_ALLOWED_COMMANDS)
+    if not isinstance(allowed, list):
+        return set()
+    return {c for c in allowed if isinstance(c, str)}
+
+
+def _gm_int(value, minimum, maximum, label):
+    # bool is an int subclass; JSON true/false must not pass as 1/0.
+    if type(value) is not int or not (minimum <= value <= maximum):
+        raise GmRequestError(400, f"'{label}' debe ser un número entero entre {minimum} y {maximum}.")
+    return value
+
+
+def _gm_args(args, allowed_keys):
+    if args is None:
+        args = {}
+    if not isinstance(args, dict):
+        raise GmRequestError(400, "'args' debe ser un objeto JSON.")
+    extra = set(args) - set(allowed_keys)
+    if extra:
+        raise GmRequestError(400, "Argumentos no permitidos: " + ", ".join(sorted(repr(k) for k in extra)))
+    return args
+
+
+def _build_warp(args):
+    args = _gm_args(args, ("scene", "x", "z"))
+    if "scene" not in args:
+        raise GmRequestError(400, "warp requiere 'scene' (sceneEntry).")
+    scene = _gm_int(args["scene"], 1, GM_SCENE_MAX, "scene")
+    has_x, has_z = "x" in args, "z" in args
+    if has_x != has_z:
+        raise GmRequestError(400, "warp requiere 'x' y 'z' juntos, o ninguno de los dos.")
+    if not has_x:
+        return f"!warp {scene}"
+    x = _gm_int(args["x"], -GM_COORD_LIMIT, GM_COORD_LIMIT, "x")
+    z = _gm_int(args["z"], -GM_COORD_LIMIT, GM_COORD_LIMIT, "z")
+    return f"!warp {scene} {x} {z}"
+
+
+def _build_unstuck(args):
+    _gm_args(args, ())
+    try:
+        scene = _gm_int(CONFIG.get("gm_unstuck_scene", GM_DEFAULT_UNSTUCK_SCENE), 1, GM_SCENE_MAX, "gm_unstuck_scene")
+    except GmRequestError:
+        raise GmRequestError(400, "Configuración inválida: 'gm_unstuck_scene' debe ser un número de escena válido.")
+    return f"!warp {scene}"
+
+
+# Panel command -> (allowlist names that enable it, builder). The panel builds every `!` line itself from
+# validated arguments; there is no free-text passthrough. "unstuck" sends a warp, so allowing "warp" allows it.
+GM_COMMANDS = {
+    "warp": (("warp",), _build_warp),
+    "unstuck": (("unstuck", "warp"), _build_unstuck),
+}
+
+
+def build_gm_line(command, args):
+    """Validates a panel GM command and returns the exact `!` line to send, or raises GmRequestError."""
+    if not isinstance(command, str) or command not in GM_COMMANDS:
+        raise GmRequestError(400, "Comando GM no soportado por el panel.")
+    enabled_by, builder = GM_COMMANDS[command]
+    if not gm_allowed_commands().intersection(enabled_by):
+        raise GmRequestError(400, f"El comando '{command}' no está habilitado en 'gm_allowed_commands'.")
+    return builder(args)
+
+
+def validate_gm_account(account):
+    if not isinstance(account, str) or not account or len(account) > GM_ACCOUNT_MAX_LEN:
+        raise GmRequestError(400, "Cuenta inválida.")
+    if any(c.isspace() or not c.isprintable() or c in "!&=?#%" for c in account):
+        raise GmRequestError(400, "Cuenta inválida: contiene caracteres no permitidos.")
+    return account
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None  # a redirect becomes an HTTPError; never follow it off the loopback target
+
+
+# No proxies: a loopback call must never be routed through an HTTP(S)_PROXY from the environment.
+_GM_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirect())
+
+
+def send_gm_line(base_url, account, line):
+    """POSTs one `!` line to RO3Emu. Returns (http_status, panel_message, outcome_for_audit)."""
+    url = f"{base_url}/ro3emu/gm?" + urllib.parse.urlencode({"account": account})
+    req = urllib.request.Request(
+        url,
+        data=line.encode("utf-8"),
+        method="POST",
+        headers={"Content-Type": "text/plain; charset=utf-8", "User-Agent": "RO3AdminCPanel"},
+    )
+    try:
+        with _GM_OPENER.open(req, timeout=GM_TIMEOUT_SECONDS) as resp:
+            resp.read(4096)
+            return 200, (
+                "Comando enviado: RO3Emu respondió 'done'. El resultado (o un error de uso) aparece en el chat "
+                "del juego del jugador, no en el panel."
+            ), "enviado (done)"
+    except urllib.error.HTTPError as e:
+        # The status line already arrived; a body that stalls or resets must not drop the reply or the audit row.
+        with e:
+            try:
+                body = e.read(4096).decode("utf-8", "replace")
+            except Exception:
+                body = ""
+        if e.code == 400 and "not in game" in body:
+            return 409, "La cuenta no está en el juego (no tiene un personaje conectado).", "fallido: not in game"
+        if e.code == 503:
+            return 503, "RO3Emu no acepta comandos en este momento (el servidor no está en fase Accepting).", "fallido: HTTP 503"
+        if e.code == 404:
+            return 502, GM_UNAVAILABLE, "fallido: HTTP 404"
+        return 502, f"Respuesta inesperada de RO3Emu (HTTP {e.code}).", f"fallido: HTTP {e.code}"
+    except Exception as e:  # URLError, timeout, connection reset: never a 500 from the panel
+        return 502, GM_UNAVAILABLE, f"fallido: {type(e).__name__}"
+
+
+def _audit_text(value, limit=200):
+    """Untrusted text for the audit log: control characters escaped, length capped."""
+    text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False, default=str)
+    return "".join(c if c.isprintable() else repr(c)[1:-1] for c in text)[:limit]
+
 class CPanelRequestHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         # Concise server log
@@ -1278,6 +1463,8 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
             return self.handle_delete_account(session['user'], client_ip)
         if raw_path == '/api/admin/accounts/save-notes':
             return self.handle_save_notes(session['user'], client_ip)
+        if raw_path == '/api/admin/gm':
+            return self.handle_gm(session['user'], client_ip)
 
         self.send_json(404, {"error": "Endpoint no encontrado"})
 
@@ -1793,6 +1980,41 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
             "success": True,
             "message": "Notas guardadas correctamente."
         })
+
+    def handle_gm(self, admin_user, client_ip):
+        """Relays one allowlisted, panel-built GM command to RO3Emu's loopback endpoint. Every attempt is audited."""
+        body = self.read_json_body()
+        raw_account = body.get("account") if isinstance(body, dict) else None
+        raw_command = body.get("command") if isinstance(body, dict) else None
+        line = None
+        try:
+            if not isinstance(body, dict):
+                raise GmRequestError(400, "Cuerpo de solicitud inválido")
+            line = build_gm_line(raw_command, body.get("args"))
+            account = validate_gm_account(raw_account)
+            base_url = gm_endpoint_base()
+            try:
+                with get_db() as con:
+                    con.create_function("PY_LOWER", 1, sql_py_lower)
+                    rows = con.execute(
+                        "SELECT name FROM account WHERE PY_LOWER(name) = ? ORDER BY name = ? DESC, name LIMIT 1",
+                        (account.lower(), account),
+                    ).fetchall()
+            except (sqlite3.Error, OSError):
+                raise GmRequestError(503, "Base de datos de RO3Emu no disponible.")
+            if not rows:
+                raise GmRequestError(404, f"La cuenta '{account}' no existe")
+            account = rows[0]["name"]
+        except GmRequestError as e:
+            details = f"{_audit_text(line or raw_command)} -> rechazado: {e.message}"
+            log_audit(admin_user, "gm_command", _audit_text(raw_account, 80), details, client_ip)
+            return self.send_json(e.status, {"error": e.message})
+
+        status, message, outcome = send_gm_line(base_url, account, line)
+        log_audit(admin_user, "gm_command", account, f"{line} -> {outcome}", client_ip)
+        if status == 200:
+            return self.send_json(200, {"success": True, "sent": line, "message": message})
+        return self.send_json(status, {"error": message, "sent": line})
 
     def handle_audit_log(self, params):
         limit = min(int(params.get('limit', [50])[0]), 100)
