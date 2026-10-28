@@ -69,8 +69,19 @@ RO3 CPanel operates as an autonomous daemon connecting to your `RO3Emu` database
     ├── Serves Embedded SPA (public/index.html, admin.css, admin.js)
     ├── REST API (/api/admin/*)
     ├── SQLite Concurrency ──► [ro3emu.db (WAL Mode)]
-    └── Live Status Ping  ──► [RO3Emu Server (Port 5380)]
+    ├── Live Status Ping  ──► [RO3Emu Server (Port 5380)] /ro3emu/status
+    └── Diagnostics       ──► [RO3Emu Server (Port 5380)] /ro3emu/online, /ro3emu/metrics (loopback only)
 ```
+
+### Online players and server metrics
+
+The dashboard shows RO3Emu's uptime, connections, players in the world, memory, database statements and error counts, plus an **En línea** table (account, character, map, position). The panel reads them from RO3Emu's `/ro3emu/metrics` and `/ro3emu/online`, through `GET /api/admin/metrics` and `GET /api/admin/online`.
+
+- **Loopback only:** RO3Emu answers those two endpoints only to requests from `127.0.0.1` / `::1`. Run the panel on the same host as RO3Emu (or proxy to its loopback). Otherwise the dashboard shows "No disponible" and the rest of the panel keeps working.
+- **Base URL:** the panel derives the RO3Emu address from `ro3_status_url` (it removes `/ro3emu/status`). Set `ro3_base_url` (for example `http://127.0.0.1:5380`) to override it.
+- **Player IPs:** RO3Emu reports each session's remote address. The panel hides it unless `show_player_ips` is the JSON boolean `true` (default `false`).
+- **Uptime** is the time since RO3Emu's metrics epoch started (process start, or the last `/ro3emu/metrics/reset`).
+- Each request keeps the 2 s timeout and has a 1 MB response cap; any failure answers `200 {"available": false, "reason": "..."}`.
 
 ### Read-only character mail
 
