@@ -944,7 +944,12 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header('Content-Type', content_type)
             self.send_header('Content-Length', str(len(content)))
-            self.send_header('Cache-Control', 'public, max-age=3600')
+            # The app shell must be revalidated so a deploy shows up on the next load;
+            # only static images keep a one-hour cache.
+            if filename in ('index.html', 'admin.js', 'admin.css'):
+                self.send_header('Cache-Control', 'no-cache')
+            else:
+                self.send_header('Cache-Control', 'public, max-age=3600')
             self.end_headers()
             self.wfile.write(content)
         except Exception as e:
