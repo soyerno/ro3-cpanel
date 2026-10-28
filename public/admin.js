@@ -23,6 +23,9 @@
     searchQuery: '',
     statusFilter: 'all',
     sortBy: 'created_desc',
+    accountsPage: 1,
+    accountsPages: 1,
+    accountsTotal: 0,
     selectedAccount: null
   };
 
@@ -60,6 +63,10 @@
     statusSelect: document.getElementById('status-select'),
     sortSelect: document.getElementById('sort-select'),
     accountsTbody: document.getElementById('accounts-tbody'),
+    accountsPager: document.getElementById('accounts-pager'),
+    pagerPrev: document.getElementById('pager-prev'),
+    pagerNext: document.getElementById('pager-next'),
+    pagerInfo: document.getElementById('pager-info'),
 
     tabViewDashboard: document.getElementById('tab-view-dashboard'),
     tabViewAccounts: document.getElementById('tab-view-accounts'),
@@ -294,15 +301,47 @@
     if (state.searchQuery) params.set('q', state.searchQuery);
     if (state.statusFilter) params.set('status', state.statusFilter);
     if (state.sortBy) params.set('sort', state.sortBy);
+    params.set('page', String(state.accountsPage));
 
     apiFetch('/api/admin/accounts?' + params.toString())
       .then(function (data) {
+        var pages = data.pages || 1;
+        // The current page can disappear (e.g. after deleting its last account): jump to the last one.
+        if (state.accountsPage > pages) {
+          state.accountsPage = pages;
+          loadAccounts();
+          return;
+        }
         state.accounts = data.accounts || [];
+        state.accountsPages = pages;
+        state.accountsTotal = data.total || 0;
         renderAccountsTable();
+        renderAccountsPager();
       })
       .catch(function (err) {
         showToast('Error cargando cuentas: ' + err.message, 'error');
       });
+  }
+
+  function resetAccountsPage() {
+    state.accountsPage = 1;
+  }
+
+  function goToAccountsPage(page) {
+    if (page < 1 || page > state.accountsPages || page === state.accountsPage) return;
+    state.accountsPage = page;
+    loadAccounts();
+  }
+
+  function renderAccountsPager() {
+    if (!els.accountsPager) return;
+    els.accountsPager.hidden = state.accountsTotal === 0;
+    if (els.pagerInfo) {
+      els.pagerInfo.textContent = 'Página ' + state.accountsPage + ' de ' + state.accountsPages +
+        ' (' + formatNumber(state.accountsTotal) + ' cuentas)';
+    }
+    if (els.pagerPrev) els.pagerPrev.disabled = state.accountsPage <= 1;
+    if (els.pagerNext) els.pagerNext.disabled = state.accountsPage >= state.accountsPages;
   }
 
   function renderAccountsTable() {
@@ -530,7 +569,7 @@
       body: { username: state.selectedAccount.name, reason: reason }
     })
       .then(function (data) {
-        showToast(data.message, 'success');
+        showToast(data.message, data.enforced === false ? 'info' : 'success');
         closeModal(els.modalBan);
         loadAccounts();
         loadStats();
@@ -650,6 +689,7 @@
       els.searchInput.addEventListener('input', function () {
         clearTimeout(searchTimeout);
         state.searchQuery = this.value.trim().toLowerCase();
+        resetAccountsPage();
         searchTimeout = setTimeout(loadAccounts, 250);
       });
     }
@@ -657,6 +697,7 @@
     if (els.statusSelect) {
       els.statusSelect.addEventListener('change', function () {
         state.statusFilter = this.value;
+        resetAccountsPage();
         loadAccounts();
       });
     }
@@ -664,7 +705,20 @@
     if (els.sortSelect) {
       els.sortSelect.addEventListener('change', function () {
         state.sortBy = this.value;
+        resetAccountsPage();
         loadAccounts();
+      });
+    }
+
+    if (els.pagerPrev) {
+      els.pagerPrev.addEventListener('click', function () {
+        goToAccountsPage(state.accountsPage - 1);
+      });
+    }
+
+    if (els.pagerNext) {
+      els.pagerNext.addEventListener('click', function () {
+        goToAccountsPage(state.accountsPage + 1);
       });
     }
 

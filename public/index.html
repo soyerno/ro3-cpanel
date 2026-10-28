@@ -142,6 +142,12 @@
           </tbody>
         </table>
       </div>
+
+      <nav id="accounts-pager" class="pager" aria-label="Paginación de cuentas" hidden>
+        <button id="pager-prev" type="button" class="btn btn-secondary btn-sm">← Anterior</button>
+        <span id="pager-info" class="pager-info" aria-live="polite"></span>
+        <button id="pager-next" type="button" class="btn btn-secondary btn-sm">Siguiente →</button>
+      </nav>
     </section>
 
     <!-- Vista 2: Dashboard / Métricas -->
@@ -348,7 +354,7 @@
       <form id="form-ban">
         <div class="modal-body">
           <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 16px;">
-            Suspender la cuenta <strong id="ban-acc-name" style="color: #fff;">—</strong> impedirá el acceso al juego y desconectará sus personajes en línea.
+            Suspender la cuenta <strong id="ban-acc-name" style="color: #fff;">—</strong> la marcará como suspendida en el panel y revocará sus sesiones activas. RO3Emu aún no consulta esta suspensión al iniciar sesión, por lo que el jugador podría volver a entrar.
           </p>
 
           <div class="form-group">

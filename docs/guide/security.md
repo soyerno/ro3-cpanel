@@ -22,8 +22,11 @@ This guarantees 100% interoperability with RO3Emu (`Ro3Emu.Server.exe`) game log
 ## 2. Token Invalidation
 
 Whenever a password is changed or an account is banned/suspended:
-- All active records in `auth_token` for that account are deleted.
-- This severs any active game client sessions connected to the server.
+- All active records in `auth_token` for that account are deleted, which revokes its existing login tokens.
+
+> **Known limitation:** a ban is stored only in the panel's `admin_account_meta` table. RO3Emu's login
+> (`/sdk/login`) does not read it, so a banned player can sign in again and get fresh tokens until RO3Emu
+> enforces account bans. Tracked in [#1](https://github.com/soyerno/ro3-cpanel/issues/1).
 
 ## 3. Session Security
 
