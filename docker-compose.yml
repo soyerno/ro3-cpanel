@@ -1,0 +1,19 @@
+version: '3.8'
+
+services:
+  ro3-cpanel:
+    build: .
+    container_name: ro3-cpanel
+    restart: unless-stopped
+    ports:
+      - "8095:8095"
+    volumes:
+      - ./config.json:/app/config.json:ro
+      - ../RO3Emu/data:/data:rw
+    environment:
+      - HOST=0.0.0.0
+      - PORT=8095
+      - RO3_DB_PATH=/data/ro3emu.db
+      - RO3_STATUS_URL=http://host.docker.internal:5380/ro3emu/status
+      - ADMIN_USER=admin
+      - ADMIN_PASSWORD=ChangeThisPassword123!

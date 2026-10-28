@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RO3 Control Panel - Admin CPanel</title>
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <link rel="stylesheet" href="admin.css">
+</head>
+<body>
+
+  <!-- 1. Pantalla de Acceso (Login Ragnarok) -->
+  <div id="login-screen" class="login-screen-wrapper">
+    <div class="login-card">
+      <div class="login-logo" data-brand-logo>RO3</div>
+      <h2 class="login-title" data-brand-title>RO3 Control Panel</h2>
+      <p class="login-subtitle" data-brand-subtitle>Gestión de Cuentas y Servidor</p>
+
+      <div class="login-notice">
+        <strong>Acceso restringido:</strong> Exclusivo para administradores y Game Masters autorizados.
+      </div>
+
+      <form id="login-form">
+        <div class="form-group" style="text-align: left;">
+          <label class="form-label" for="login-user">Usuario Administrador</label>
+          <input type="text" id="login-user" class="form-input" placeholder="Usuario GM" autocomplete="username" required autofocus>
+        </div>
+
+        <div class="form-group" style="text-align: left;">
+          <label class="form-label" for="login-pass">Contraseña</label>
+          <input type="password" id="login-pass" class="form-input" placeholder="••••••••" autocomplete="current-password" required>
+        </div>
+
+        <div id="login-error" style="color: var(--danger); font-size: 12px; margin-bottom: 16px; text-align: left;" hidden></div>
+
+        <button type="submit" id="login-submit" class="btn btn-primary" style="width: 100%; padding: 12px;">
+          Acceder al Panel
+        </button>
+      </form>
+
+      <div class="login-footer">
+        RO3 CPanel &copy; 2026. Panel de Administración de Servidores RO3.
+      </div>
+    </div>
+  </div>
+
+  <!-- 2. Barra Superior (Header) -->
+  <header id="app-header" class="admin-header" hidden>
+    <div class="brand-section">
+      <div class="brand-logo" data-brand-logo>RO3</div>
+      <div class="brand-info">
+        <h1><span data-brand-title>RO3 Control Panel</span> <span class="brand-badge">Admin CPanel</span></h1>
+        <div class="brand-subtitle" data-brand-subtitle>Ragnarok Online 3 Server Management</div>
+      </div>
+    </div>
+
+    <div class="header-status-area">
+      <div class="server-pill" title="Estado del emulador de juego RO3Emu">
+        <span id="server-status-dot" class="status-dot"></span>
+        <span id="server-status-text">Conectando...</span>
+        <span style="color: var(--text-dim);">|</span>
+        <span>Online: <strong id="server-online-count" style="color: var(--gold);">0</strong></span>
+      </div>
+
+      <div class="user-profile">
+        <div class="gm-badge">
+          <span>👑</span>
+          <span id="admin-name">Admin</span>
+        </div>
+        <button id="btn-logout" class="btn-logout">Cerrar Sesión</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- 3. Navegación por Pestañas (Subnav) -->
+  <nav id="app-subnav" class="subnav-tabs" hidden>
+    <button class="tab-btn active" data-tab="accounts">
+      <span>👥 Cuentas</span>
+      <span id="tab-accounts-count" class="tab-counter">0</span>
+    </button>
+    <button class="tab-btn" data-tab="dashboard">
+      <span>📊 Dashboard</span>
+    </button>
+    <button class="tab-btn" data-tab="audit">
+      <span>📜 Registro de Auditoría</span>
+    </button>
+  </nav>
+
+  <!-- 4. Contenedor Principal -->
+  <main id="main-content" class="main-content" hidden>
+
+    <!-- Vista 1: Gestión de Cuentas (Por Defecto) -->
+    <section id="tab-view-accounts">
+      <div class="toolbar-card">
+        <div class="search-box">
+          <span style="color: var(--text-muted);">🔍</span>
+          <input type="text" id="search-input" placeholder="Buscar por usuario o nombre de personaje...">
+        </div>
+
+        <div class="filter-group">
+          <select id="status-select" class="select-filter">
+            <option value="all">Todas las cuentas</option>
+            <option value="active">Solo Activas</option>
+            <option value="banned">Solo Baneadas / Suspendidas</option>
+          </select>
+
+          <select id="sort-select" class="select-filter">
+            <option value="created_desc">Más recientes primero</option>
+            <option value="created_asc">Más antiguas primero</option>
+            <option value="name_asc">Nombre (A - Z)</option>
+            <option value="chars_desc">Mayor cant. personajes</option>
+          </select>
+
+          <button id="btn-refresh" class="btn btn-secondary" title="Actualizar datos">
+            <span>🔄</span> Refrescar
+          </button>
+
+          <button id="btn-new-account" class="btn btn-primary">
+            <span>➕</span> Crear Cuenta
+          </button>
+        </div>
+      </div>
+
+      <div class="table-container">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th style="width: 18%;">Cuenta</th>
+              <th style="width: 12%;">Estado</th>
+              <th>Personajes Asociados</th>
+              <th style="width: 18%;">Fecha de Registro</th>
+              <th style="width: 18%;">Última Conexión</th>
+              <th style="width: 16%;">Acciones</th>
+            </tr>
+          </thead>
+          <tbody id="accounts-tbody">
+            <tr>
+              <td colspan="6" style="text-align: center; color: var(--text-muted); padding: 32px;">
+                Cargando listado de cuentas...
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Vista 2: Dashboard / Métricas -->
+    <section id="tab-view-dashboard" hidden>
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-icon accounts">👥</div>
+          <div>
+            <div id="stat-accounts" class="stat-val">0</div>
+            <div class="stat-lbl">Cuentas Registradas</div>
+          </div>
+        </div>
+
+        <div class="stat-card">
+          <div class="stat-icon chars">⚔️</div>
+          <div>
+            <div id="stat-chars" class="stat-val">0</div>
+            <div class="stat-lbl">Personajes Creados</div>
+          </div>
+        </div>
+
+        <div class="stat-card">
+          <div class="stat-icon online">⚡</div>
+          <div>
+            <div id="stat-online" class="stat-val">0</div>
+            <div class="stat-lbl">Jugadores en Línea</div>
+          </div>
+        </div>
+
+        <div class="stat-card">
+          <div class="stat-icon banned">🚫</div>
+          <div>
+            <div id="stat-banned" class="stat-val">0</div>
+            <div class="stat-lbl">Cuentas Suspendidas</div>
+          </div>
+        </div>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 20px;">
+        <div class="toolbar-card" style="display: block;">
+          <h3 style="font-size: 15px; font-weight: 700; color: #fff; margin-bottom: 12px;">Acciones Rápidas del Administrador</h3>
+          <p style="color: var(--text-muted); font-size: 13px; margin-bottom: 16px;">
+            Desde este panel puede registrar nuevas cuentas de prueba, restablecer contraseñas de jugadores que olvidaron sus claves o aplicar suspensiones preventivas.
+          </p>
+          <div style="display: flex; gap: 10px;">
+            <button id="btn-new-account-dash" class="btn btn-primary">➕ Registrar Nueva Cuenta</button>
+            <button class="btn btn-secondary" onclick="document.querySelector('[data-tab=\'accounts\']').click()">🔍 Explorar Todas las Cuentas</button>
+          </div>
+        </div>
+
+        <div class="toolbar-card" style="display: block;">
+          <h3 style="font-size: 15px; font-weight: 700; color: #fff; margin-bottom: 12px;">Información del Servidor</h3>
+          <ul style="list-style: none; font-size: 12px; color: var(--text-muted); line-height: 2;">
+            <li><strong>Motor:</strong> RO3Emu Native</li>
+            <li><strong>Base de Datos:</strong> SQLite WAL Mode</li>
+            <li><strong>Seguridad:</strong> PBKDF2 SHA-256 (100k iters)</li>
+            <li><strong>Panel:</strong> RO3 CPanel (White-Label)</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- Vista 3: Registro de Auditoría -->
+    <section id="tab-view-audit" hidden>
+      <div class="toolbar-card">
+        <h3 style="font-size: 15px; font-weight: 700; color: #fff;">Historial de Acciones de Administración</h3>
+        <span style="font-size: 12px; color: var(--text-muted);">Registro inmutable de cambios de contraseñas, baneos y creaciones</span>
+      </div>
+
+      <div class="table-container">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th style="width: 20%;">Fecha (UTC)</th>
+              <th style="width: 15%;">Administrador</th>
+              <th style="width: 18%;">Acción</th>
+              <th style="width: 20%;">Cuenta Objetivo</th>
+              <th>Detalles</th>
+            </tr>
+          </thead>
+          <tbody id="audit-tbody">
+            <tr>
+              <td colspan="5" style="text-align: center; color: var(--text-muted); padding: 32px;">
+                Cargando registros...
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ================= MODALS ================= -->
+
+  <!-- Modal 1: Ficha Detallada de Cuenta y Personajes -->
+  <div id="modal-detail" class="modal-backdrop" hidden>
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <div class="modal-title">
+          <span>📋 Ficha de Cuenta:</span>
+          <span id="detail-acc-name" style="color: var(--gold);">—</span>
+        </div>
+        <button class="modal-close" data-close-modal>&times;</button>
+      </div>
+
+      <div class="modal-body">
+        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; background: #0c1018; padding: 12px; border-radius: var(--radius-sm); margin-bottom: 16px; border: 1px solid var(--border-color); font-size: 12px;">
+          <div><strong style="color: var(--text-muted);">Registro:</strong> <div id="detail-acc-created">—</div></div>
+          <div><strong style="color: var(--text-muted);">Estado:</strong> <div id="detail-acc-status">—</div></div>
+          <div><strong style="color: var(--text-muted);">Sesiones:</strong> <div id="detail-acc-tokens">—</div></div>
+        </div>
+
+        <h4 style="font-size: 13px; font-weight: 700; color: #fff; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.5px;">
+          Personajes en la Cuenta
+        </h4>
+        <div id="detail-chars-list"></div>
+
+        <div style="margin-top: 16px;">
+          <label class="form-label" for="detail-acc-notes">Notas Administrativas del GM</label>
+          <textarea id="detail-acc-notes" class="form-textarea" rows="3" placeholder="Anotaciones privadas sobre la cuenta (advertencias, contacto, etc.)..."></textarea>
+          <div style="display: flex; justify-content: flex-end; margin-top: 6px;">
+            <button id="btn-save-notes" class="btn btn-secondary btn-sm">Guardar Notas</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-close-modal>Cerrar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal 2: Cambiar Contraseña -->
+  <div id="modal-password" class="modal-backdrop" hidden>
+    <div class="modal-dialog" style="max-width: 440px;">
+      <div class="modal-header">
+        <div class="modal-title">🔑 Cambiar Contraseña</div>
+        <button class="modal-close" data-close-modal>&times;</button>
+      </div>
+
+      <form id="form-password">
+        <div class="modal-body">
+          <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 16px;">
+            Establecer nueva contraseña para la cuenta <strong id="pw-acc-name" style="color: #fff;">—</strong>. Las sesiones activas de juego serán revocadas.
+          </p>
+
+          <div class="form-group">
+            <label class="form-label" for="pw-new-pass">Nueva Contraseña</label>
+            <input type="password" id="pw-new-pass" class="form-input" placeholder="Mínimo 6 caracteres" required minlength="6">
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-close-modal>Cancelar</button>
+          <button type="submit" class="btn btn-primary">Actualizar Contraseña</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal 3: Crear Nueva Cuenta -->
+  <div id="modal-create" class="modal-backdrop" hidden>
+    <div class="modal-dialog" style="max-width: 460px;">
+      <div class="modal-header">
+        <div class="modal-title">➕ Crear Nueva Cuenta</div>
+        <button class="modal-close" data-close-modal>&times;</button>
+      </div>
+
+      <form id="form-create">
+        <div class="modal-body">
+          <div class="form-group">
+            <label class="form-label" for="create-username">Nombre de Usuario</label>
+            <input type="text" id="create-username" class="form-input" placeholder="Ej: jugador01" required minlength="3" maxlength="32">
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="create-password">Contraseña Inicial</label>
+            <input type="password" id="create-password" class="form-input" placeholder="Mínimo 6 caracteres" required minlength="6">
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="create-notes">Notas (Opcional)</label>
+            <input type="text" id="create-notes" class="form-input" placeholder="Ej: Cuenta de prueba interna">
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-close-modal>Cancelar</button>
+          <button type="submit" class="btn btn-primary">Crear Cuenta</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal 4: Suspender / Banear Cuenta -->
+  <div id="modal-ban" class="modal-backdrop" hidden>
+    <div class="modal-dialog" style="max-width: 440px;">
+      <div class="modal-header">
+        <div class="modal-title" style="color: var(--danger);">🚫 Suspender Cuenta</div>
+        <button class="modal-close" data-close-modal>&times;</button>
+      </div>
+
+      <form id="form-ban">
+        <div class="modal-body">
+          <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 16px;">
+            Suspender la cuenta <strong id="ban-acc-name" style="color: #fff;">—</strong> impedirá el acceso al juego y desconectará sus personajes en línea.
+          </p>
+
+          <div class="form-group">
+            <label class="form-label" for="ban-reason">Motivo de la Suspensión</label>
+            <input type="text" id="ban-reason" class="form-input" placeholder="Ej: Uso de programas no autorizados" required>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-close-modal>Cancelar</button>
+          <button type="submit" class="btn btn-danger">Confirmar Suspensión</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal 5: Eliminar Cuenta -->
+  <div id="modal-delete" class="modal-backdrop" hidden>
+    <div class="modal-dialog" style="max-width: 440px;">
+      <div class="modal-header">
+        <div class="modal-title" style="color: var(--danger);">⚠️ Eliminar Cuenta</div>
+        <button class="modal-close" data-close-modal>&times;</button>
+      </div>
+
+      <form id="form-delete">
+        <div class="modal-body">
+          <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 16px;">
+            Esta acción eliminará permanentemente la cuenta <strong id="del-acc-name" style="color: #fff;">—</strong>. Para confirmar, escriba el nombre de la cuenta a continuación:
+          </p>
+
+          <div class="form-group">
+            <label class="form-label" for="del-confirm-name">Confirmar Nombre</label>
+            <input type="text" id="del-confirm-name" class="form-input" placeholder="Escriba el nombre exacto" required>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-close-modal>Cancelar</button>
+          <button type="submit" class="btn btn-danger">Eliminar Definitivamente</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Contenedor de Notificaciones Toast -->
+  <div id="toast-container" class="toast-container"></div>
+
+  <script src="admin.js"></script>
+</body>
+</html>

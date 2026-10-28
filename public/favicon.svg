@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="shieldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1e293b"/>
+      <stop offset="100%" stop-color="#090d16"/>
+    </linearGradient>
+    <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f5d061"/>
+      <stop offset="50%" stop-color="#e5c07b"/>
+      <stop offset="100%" stop-color="#996e1b"/>
+    </linearGradient>
+  </defs>
+  <!-- Shield Background -->
+  <path d="M32 4 L56 12 V30 C56 46 44 56 32 60 C20 56 8 46 8 30 V12 Z" fill="url(#shieldGrad)" stroke="url(#goldGrad)" stroke-width="2.5"/>
+  <!-- Gold Rune Emblem -->
+  <path d="M32 14 L44 24 L32 34 L20 24 Z" fill="none" stroke="url(#goldGrad)" stroke-width="2"/>
+  <circle cx="32" cy="24" r="3" fill="url(#goldGrad)"/>
+  <!-- Wings / Blades -->
+  <path d="M32 35 V50 M24 44 L32 50 L40 44" fill="none" stroke="url(#goldGrad)" stroke-width="2.5" stroke-linecap="round"/>
+</svg>

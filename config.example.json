@@ -1,0 +1,16 @@
+{
+  "server_title": "RO3 Control Panel",
+  "server_subtitle": "Ragnarok Online 3 Server Management",
+  "logo_text": "RO3",
+  "host": "0.0.0.0",
+  "port": 8095,
+  "ro3_db_path": "./data/ro3emu.db",
+  "ro3_status_url": "http://127.0.0.1:5380/ro3emu/status",
+  "admin_users": [
+    {
+      "username": "admin",
+      "password": "ChangeThisPassword123!"
+    }
+  ],
+  "session_ttl_hours": 24
+}
