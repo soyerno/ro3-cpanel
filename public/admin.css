@@ -387,6 +387,29 @@ body {
   font-size: 12px;
 }
 
+/* Accounts Pager */
+.pager .btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.pager[hidden] {
+  display: none;
+}
+
+.pager-info {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
 /* Data Table */
 .table-container {
   background: var(--bg-card);

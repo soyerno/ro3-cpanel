@@ -230,6 +230,62 @@ def format_timestamp(ts):
     except Exception:
         return str(ts)
 
+ACCOUNTS_PAGE_SIZE_DEFAULT = 50
+ACCOUNTS_PAGE_SIZE_MAX = 200
+
+# ORDER BY clauses for the accounts list; a.name is the tie-breaker so pages are stable.
+ACCOUNT_SORT_SQL = {
+    'name_asc': "PY_LOWER(a.name) ASC, a.name ASC",
+    'created_asc': "COALESCE(a.created_utc, '') ASC, a.name ASC",
+    'chars_desc': "(SELECT COUNT(*) FROM role rc WHERE rc.account = a.name AND rc.deleted_time = 0) DESC, a.name ASC",
+    'created_desc': "COALESCE(a.created_utc, '') DESC, a.name ASC",
+}
+
+def sql_py_lower(value):
+    """SQLite LOWER() only folds ASCII; mirror Python str.lower() for search and sort."""
+    return value.lower() if isinstance(value, str) else value
+
+def parse_int_param(params, key, default, minimum, maximum=None):
+    try:
+        value = int(params.get(key, [default])[0])
+    except (TypeError, ValueError):
+        return default
+    value = max(minimum, value)
+    if maximum is not None:
+        value = min(maximum, value)
+    return value
+
+def format_role(r, include_progress=False):
+    """Formats a role row; include_progress adds exp/job_exp/bonus_points for the detail view."""
+    career_id = r.get("career") or 1000
+    scene_id = r.get("scene_entry") or 0
+    data = {
+        "id": r["id"],
+        "name": r["name"],
+        "sex": "M" if r.get("sex") == 1 else "F",
+        "career": career_id,
+        "career_name": CAREER_MAP.get(career_id, f"Clase {career_id}"),
+        "level": r.get("level", 1),
+        "job_level": r.get("job_level", 1),
+    }
+    if include_progress:
+        data["exp"] = r.get("exp", 0)
+        data["job_exp"] = r.get("job_exp", 0)
+    data["currency"] = parse_currency(r.get("currency"))
+    data["stats"] = parse_stats(r.get("stats"))
+    if include_progress:
+        data["bonus_points"] = r.get("bonus_points", 0)
+    data["scene_id"] = scene_id
+    data["scene_name"] = SCENE_MAP.get(scene_id, f"Mapa {scene_id}")
+    data["pos"] = {
+        "x": round(r.get("pos_x") or 0, 1),
+        "y": round(r.get("pos_y") or 0, 1),
+        "z": round(r.get("pos_z") or 0, 1)
+    }
+    data["last_login"] = format_timestamp(r.get("last_login_time"))
+    data["created_at"] = format_timestamp(r.get("create_time"))
+    return data
+
 def authenticate_admin(username, password):
     """
     Checks if username & password match any configured admin,
@@ -528,67 +584,78 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
         q = params.get('q', [''])[0].strip().lower()
         status_filter = params.get('status', ['all'])[0].strip().lower()
         sort_by = params.get('sort', ['created_desc'])[0].strip()
+        page = parse_int_param(params, 'page', 1, minimum=1)
+        page_size = parse_int_param(params, 'page_size', ACCOUNTS_PAGE_SIZE_DEFAULT,
+                                    minimum=1, maximum=ACCOUNTS_PAGE_SIZE_MAX)
 
         admin_usernames = [a.get("username", "").strip().lower() for a in CONFIG.get("admin_users", [])]
 
-        with get_db() as con:
-            accounts_query = """
-                SELECT a.name, a.created_utc,
-                       COALESCE(m.is_banned, 0) as is_banned,
-                       COALESCE(m.ban_reason, '') as ban_reason,
-                       COALESCE(m.banned_at, '') as banned_at,
-                       COALESCE(m.notes, '') as notes
-                FROM account a
-                LEFT JOIN admin_account_meta m ON a.name = m.name
-            """
-            accounts = [dict(r) for r in con.execute(accounts_query).fetchall()]
+        where = []
+        where_args = []
+        if status_filter == 'banned':
+            where.append("COALESCE(m.is_banned, 0) <> 0")
+        elif status_filter == 'active':
+            where.append("COALESCE(m.is_banned, 0) = 0")
+        if q:
+            # instr() is a literal substring test, so LIKE wildcards in q never apply.
+            where.append("""(
+                instr(PY_LOWER(a.name), ?) > 0
+                OR EXISTS (
+                    SELECT 1 FROM role r
+                    WHERE r.account = a.name AND r.deleted_time = 0
+                      AND instr(PY_LOWER(r.name), ?) > 0
+                )
+            )""")
+            where_args.extend([q, q])
+        where_sql = ("WHERE " + " AND ".join(where)) if where else ""
+        order_sql = ACCOUNT_SORT_SQL.get(sort_by, ACCOUNT_SORT_SQL['created_desc'])
+        from_sql = "FROM account a LEFT JOIN admin_account_meta m ON a.name = m.name"
 
-            roles_query = """
-                SELECT id, account, name, sex, career, level, job_level,
-                       last_login_time, create_time, currency, stats,
-                       scene_entry, pos_x, pos_y, pos_z, deleted_time
-                FROM role
-                WHERE deleted_time = 0
-            """
-            roles = [dict(r) for r in con.execute(roles_query).fetchall()]
+        with get_db() as con:
+            con.create_function("PY_LOWER", 1, sql_py_lower)
+
+            total = con.execute(f"SELECT COUNT(*) {from_sql} {where_sql}", where_args).fetchone()[0]
+            pages = max(1, -(-total // page_size))
+            offset = (page - 1) * page_size
+
+            accounts = []
+            if offset < total:
+                accounts_query = f"""
+                    SELECT a.name, a.created_utc,
+                           COALESCE(m.is_banned, 0) as is_banned,
+                           COALESCE(m.ban_reason, '') as ban_reason,
+                           COALESCE(m.banned_at, '') as banned_at,
+                           COALESCE(m.notes, '') as notes
+                    {from_sql}
+                    {where_sql}
+                    ORDER BY {order_sql}
+                    LIMIT ? OFFSET ?
+                """
+                accounts = [dict(r) for r in con.execute(accounts_query, where_args + [page_size, offset]).fetchall()]
 
             roles_by_acc = {}
-            for r in roles:
-                acc = r["account"]
-                if acc not in roles_by_acc:
-                    roles_by_acc[acc] = []
-                
-                career_id = r.get("career") or 1000
-                career_name = CAREER_MAP.get(career_id, f"Clase {career_id}")
-                scene_id = r.get("scene_entry") or 0
-                scene_name = SCENE_MAP.get(scene_id, f"Mapa {scene_id}")
-
-                roles_by_acc[acc].append({
-                    "id": r["id"],
-                    "name": r["name"],
-                    "sex": "M" if r.get("sex") == 1 else "F",
-                    "career": career_id,
-                    "career_name": career_name,
-                    "level": r.get("level", 1),
-                    "job_level": r.get("job_level", 1),
-                    "currency": parse_currency(r.get("currency")),
-                    "stats": parse_stats(r.get("stats")),
-                    "scene_id": scene_id,
-                    "scene_name": scene_name,
-                    "pos": {
-                        "x": round(r.get("pos_x") or 0, 1),
-                        "y": round(r.get("pos_y") or 0, 1),
-                        "z": round(r.get("pos_z") or 0, 1)
-                    },
-                    "last_login": format_timestamp(r.get("last_login_time")),
-                    "created_at": format_timestamp(r.get("create_time"))
-                })
-
             tokens_counts = {}
-            for t in con.execute("SELECT account, COUNT(*) as cnt FROM auth_token GROUP BY account"):
-                tokens_counts[t["account"]] = t["cnt"]
+            page_names = [a["name"] for a in accounts]
+            if page_names:
+                placeholders = ",".join("?" * len(page_names))
+                roles_query = f"""
+                    SELECT id, account, name, sex, career, level, job_level,
+                           last_login_time, create_time, currency, stats,
+                           scene_entry, pos_x, pos_y, pos_z, deleted_time
+                    FROM role
+                    WHERE deleted_time = 0 AND account IN ({placeholders})
+                """
+                for r in con.execute(roles_query, page_names):
+                    r = dict(r)
+                    roles_by_acc.setdefault(r["account"], []).append(format_role(r))
 
-            result = []
+                tokens_query = f"""
+                    SELECT account, COUNT(*) as cnt FROM auth_token
+                    WHERE account IN ({placeholders}) GROUP BY account
+                """
+                for t in con.execute(tokens_query, page_names):
+                    tokens_counts[t["account"]] = t["cnt"]
+
             for a in accounts:
                 name = a["name"]
                 acc_roles = roles_by_acc.get(name, [])
@@ -605,31 +672,12 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
                             latest_login = cr["last_login"]
                 a["last_login"] = latest_login
 
-                if status_filter == 'banned' and not a["is_banned"]:
-                    continue
-                if status_filter == 'active' and a["is_banned"]:
-                    continue
-
-                if q:
-                    match_acc = (q in name.lower())
-                    match_char = any(q in c["name"].lower() for c in acc_roles)
-                    if not (match_acc or match_char):
-                        continue
-
-                result.append(a)
-
-            if sort_by == 'name_asc':
-                result.sort(key=lambda x: x["name"].lower())
-            elif sort_by == 'created_asc':
-                result.sort(key=lambda x: x.get("created_utc") or "")
-            elif sort_by == 'chars_desc':
-                result.sort(key=lambda x: x["character_count"], reverse=True)
-            else:
-                result.sort(key=lambda x: x.get("created_utc") or "", reverse=True)
-
             return self.send_json(200, {
-                "accounts": result,
-                "total": len(result)
+                "accounts": accounts,
+                "total": total,
+                "page": page,
+                "page_size": page_size,
+                "pages": pages
             })
 
     def handle_account_detail(self, account_name):
@@ -643,33 +691,7 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
             tokens = [dict(t) for t in con.execute("SELECT token, kind, expires_utc FROM auth_token WHERE account=?", (account_name,)).fetchall()]
             roles = [dict(r) for r in con.execute("SELECT * FROM role WHERE account=? AND deleted_time=0", (account_name,)).fetchall()]
 
-            formatted_roles = []
-            for r in roles:
-                career_id = r.get("career") or 1000
-                scene_id = r.get("scene_entry") or 0
-                formatted_roles.append({
-                    "id": r["id"],
-                    "name": r["name"],
-                    "sex": "M" if r.get("sex") == 1 else "F",
-                    "career": career_id,
-                    "career_name": CAREER_MAP.get(career_id, f"Clase {career_id}"),
-                    "level": r.get("level", 1),
-                    "job_level": r.get("job_level", 1),
-                    "exp": r.get("exp", 0),
-                    "job_exp": r.get("job_exp", 0),
-                    "currency": parse_currency(r.get("currency")),
-                    "stats": parse_stats(r.get("stats")),
-                    "bonus_points": r.get("bonus_points", 0),
-                    "scene_id": scene_id,
-                    "scene_name": SCENE_MAP.get(scene_id, f"Mapa {scene_id}"),
-                    "pos": {
-                        "x": round(r.get("pos_x") or 0, 1),
-                        "y": round(r.get("pos_y") or 0, 1),
-                        "z": round(r.get("pos_z") or 0, 1)
-                    },
-                    "last_login": format_timestamp(r.get("last_login_time")),
-                    "created_at": format_timestamp(r.get("create_time"))
-                })
+            formatted_roles = [format_role(r, include_progress=True) for r in roles]
 
             data = {
                 "name": acc["name"],
