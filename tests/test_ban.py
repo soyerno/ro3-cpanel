@@ -1,4 +1,5 @@
 import json
+from contextlib import closing
 import os
 import sqlite3
 import sys
@@ -19,7 +20,7 @@ class TestBanEndpoint(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.db_path = os.path.join(self.tmp.name, "ro3emu.db")
-        with sqlite3.connect(self.db_path) as con:
+        with closing(sqlite3.connect(self.db_path)) as con:
             con.executescript("""
                 CREATE TABLE account (name TEXT PRIMARY KEY, password_hash BLOB, salt BLOB, created_utc TEXT);
                 CREATE TABLE auth_token (token TEXT PRIMARY KEY, kind TEXT, account TEXT, expires_utc INTEGER);
@@ -50,7 +51,7 @@ class TestBanEndpoint(unittest.TestCase):
             data=json.dumps(payload).encode(),
             headers={"Content-Type": "application/json", **({"Authorization": "Bearer " + token} if token else {})},
         )
-        with urllib.request.urlopen(req) as resp:
+        with urllib.request.urlopen(req, timeout=10) as resp:
             return json.loads(resp.read())
 
     def test_ban_reports_it_is_not_enforced_and_still_revokes_tokens(self):
@@ -60,7 +61,7 @@ class TestBanEndpoint(unittest.TestCase):
         self.assertTrue(result["success"])
         self.assertIs(result["enforced"], False)
         self.assertIn("RO3Emu", result["message"])
-        with sqlite3.connect(self.db_path) as con:
+        with closing(sqlite3.connect(self.db_path)) as con:
             self.assertEqual(con.execute("SELECT COUNT(*) FROM auth_token WHERE account='player1'").fetchone()[0], 0)
             self.assertEqual(con.execute("SELECT is_banned FROM admin_account_meta WHERE name='player1'").fetchone()[0], 1)
 
