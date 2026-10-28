@@ -8,6 +8,7 @@ import sys
 import os
 import re
 import json
+import re
 import sqlite3
 import hashlib
 import secrets
@@ -483,6 +484,88 @@ def parse_int_param(params, key, default, minimum, maximum=None):
         value = min(maximum, value)
     return value
 
+MAIL_PAGE_SIZE_DEFAULT = 20
+MAIL_PAGE_SIZE_MAX = 100
+CHARACTER_MAIL_PATH = re.compile(r'^/api/admin/characters/([^/]+)/mail$')
+POSITIVE_INT = re.compile(r'^[0-9]+$')
+
+class MailboxDecodeError(ValueError):
+    """role.mailbox does not hold a MailService.Mailbox JSON document."""
+
+def _json_str(obj, key, default=""):
+    value = obj.get(key)
+    return value if isinstance(value, str) else default
+
+def _json_int(obj, key, default=0):
+    value = obj.get(key)
+    return value if isinstance(value, int) and not isinstance(value, bool) else default
+
+def _json_bool(obj, key):
+    return obj.get(key) is True
+
+def _json_objects(obj, key):
+    value = obj.get(key)
+    return [v for v in value if isinstance(v, dict)] if isinstance(value, list) else []
+
+def _reject_json_constant(name):
+    raise MailboxDecodeError(f"non-standard JSON constant {name}")
+
+def decode_mailbox(raw):
+    """Decodes role.mailbox: RO3Emu MailService.Mailbox serialized by System.Text.Json with
+    default options (PascalCase names, UTF-8). NULL or empty means an empty mailbox.
+    Raises MailboxDecodeError when the stored value is not such a document."""
+    if raw is None or len(raw) == 0:
+        return []
+    try:
+        text = raw if isinstance(raw, str) else bytes(raw).decode('utf-8-sig')
+        doc = json.loads(text, parse_constant=_reject_json_constant)
+    except (UnicodeDecodeError, ValueError, RecursionError) as exc:
+        raise MailboxDecodeError(str(exc)) from None
+    if not isinstance(doc, dict):
+        raise MailboxDecodeError("mailbox is not a JSON object")
+    letters = doc.get("Letters")
+    if letters is None:
+        return []
+    if not isinstance(letters, list) or not all(isinstance(m, dict) for m in letters):
+        raise MailboxDecodeError("Letters is not a list of objects")
+    return letters
+
+def format_mail(letter):
+    """Projects one MailService.Letter onto display fields; internal keys and the
+    protobuf ContentParams are never exposed."""
+    attachments = [{"entry": _json_int(a, "Entry"), "count": _json_int(a, "Count"), "bind": _json_int(a, "Bind")}
+                   for a in _json_objects(letter, "Attachments")]
+    items = [{"guid": _json_int(i, "Guid"), "entry": _json_int(i, "Entry"), "stack": _json_int(i, "Stack")}
+             for i in _json_objects(letter, "Items")]
+    currency = []
+    raw_currency = letter.get("Currency")
+    if isinstance(raw_currency, dict):
+        for key, amount in raw_currency.items():
+            if POSITIVE_INT.match(str(key)) and isinstance(amount, int) and not isinstance(amount, bool):
+                currency.append({"entry": int(key), "amount": amount})
+        currency.sort(key=lambda c: c["entry"])
+    created = _json_int(letter, "CreatedTime")
+    remove = _json_int(letter, "RemoveTime")
+    return {
+        "id": _json_str(letter, "Id"),
+        "category": _json_int(letter, "Category", 1),
+        "title": _json_str(letter, "Title"),
+        "abstract": _json_str(letter, "Abstract"),
+        "content": _json_str(letter, "Content"),
+        "sender": _json_str(letter, "Sender", "RO3"),
+        "sender_id": _json_str(letter, "SenderId", "0"),
+        "template_id": _json_int(letter, "TemplateId"),
+        "important_type": _json_int(letter, "ImportantType"),
+        "created_at": format_timestamp(created),
+        "remove_at": format_timestamp(remove),
+        "read": _json_bool(letter, "Read"),
+        "claimed": _json_bool(letter, "Claimed"),
+        "attachments": attachments,
+        "items": items,
+        "currency": currency,
+        "attachment_count": len(attachments) + len(items) + len(currency),
+    }
+
 def format_role(r, include_progress=False):
     """Formats a role row; include_progress adds exp/job_exp/bonus_points for the detail view."""
     career_id = r.get("career") or 1000
@@ -852,6 +935,11 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
         if raw_path == '/api/admin/audit-log':
             return self.handle_audit_log(params)
 
+        # 10. Character Mailbox (read-only): /api/admin/characters/<role_id>/mail
+        mail_match = CHARACTER_MAIL_PATH.match(raw_path)
+        if mail_match:
+            return self.handle_character_mail(mail_match.group(1), params)
+
         # 9. Economy Log (read-only)
         if raw_path == '/api/admin/economy':
             return self.handle_economy(params)
@@ -1111,6 +1199,52 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
                 "characters": formatted_roles
             }
             return self.send_json(200, data)
+
+    def handle_character_mail(self, raw_role_id, params):
+        """Read-only, paginated view of one live character's role.mailbox."""
+        role_id = int(raw_role_id) if POSITIVE_INT.match(raw_role_id) else 0
+        if role_id <= 0 or role_id > 2 ** 63 - 1:
+            return self.send_json(400, {"error": "ID de personaje inválido"})
+        page = parse_int_param(params, 'page', 1, minimum=1)
+        page_size = parse_int_param(params, 'page_size', MAIL_PAGE_SIZE_DEFAULT,
+                                    minimum=1, maximum=MAIL_PAGE_SIZE_MAX)
+
+        with get_db() as con:
+            con.execute("PRAGMA query_only = ON")
+            role = con.execute(
+                "SELECT id, name, account, mailbox FROM role WHERE id = ? AND deleted_time = 0",
+                (role_id,)
+            ).fetchone()
+        if not role:
+            return self.send_json(404, {"error": "Personaje no encontrado"})
+
+        data = {
+            "role_id": role["id"],
+            "role_name": role["name"],
+            "account": role["account"],
+            "decodable": True,
+            "page": page,
+            "page_size": page_size,
+        }
+        try:
+            letters = decode_mailbox(role["mailbox"])
+        except MailboxDecodeError:
+            data.update({"decodable": False, "total": 0, "pages": 1, "mails": [],
+                         "message": "El buzón de este personaje no se pudo decodificar."})
+            return self.send_json(200, data)
+
+        # Same order RO3Emu lists mail in: newest CreatedTime first, then Id descending.
+        letters = sorted(letters,
+                         key=lambda m: (_json_int(m, "CreatedTime"), _json_str(m, "Id")),
+                         reverse=True)
+        total = len(letters)
+        offset = (page - 1) * page_size
+        data.update({
+            "total": total,
+            "pages": max(1, -(-total // page_size)),
+            "mails": [format_mail(m) for m in letters[offset:offset + page_size]],
+        })
+        return self.send_json(200, data)
 
     def handle_character_items(self, role_id_str):
         """Read-only inventory of one character (SELECT only)."""

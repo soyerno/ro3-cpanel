@@ -489,10 +489,12 @@
                   '<div><div class="stat-box-lbl">DEX</div><div class="stat-box-val">' + c.stats.dex + '</div></div>' +
                   '<div><div class="stat-box-lbl">LUK</div><div class="stat-box-val">' + c.stats.luk + '</div></div>' +
                 '</div>' +
-                '<div style="display: flex; justify-content: flex-end; margin-top: 8px;">' +
+                '<div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px;">' +
                   '<button class="btn btn-secondary btn-sm btn-view-inventory" data-role-id="' + escapeHtml(String(c.id)) + '" title="Ver objetos del personaje">Ver inventario</button>' +
+                  '<button type="button" class="btn btn-secondary btn-sm btn-view-mail" data-role-id="' + escapeHtml(String(c.id)) + '" title="Ver correo del personaje (solo lectura)">Ver correo</button>' +
                 '</div>' +
                 '<div class="char-inventory" hidden></div>' +
+                '<div class="char-mail-panel" id="char-mail-' + escapeHtml(String(c.id)) + '" hidden></div>' +
               '</div>';
             });
             charsContainer.innerHTML = charsHtml;
@@ -503,6 +505,70 @@
       })
       .catch(function (err) {
         showToast('Error cargando ficha: ' + err.message, 'error');
+      });
+  }
+
+  // --- Character Mail (read-only) ---
+  var MAIL_PAGE_SIZE = 10;
+
+  function renderMailAttachments(m) {
+    var parts = [];
+    (m.attachments || []).forEach(function (a) {
+      parts.push('Ítem ' + escapeHtml(String(a.entry)) + ' x' + escapeHtml(String(a.count)));
+    });
+    (m.items || []).forEach(function (it) {
+      parts.push('Ítem ' + escapeHtml(String(it.entry)) + ' x' + escapeHtml(String(it.stack)));
+    });
+    (m.currency || []).forEach(function (cur) {
+      parts.push('Moneda ' + escapeHtml(String(cur.entry)) + ': ' + formatNumber(cur.amount));
+    });
+    return parts.length ? parts.join(', ') : 'Sin adjuntos';
+  }
+
+  function renderCharacterMail(panel, roleId, data) {
+    if (!data.decodable) {
+      panel.innerHTML = '<p class="char-mail-empty">' + escapeHtml(data.message || 'El buzón no se pudo decodificar.') + '</p>';
+      return;
+    }
+    if (!data.mails.length) {
+      panel.innerHTML = '<p class="char-mail-empty">' + (data.total ? 'No hay correos en esta página.' : 'El buzón está vacío.') + '</p>';
+      return;
+    }
+    var html = '<ul class="char-mail-list">';
+    data.mails.forEach(function (m) {
+      var subject = m.title || m.abstract || ('Plantilla ' + String(m.template_id));
+      html += '<li class="char-mail-item">' +
+        '<div class="char-mail-head">' +
+          '<strong>' + escapeHtml(subject) + '</strong>' +
+          '<span class="badge ' + (m.read ? 'badge-active' : 'badge-admin') + '">' + (m.read ? 'Leído' : 'No leído') + '</span>' +
+          (m.claimed ? ' <span class="badge badge-active">Reclamado</span>' : '') +
+        '</div>' +
+        '<div class="char-mail-meta">De: ' + escapeHtml(m.sender || '—') + ' · ' + formatDate(m.created_at) +
+          (m.remove_at ? ' · Expira: ' + formatDate(m.remove_at) : '') + '</div>' +
+        (m.content ? '<div class="char-mail-body">' + escapeHtml(m.content) + '</div>' : '') +
+        '<div class="char-mail-meta">Adjuntos (' + escapeHtml(String(m.attachment_count)) + '): ' + renderMailAttachments(m) + '</div>' +
+      '</li>';
+    });
+    html += '</ul>';
+    html += '<div class="pager">' +
+      '<button type="button" class="btn btn-secondary btn-sm btn-mail-page" data-role-id="' + escapeHtml(String(roleId)) + '" data-page="' + escapeHtml(String(data.page - 1)) + '"' + (data.page <= 1 ? ' disabled' : '') + '>Anterior</button>' +
+      '<span class="pager-info">Página ' + escapeHtml(String(data.page)) + ' de ' + escapeHtml(String(data.pages)) + ' · ' + escapeHtml(String(data.total)) + ' correos</span>' +
+      '<button type="button" class="btn btn-secondary btn-sm btn-mail-page" data-role-id="' + escapeHtml(String(roleId)) + '" data-page="' + escapeHtml(String(data.page + 1)) + '"' + (data.page >= data.pages ? ' disabled' : '') + '>Siguiente</button>' +
+    '</div>';
+    panel.innerHTML = html;
+  }
+
+  function loadCharacterMail(roleId, page) {
+    var panel = document.getElementById('char-mail-' + roleId);
+    if (!panel) return;
+    panel.hidden = false;
+    panel.innerHTML = '<p class="char-mail-empty">Cargando correo...</p>';
+    apiFetch('/api/admin/characters/' + encodeURIComponent(roleId) + '/mail?page=' + encodeURIComponent(page) + '&page_size=' + MAIL_PAGE_SIZE)
+      .then(function (data) {
+        renderCharacterMail(panel, roleId, data);
+      })
+      .catch(function (err) {
+        panel.innerHTML = '<p class="char-mail-empty">' + escapeHtml('Error cargando correo: ' + err.message) + '</p>';
       });
   }
 
@@ -1109,6 +1175,27 @@
 
     var btnSaveNotes = document.getElementById('btn-save-notes');
     if (btnSaveNotes) btnSaveNotes.addEventListener('click', handleSaveNotes);
+
+    var detailChars = document.getElementById('detail-chars-list');
+    if (detailChars) {
+      detailChars.addEventListener('click', function (e) {
+        var target = e.target.closest('button');
+        if (!target) return;
+        var roleId = target.getAttribute('data-role-id');
+        if (!roleId) return;
+
+        if (target.classList.contains('btn-view-mail')) {
+          var panel = document.getElementById('char-mail-' + roleId);
+          if (panel && !panel.hidden) {
+            panel.hidden = true;
+            return;
+          }
+          loadCharacterMail(roleId, 1);
+        } else if (target.classList.contains('btn-mail-page')) {
+          loadCharacterMail(roleId, parseInt(target.getAttribute('data-page'), 10) || 1);
+        }
+      });
+    }
 
     if (els.economyForm) els.economyForm.addEventListener('submit', applyEconomyFilters);
     var btnEconomyReset = document.getElementById('economy-reset');

@@ -70,6 +70,23 @@ RO3 CPanel se ejecuta como un servicio autónomo conectado a la base de datos de
     └── Ping de Estado en Vivo  ──► [Servidor RO3Emu (Puerto 5380)]
 ```
 
+### Correo de personajes (solo lectura)
+
+En la ficha de la cuenta, **Ver correo** en la tarjeta de un personaje muestra su buzón, 10 cartas por página.
+El panel nunca lo modifica. El endpoint es `GET /api/admin/characters/<role_id>/mail?page=1&page_size=20`
+(requiere sesión de administrador; `page_size` va de 1 a 100, por defecto 20).
+
+- RO3Emu no tiene tabla de correo: el correo de cada personaje vive en el BLOB `role.mailbox`, un documento JSON
+  `MailService.Mailbox` (`NextId`, `Letters`). El panel lee solo esa columna, con `PRAGMA query_only = ON`, y lo decodifica en Python.
+- Las cartas se ordenan de la más nueva a la más antigua (`CreatedTime` y luego `Id`, descendente), como las lista el juego.
+- Cada correo devuelve `id`, `category`, `title`, `abstract`, `content`, `sender`, `sender_id`, `template_id`,
+  `important_type`, `created_at` / `remove_at` (ISO 8601 UTC; `remove_at` es `null` si la carta no expira),
+  `read`, `claimed`, `attachments` (`entry`, `count`, `bind`), `items` (`guid`, `entry`, `stack`), `currency` (`entry`, `amount`) y `attachment_count`.
+  Las claves internas (`DeliveryKey`, `ContentParams`) y el blob crudo nunca se devuelven.
+- Las cartas vencidas que el juego todavía no purgó siguen apareciendo; compara `remove_at` con la hora actual.
+- Un buzón inexistente o vacío es una lista vacía. Un blob que no es JSON UTF-8 con esta forma devuelve `200` con
+  `"decodable": false` y sin correos. Un id no numérico o cero devuelve `400`; un personaje inexistente o eliminado devuelve `404`.
+
 ---
 
 ## Inventario de Personajes

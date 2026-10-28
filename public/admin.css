@@ -650,6 +650,51 @@ body {
   color: var(--gold);
 }
 
+/* Character Mail (read-only) */
+.char-mail-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+
+.char-mail-panel {
+  margin-top: 8px;
+  padding: 8px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+}
+
+.char-mail-list {
+  list-style: none;
+  margin: 0 0 8px;
+  padding: 0;
+}
+
+.char-mail-item {
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(38, 52, 77, 0.4);
+}
+
+.char-mail-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.char-mail-meta,
+.char-mail-empty {
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+.char-mail-body {
+  margin-top: 4px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 /* Toast Alerts */
 .toast-container {
   position: fixed;
