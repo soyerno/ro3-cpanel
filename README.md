@@ -35,7 +35,7 @@ Inspired by classic Ragnarok Online control panels (FluxCP / CeresCP), built wit
   </tr>
   <tr>
     <td width="50%" valign="top"><b>1:1 RO3Emu compatibility</b><br>Password hashing matches RO3Emu's PBKDF2-SHA256 (100,000 iterations + 16-byte random salt) exactly. Sessions and tokens are cleanly revoked upon password updates or bans.</td>
-    <td width="50%" valign="top"><b>Complete account management</b><br>Real-time search, player character sheets (Base/Job Lv, stats, Zeny, Diamonds, coordinates, read-only inventory), account creation, password resets, suspension, and audit logs.</td>
+    <td width="50%" valign="top"><b>Complete account management</b><br>Real-time search, player character sheets (Base/Job Lv, stats, Zeny and other currencies, coordinates, read-only inventory), account creation, password resets, suspension, and audit logs.</td>
   </tr>
   <tr>
     <td colspan="2" valign="top"><b>Economy log viewer</b><br>Read-only, paginated view of RO3Emu's <code>economy_entry</code> ledger joined with <code>operation_receipt</code> (the FluxCP zeny/pick log equivalent) to audit dupes and disputes. Filter by account, character, and UTC date range (<code>GET /api/admin/economy?account=&amp;character=&amp;from=YYYY-MM-DD&amp;to=YYYY-MM-DD&amp;page=&amp;page_size=</code>). Queries are parameterized and run on a <code>query_only</code> connection; databases without the economy tables report <code>"available": false</code>.</td>

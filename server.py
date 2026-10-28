@@ -585,23 +585,28 @@ def verify_ro3_password(password_str, expected_hash, salt_bytes):
     calc_hash = hashlib.pbkdf2_hmac('sha256', pw_bytes, salt_bytes, 100000, len(expected_hash))
     return secrets.compare_digest(calc_hash, expected_hash)
 
+# role.currency holds "<ItemConfig id>:<amount>" pairs; RO3Emu defines id 1 as Zeny
+# (Accounts/RoleStore.cs, Game/CharacterService.cs ZenyId). Other ids have no verified
+# name, so they are reported by id.
+ZENY_CURRENCY_ITEM_ID = 1
+
 def parse_currency(curr_str):
-    result = {"zeny": 0, "diamonds": 0, "raw": curr_str or ""}
+    result = {"zeny": 0, "others": [], "raw": curr_str or ""}
     if not curr_str:
         return result
-    try:
-        parts = str(curr_str).split(",")
-        for part in parts:
-            if ":" in part:
-                k, v = part.split(":", 1)
-                k = k.strip()
-                v = int(v.strip())
-                if k == "2":
-                    result["zeny"] = v
-                elif k == "1":
-                    result["diamonds"] = v
-    except Exception:
-        pass
+    for part in str(curr_str).split(","):
+        if ":" not in part:
+            continue
+        key, value = part.split(":", 1)
+        try:
+            currency_id, amount = int(key.strip()), int(value.strip())
+        except ValueError:
+            continue
+        if currency_id == ZENY_CURRENCY_ITEM_ID:
+            result["zeny"] = amount
+        else:
+            result["others"].append({"id": currency_id, "amount": amount})
+    result["others"].sort(key=lambda c: c["id"])
     return result
 
 # RO3Emu RoleStore: role.currency is "itemId:amount,..." where item 1 = Zeny.

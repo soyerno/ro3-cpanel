@@ -189,6 +189,14 @@
     return Number(num).toLocaleString();
   }
 
+  // Currencies other than Zeny have no verified name in RO3Emu, so they are listed by item id.
+  function formatOtherCurrencies(others) {
+    if (!others || !others.length) return '—';
+    return others.map(function (c) {
+      return '#' + escapeHtml(String(c.id)) + ': ' + formatNumber(c.amount);
+    }).join(', ');
+  }
+
   function formatDate(isoStr) {
     if (!isoStr) return '—';
     try {
@@ -642,7 +650,7 @@
                 '</div>' +
                 '<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 12px; margin-bottom: 8px;">' +
                   '<div><strong>Zeny:</strong> <span style="color: var(--success);">' + formatNumber(c.currency.zeny) + ' Z</span></div>' +
-                  '<div><strong>Diamantes:</strong> <span style="color: var(--info);">' + formatNumber(c.currency.diamonds) + '</span></div>' +
+                  '<div><strong>Otras monedas:</strong> <span style="color: var(--info);">' + formatOtherCurrencies(c.currency.others) + '</span></div>' +
                   '<div><strong>Ubicación:</strong> ' + escapeHtml(c.scene_name) + ' (' + c.pos.x + ', ' + c.pos.z + ')</div>' +
                   '<div><strong>Último ingreso:</strong> ' + formatDate(c.last_login) + '</div>' +
                 '</div>' +

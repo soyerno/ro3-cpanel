@@ -9,10 +9,20 @@ import server
 
 class TestAPIHelpers(unittest.TestCase):
     def test_parse_currency(self):
+        # RO3Emu: currency ids are ItemConfig ids and "1 = Zeny" (RoleStore.cs, CharacterService.ZenyId).
         curr_str = "1:25000,132:400,2:1500000"
         parsed = server.parse_currency(curr_str)
-        self.assertEqual(parsed["zeny"], 1500000)
-        self.assertEqual(parsed["diamonds"], 2500000 if False else 25000)
+        self.assertEqual(parsed["zeny"], 25000)
+        self.assertEqual(parsed["others"], [{"id": 2, "amount": 1500000}, {"id": 132, "amount": 400}])
+        self.assertNotIn("diamonds", parsed)
+        self.assertEqual(parsed["raw"], curr_str)
+
+    def test_parse_currency_tolerates_empty_and_malformed_values(self):
+        self.assertEqual(server.parse_currency(""), {"zeny": 0, "others": [], "raw": ""})
+        self.assertEqual(server.parse_currency(None), {"zeny": 0, "others": [], "raw": ""})
+        parsed = server.parse_currency("1:x,abc,7:5")
+        self.assertEqual(parsed["zeny"], 0)
+        self.assertEqual(parsed["others"], [{"id": 7, "amount": 5}])
 
     def test_parse_stats(self):
         stats_str = "50,20,30,10,15,5"
