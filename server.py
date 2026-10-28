@@ -70,9 +70,13 @@ PORT = int(CONFIG.get("port", 8095))
 DB_PATH = os.path.abspath(CONFIG.get("ro3_db_path", "ro3emu.db"))
 RO3_STATUS_URL = CONFIG.get("ro3_status_url", "http://127.0.0.1:5380/ro3emu/status")
 SESSION_TTL_SECONDS = int(CONFIG.get("session_ttl_hours", 24)) * 3600
+# Minimum expiry gain before a DB-backed session is rewritten (limits writes to the game DB).
+SESSION_SLIDE_MIN_SECONDS = 300
 STATIC_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "public"))
 
-# In-memory session store
+# Fallback session store, used only while the RO3Emu database file is missing or
+# unusable. Sessions normally live in the `admin_session` table so they survive a
+# restart. Keyed by the SHA-256 hash of the token, never by the raw token.
 ACTIVE_SESSIONS = {}
 
 # RO Class & Map Dictionaries
@@ -324,7 +328,128 @@ def init_tables():
                 created_utc TEXT DEFAULT CURRENT_TIMESTAMP
             );
         """)
+        con.execute(ADMIN_SESSION_TABLE_SQL)
         con.commit()
+    # Startup: drop sessions that expired while the panel was down.
+    purge_expired_sessions()
+
+# --- Admin Sessions ---
+# Panel sessions live in `admin_session` so a restart does not log every admin out.
+# Only the SHA-256 hash of the token is stored; the raw token never reaches the DB or logs.
+ADMIN_SESSION_TABLE_SQL = """
+    CREATE TABLE IF NOT EXISTS admin_session (
+        token_hash TEXT PRIMARY KEY,
+        admin_user TEXT NOT NULL,
+        ip_address TEXT DEFAULT '',
+        created_utc INTEGER NOT NULL,
+        expires_utc INTEGER NOT NULL
+    );
+"""
+
+def hash_session_token(token):
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+@contextmanager
+def session_db():
+    """get_db() plus the session table, which may be missing if the DB appeared after startup.
+
+    Raises FileNotFoundError when the DB file is missing; callers fall back to ACTIVE_SESSIONS.
+    """
+    with get_db() as con:
+        con.execute(ADMIN_SESSION_TABLE_SQL)
+        yield con
+
+def purge_expired_sessions(now=None):
+    now = int(time.time()) if now is None else now
+    # Snapshot first: request threads may mutate the dict concurrently.
+    for key in [k for k, s in list(ACTIVE_SESSIONS.items()) if now > s["expires_at"]]:
+        ACTIVE_SESSIONS.pop(key, None)
+    try:
+        with session_db() as con:
+            con.execute("DELETE FROM admin_session WHERE expires_utc < ?", (now,))
+    except (FileNotFoundError, sqlite3.Error) as e:
+        if not isinstance(e, FileNotFoundError):
+            print(f"[Session Warning] Could not purge expired sessions: {e}", file=sys.stderr)
+
+def create_session(token, user, ip_address):
+    now = int(time.time())
+    expires = now + SESSION_TTL_SECONDS
+    token_hash = hash_session_token(token)
+    purge_expired_sessions(now)
+    try:
+        with session_db() as con:
+            con.execute(
+                "INSERT INTO admin_session (token_hash, admin_user, ip_address, created_utc, expires_utc) VALUES (?, ?, ?, ?, ?)",
+                (token_hash, user, ip_address or "", now, expires)
+            )
+        return
+    except FileNotFoundError:
+        pass
+    except sqlite3.Error as e:
+        print(f"[Session Warning] Database unavailable, keeping session in memory: {e}", file=sys.stderr)
+    ACTIVE_SESSIONS[token_hash] = {"user": user, "created_at": now, "expires_at": expires, "ip": ip_address}
+
+def is_configured_admin(username):
+    """True while `username` is still listed in admin_users (case-insensitive)."""
+    wanted = str(username or "").strip().lower()
+    return any(str(a.get("username", "")).strip().lower() == wanted for a in CONFIG.get("admin_users", []))
+
+def get_session(token):
+    """Return the live session for `token` and slide its expiry, or None.
+
+    Expired sessions are deleted. A database error fails closed for DB-backed sessions.
+    """
+    if not token:
+        return None
+    now = int(time.time())
+    token_hash = hash_session_token(token)
+
+    session = ACTIVE_SESSIONS.get(token_hash)
+    if session is not None:
+        if now > session["expires_at"] or not is_configured_admin(session["user"]):
+            ACTIVE_SESSIONS.pop(token_hash, None)
+            return None
+        session["expires_at"] = now + SESSION_TTL_SECONDS
+        return session
+
+    try:
+        with session_db() as con:
+            row = con.execute(
+                "SELECT admin_user, ip_address, created_utc, expires_utc FROM admin_session WHERE token_hash = ?",
+                (token_hash,)
+            ).fetchone()
+            if row is None:
+                return None
+            # A session dies when it expires or when its admin is removed from admin_users.
+            if now > row["expires_utc"] or not is_configured_admin(row["admin_user"]):
+                con.execute("DELETE FROM admin_session WHERE token_hash = ?", (token_hash,))
+                return None
+            expires = now + SESSION_TTL_SECONDS
+            # The session table lives in the live RO3Emu database: skip the write unless
+            # the expiry would move by at least SESSION_SLIDE_MIN_SECONDS.
+            if expires - row["expires_utc"] >= SESSION_SLIDE_MIN_SECONDS:
+                con.execute("UPDATE admin_session SET expires_utc = ? WHERE token_hash = ?", (expires, token_hash))
+            else:
+                expires = row["expires_utc"]
+            return {"user": row["admin_user"], "created_at": row["created_utc"], "expires_at": expires, "ip": row["ip_address"]}
+    except FileNotFoundError:
+        return None
+    except sqlite3.Error as e:
+        print(f"[Session Warning] Could not read session: {e}", file=sys.stderr)
+        return None
+
+def delete_session(token):
+    if not token:
+        return
+    token_hash = hash_session_token(token)
+    ACTIVE_SESSIONS.pop(token_hash, None)
+    try:
+        with session_db() as con:
+            con.execute("DELETE FROM admin_session WHERE token_hash = ?", (token_hash,))
+    except FileNotFoundError:
+        pass
+    except sqlite3.Error as e:
+        print(f"[Session Warning] Could not delete session: {e}", file=sys.stderr)
 
 def log_audit(admin_user, action, target="", details="", ip_address=""):
     try:
@@ -855,15 +980,7 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
         return None
 
     def check_auth(self):
-        token = self.get_session_token()
-        if not token or token not in ACTIVE_SESSIONS:
-            return None
-        session = ACTIVE_SESSIONS[token]
-        if time.time() > session['expires_at']:
-            del ACTIVE_SESSIONS[token]
-            return None
-        session['expires_at'] = time.time() + SESSION_TTL_SECONDS
-        return session
+        return get_session(self.get_session_token())
 
     def do_OPTIONS(self):
         self.send_response(204)
@@ -960,9 +1077,7 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
 
         # 2. Logout
         if raw_path == '/api/admin/logout':
-            token = self.get_session_token()
-            if token and token in ACTIVE_SESSIONS:
-                del ACTIVE_SESSIONS[token]
+            delete_session(self.get_session_token())
             extra_headers = {
                 'Set-Cookie': 'ro3_admin_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0'
             }
@@ -1007,12 +1122,7 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
             return self.send_json(401, {"error": "Acceso denegado: credenciales de administrador inválidas."})
 
         token = secrets.token_urlsafe(32)
-        ACTIVE_SESSIONS[token] = {
-            "user": resolved_user,
-            "created_at": time.time(),
-            "expires_at": time.time() + SESSION_TTL_SECONDS,
-            "ip": client_ip
-        }
+        create_session(token, resolved_user, client_ip)
 
         log_audit(resolved_user, "login_success", resolved_user, "Inicio de sesión administrativo", client_ip)
 
