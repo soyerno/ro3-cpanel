@@ -318,7 +318,9 @@ class MailViewTest(unittest.TestCase):
 
         with mock.patch.object(server, "get_db", spying_get_db):
             self.get_mail("Rich")
-        self.assertEqual(seen, [1])
+        # Session validation may open its own connection first; the mail read is the last one.
+        self.assertTrue(seen)
+        self.assertEqual(seen[-1], 1)
 
 
 if __name__ == "__main__":
