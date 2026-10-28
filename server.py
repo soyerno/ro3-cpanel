@@ -322,6 +322,72 @@ def parse_currency(curr_str):
         pass
     return result
 
+# RO3Emu RoleStore: role.currency is "itemId:amount,..." where item 1 = Zeny.
+ZENY_ITEM_ID = 1
+
+RANKING_TYPES = ("level", "zeny", "power", "guilds")
+RANKING_DEFAULT_LIMIT = 20
+RANKING_MAX_LIMIT = 100
+
+
+def currency_amount(curr_str, item_id):
+    """Amount of one currency item in a role.currency string; malformed pairs are ignored."""
+    if not curr_str:
+        return 0
+    for part in str(curr_str).split(","):
+        key, sep, value = part.partition(":")
+        if not sep:
+            continue
+        try:
+            if int(key.strip()) == item_id:
+                return int(value.strip())
+        except ValueError:
+            continue
+    return 0
+
+
+def parse_power_total(emblems_blob):
+    """
+    Leaderboard power of a role, mirroring RO3Emu PowerService: the role.emblems blob is the
+    EmblemService.EmblemState JSON (default System.Text.Json, PascalCase) and the committed total is
+    Power.CurrentNormal + Power.CurrentSeason. Returns None when the blob is missing, unparsable,
+    or the power was never published.
+    """
+    if emblems_blob is None:
+        return None
+    try:
+        if isinstance(emblems_blob, (bytes, bytearray, memoryview)):
+            emblems_blob = bytes(emblems_blob).decode("utf-8")
+        state = json.loads(emblems_blob)
+        power = state.get("Power") if isinstance(state, dict) else None
+        if not isinstance(power, dict):
+            return None
+        normal = power.get("CurrentNormal", 0)
+        season = power.get("CurrentSeason", 0)
+        if isinstance(normal, bool) or isinstance(season, bool):
+            return None
+        if not isinstance(normal, int) or not isinstance(season, int):
+            return None
+        return normal + season
+    except (UnicodeDecodeError, ValueError, TypeError):
+        return None
+
+
+def parse_ranking_int(params, key, default, minimum, maximum=None):
+    try:
+        value = int(params.get(key, [default])[0])
+    except (TypeError, ValueError):
+        return default
+    value = max(value, minimum)
+    if maximum is not None:
+        value = min(value, maximum)
+    return value
+
+
+def career_label(career_id):
+    return CAREER_MAP.get(career_id, f"Clase {career_id}")
+
+
 def parse_stats(stats_str):
     result = {"str": 0, "agi": 0, "vit": 0, "int": 0, "dex": 0, "luk": 0}
     if not stats_str:
@@ -570,6 +636,10 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
         # 7. Audit Log
         if raw_path == '/api/admin/audit-log':
             return self.handle_audit_log(params)
+
+        # 8. Rankings (read-only)
+        if raw_path == '/api/admin/rankings':
+            return self.handle_rankings(params)
 
         self.send_json(404, {"error": "Endpoint no encontrado"})
 
@@ -1015,6 +1085,111 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
             ).fetchall()
             logs = [dict(r) for r in rows]
         return self.send_json(200, {"logs": logs})
+
+    def handle_rankings(self, params):
+        ranking_type = params.get('type', ['level'])[0].strip().lower() or 'level'
+        if ranking_type not in RANKING_TYPES:
+            return self.send_json(400, {
+                "error": "Tipo de ranking inválido. Valores permitidos: " + ", ".join(RANKING_TYPES)
+            })
+
+        limit = parse_ranking_int(params, 'limit', RANKING_DEFAULT_LIMIT, 1, RANKING_MAX_LIMIT)
+        page = parse_ranking_int(params, 'page', 1, 1)
+        offset = (page - 1) * limit
+
+        with get_db() as con:
+            if ranking_type == 'level':
+                rows, total = self.rank_by_level(con, limit, offset)
+            elif ranking_type == 'zeny':
+                rows, total = self.rank_by_metric(con, 'currency', lambda v: currency_amount(v, ZENY_ITEM_ID), limit, offset)
+            elif ranking_type == 'power':
+                rows, total = self.rank_by_metric(con, 'emblems', parse_power_total, limit, offset)
+            else:
+                try:
+                    rows, total = self.rank_guilds(con, limit, offset)
+                except sqlite3.OperationalError as e:
+                    if "no such table" not in str(e).lower():
+                        raise
+                    return self.send_json(200, {
+                        "type": ranking_type, "page": page, "limit": limit,
+                        "total": 0, "available": False, "rankings": []
+                    })
+
+        for index, row in enumerate(rows):
+            row["rank"] = offset + index + 1
+
+        return self.send_json(200, {
+            "type": ranking_type,
+            "page": page,
+            "limit": limit,
+            "total": total,
+            "available": True,
+            "rankings": rows
+        })
+
+    @staticmethod
+    def character_row(r, value):
+        career_id = r["career"] or 1000
+        return {
+            "id": r["id"],
+            "name": r["name"],
+            "account": r["account"],
+            "career": career_id,
+            "career_name": career_label(career_id),
+            "level": r["level"],
+            "job_level": r["job_level"],
+            "value": value
+        }
+
+    def rank_by_level(self, con, limit, offset):
+        total = con.execute("SELECT COUNT(*) FROM role WHERE deleted_time = 0").fetchone()[0]
+        rows = con.execute("""
+            SELECT id, account, name, career, level, job_level
+            FROM role
+            WHERE deleted_time = 0
+            ORDER BY level DESC, job_level DESC, exp DESC, id ASC
+            LIMIT ? OFFSET ?
+        """, (limit, offset)).fetchall()
+        return [self.character_row(r, r["level"]) for r in rows], total
+
+    def rank_by_metric(self, con, column, extract, limit, offset):
+        # The metric lives inside a TEXT/BLOB column, so it is decoded in Python. Only the columns
+        # needed for the row are loaded (one tuple per non-deleted character) to bound memory.
+        query = (
+            "SELECT id, account, name, career, level, job_level, " + column + " AS metric "
+            "FROM role WHERE deleted_time = 0"
+        )
+        scored = []
+        for r in con.execute(query):
+            value = extract(r["metric"])
+            if value is None:
+                continue
+            scored.append((value, r))
+        scored.sort(key=lambda item: (-item[0], item[1]["id"]))
+        page = scored[offset:offset + limit]
+        return [self.character_row(r, value) for value, r in page], len(scored)
+
+    def rank_guilds(self, con, limit, offset):
+        total = con.execute("SELECT COUNT(*) FROM guild").fetchone()[0]
+        rows = con.execute("""
+            SELECT g.id, g.name,
+                   COUNT(r.id) AS member_count,
+                   COALESCE(SUM(r.level), 0) AS total_level
+            FROM guild g
+            LEFT JOIN guild_member gm ON gm.guild_id = g.id
+            LEFT JOIN role r ON r.id = gm.role_id AND r.deleted_time = 0
+            GROUP BY g.id, g.name
+            ORDER BY member_count DESC, total_level DESC, g.id ASC
+            LIMIT ? OFFSET ?
+        """, (limit, offset)).fetchall()
+        result = [{
+            "id": r["id"],
+            "name": r["name"],
+            "member_count": r["member_count"],
+            "total_level": r["total_level"],
+            "value": r["member_count"]
+        } for r in rows]
+        return result, total
 
 def main():
     print("=" * 60)
