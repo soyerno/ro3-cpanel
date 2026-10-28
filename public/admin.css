@@ -695,6 +695,66 @@ body {
   word-break: break-word;
 }
 
+/* RO3Emu diagnostics (dashboard) */
+.diag-card {
+  display: block;
+  margin-bottom: 20px;
+}
+
+.diag-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.diag-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #fff;
+}
+
+.diag-note {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.diag-unavailable {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.diag-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+}
+
+/* display: grid would otherwise override the hidden attribute */
+.diag-grid[hidden] {
+  display: none;
+}
+
+.diag-cell {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+}
+
+.diag-val {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--gold);
+}
+
+.diag-lbl {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
 /* Toast Alerts */
 .toast-container {
   position: fixed;

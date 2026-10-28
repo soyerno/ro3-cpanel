@@ -192,6 +192,63 @@
         </div>
       </div>
 
+      <!-- RO3Emu diagnostics (loopback only): hidden values until /api/admin/metrics answers -->
+      <div id="metrics-panel" class="toolbar-card diag-card">
+        <div class="diag-head">
+          <h3 class="diag-title">Métricas de RO3Emu</h3>
+          <span id="metrics-captured" class="diag-note"></span>
+        </div>
+        <p id="metrics-unavailable" class="diag-unavailable" hidden>No disponible</p>
+        <div id="metrics-grid" class="diag-grid" hidden>
+          <div class="diag-cell">
+            <div id="metric-uptime" class="diag-val">—</div>
+            <div class="diag-lbl" title="Tiempo desde el inicio (o el último reinicio) de las métricas de RO3Emu">Tiempo activo</div>
+          </div>
+          <div class="diag-cell">
+            <div id="metric-connections" class="diag-val">—</div>
+            <div class="diag-lbl">Conexiones</div>
+          </div>
+          <div class="diag-cell">
+            <div id="metric-in-world" class="diag-val">—</div>
+            <div class="diag-lbl">En el mundo</div>
+          </div>
+          <div class="diag-cell">
+            <div id="metric-memory" class="diag-val">—</div>
+            <div class="diag-lbl">Memoria (working set)</div>
+          </div>
+          <div class="diag-cell">
+            <div id="metric-db" class="diag-val">—</div>
+            <div class="diag-lbl">Sentencias BD / commits</div>
+          </div>
+          <div class="diag-cell">
+            <div id="metric-errors" class="diag-val">—</div>
+            <div class="diag-lbl">Excepciones / errores</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="toolbar-card diag-card">
+        <div class="diag-head">
+          <h3 class="diag-title">En línea</h3>
+          <span id="online-count-label" class="diag-note"></span>
+        </div>
+        <p id="online-unavailable" class="diag-unavailable" hidden>No disponible</p>
+        <div id="online-table-wrap" class="table-container" hidden>
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Cuenta</th>
+                <th>Personaje</th>
+                <th>Mapa</th>
+                <th>Posición (x, z)</th>
+                <th id="online-ip-th" hidden>IP</th>
+              </tr>
+            </thead>
+            <tbody id="online-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
       <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 20px;">
         <div class="toolbar-card" style="display: block;">
           <h3 style="font-size: 15px; font-weight: 700; color: #fff; margin-bottom: 12px;">Acciones Rápidas del Administrador</h3>

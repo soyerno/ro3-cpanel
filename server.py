@@ -13,6 +13,9 @@ import sqlite3
 import hashlib
 import secrets
 import time
+import math
+import socket
+import http.client
 import urllib.request
 import urllib.error
 import urllib.parse
@@ -69,6 +72,10 @@ HOST = CONFIG.get("host", "0.0.0.0")
 PORT = int(CONFIG.get("port", 8095))
 DB_PATH = os.path.abspath(CONFIG.get("ro3_db_path", "ro3emu.db"))
 RO3_STATUS_URL = CONFIG.get("ro3_status_url", "http://127.0.0.1:5380/ro3emu/status")
+# RO3Emu diagnostics (/ro3emu/online, /ro3emu/metrics): same 2 s socket timeout as the status probe,
+# plus a 2 s deadline while reading the body, and a cap on how much of the reply the panel reads.
+RO3_HTTP_TIMEOUT = 2.0
+RO3_MAX_RESPONSE_BYTES = 1024 * 1024
 SESSION_TTL_SECONDS = int(CONFIG.get("session_ttl_hours", 24)) * 3600
 # Minimum expiry gain before a DB-backed session is rewritten (limits writes to the game DB).
 SESSION_SLIDE_MIN_SECONDS = 300
@@ -887,6 +894,164 @@ def query_economy(account, character, from_ms, to_ms, page, page_size):
     })
     return result
 
+
+RO3_STATUS_SUFFIX = "/ro3emu/status"
+
+
+class Ro3EmuUnavailable(Exception):
+    """RO3Emu could not serve a diagnostics request; the message is shown to the admin."""
+
+
+def ro3_base_url():
+    """RO3Emu HTTP root: config 'ro3_base_url' if set, else RO3_STATUS_URL without '/ro3emu/status'."""
+    explicit = str(CONFIG.get("ro3_base_url") or "").strip()
+    if explicit:
+        return explicit.rstrip("/")
+    status_url = RO3_STATUS_URL.rstrip("/")
+    if status_url.endswith(RO3_STATUS_SUFFIX):
+        return status_url[:-len(RO3_STATUS_SUFFIX)]
+    parts = urllib.parse.urlsplit(status_url)
+    return f"{parts.scheme}://{parts.netloc}"
+
+
+def fetch_ro3_json(path):
+    """GET a RO3Emu JSON endpoint within RO3_HTTP_TIMEOUT and RO3_MAX_RESPONSE_BYTES.
+
+    Raises Ro3EmuUnavailable with a Spanish reason on any failure.
+    """
+    deadline = time.monotonic() + RO3_HTTP_TIMEOUT
+    req = urllib.request.Request(ro3_base_url() + path, headers={'User-Agent': 'RO3AdminCPanel'})
+    try:
+        with urllib.request.urlopen(req, timeout=RO3_HTTP_TIMEOUT) as resp:
+            declared = resp.headers.get('Content-Length')
+            if declared and declared.isdigit() and int(declared) > RO3_MAX_RESPONSE_BYTES:
+                raise Ro3EmuUnavailable("La respuesta de RO3Emu supera el tamaño máximo permitido.")
+            body = bytearray()
+            while True:
+                if time.monotonic() > deadline:
+                    raise TimeoutError()
+                chunk = resp.read(65536)
+                if not chunk:
+                    break
+                body.extend(chunk)
+                if len(body) > RO3_MAX_RESPONSE_BYTES:
+                    raise Ro3EmuUnavailable("La respuesta de RO3Emu supera el tamaño máximo permitido.")
+    except Ro3EmuUnavailable:
+        raise
+    except urllib.error.HTTPError as e:
+        e.close()
+        if e.code == 404:
+            raise Ro3EmuUnavailable(
+                "RO3Emu no expone este endpoint para el panel: solo responde por loopback, "
+                "así que el panel debe correr en el mismo host que RO3Emu (o detrás de un proxy local)."
+            )
+        raise Ro3EmuUnavailable(f"RO3Emu respondió HTTP {e.code}.")
+    except (TimeoutError, socket.timeout):
+        raise Ro3EmuUnavailable("RO3Emu no respondió a tiempo.")
+    except urllib.error.URLError as e:
+        if isinstance(e.reason, (TimeoutError, socket.timeout)):
+            raise Ro3EmuUnavailable("RO3Emu no respondió a tiempo.")
+        raise Ro3EmuUnavailable("No se pudo conectar con RO3Emu.")
+    except (OSError, ValueError, http.client.HTTPException):
+        raise Ro3EmuUnavailable("No se pudo conectar con RO3Emu.")
+    try:
+        return json.loads(bytes(body).decode('utf-8'))
+    except (UnicodeDecodeError, ValueError):
+        raise Ro3EmuUnavailable("La respuesta de RO3Emu no es JSON válido.")
+
+
+UNEXPECTED_FORMAT = "La respuesta de RO3Emu tiene un formato inesperado."
+
+
+def _number(value):
+    """Finite numbers pass through; anything else (bool, str, NaN, None, missing) becomes None."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    return value
+
+
+def _section(data, key):
+    value = data.get(key)
+    return value if isinstance(value, dict) else {}
+
+
+def summarize_metrics(snapshot):
+    """Selected fields of RO3Emu's ServerMetrics.Snapshot(); missing values become None."""
+    if not isinstance(snapshot, dict):
+        raise Ro3EmuUnavailable(UNEXPECTED_FORMAT)
+    wire = _section(snapshot, "wire")
+    sessions = _section(snapshot, "sessions")
+    database = _section(snapshot, "database")
+    runtime = _section(snapshot, "runtime")
+    errors = _section(snapshot, "errors")
+
+    # byMap has one entry per map instance (line/room); the dashboard shows players per map.
+    per_map = {}
+    by_map = sessions.get("byMap")
+    for entry in by_map if isinstance(by_map, list) else []:
+        if not isinstance(entry, dict):
+            continue
+        map_id = _number(entry.get("map"))
+        count = _number(entry.get("count"))
+        if map_id is None or count is None:
+            continue
+        per_map[map_id] = per_map.get(map_id, 0) + count
+
+    captured = snapshot.get("capturedUtc")
+    return {
+        "captured_utc": captured if isinstance(captured, str) else None,
+        "uptime_seconds": _number(snapshot.get("elapsedSeconds")),
+        "connections": _number(wire.get("connections")),
+        "sessions": {
+            "login": _number(sessions.get("login")),
+            "loading": _number(sessions.get("loading")),
+            "in_world": _number(sessions.get("inWorld")),
+            "by_map": [
+                {"map": map_id, "scene_name": scene_name(map_id), "count": count}
+                for map_id, count in per_map.items()
+            ],
+        },
+        "database": {
+            "statements": _number(database.get("statements")),
+            "commits": _number(database.get("commits")),
+        },
+        "runtime": {"working_set_bytes": _number(runtime.get("workingSetBytes"))},
+        "errors": {
+            "exceptions": _number(errors.get("exceptions")),
+            "error_logs": _number(errors.get("errorLogs")),
+        },
+    }
+
+
+def summarize_online(entries, show_ips):
+    """RO3Emu /ro3emu/online rows -> panel rows; 'remote' (player IP) only when show_ips."""
+    if not isinstance(entries, list):
+        raise Ro3EmuUnavailable(UNEXPECTED_FORMAT)
+    players = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        scene = _number(entry.get("scene"))
+        x = _number(entry.get("x"))
+        z = _number(entry.get("z"))
+        role = entry.get("role")
+        player = {
+            "account": str(entry.get("account") or ""),
+            "character": role if isinstance(role, str) else None,
+            "scene_id": scene,
+            "scene_name": scene_name(scene) if scene is not None else None,
+            "x": round(x, 1) if x is not None else None,
+            "z": round(z, 1) if z is not None else None,
+        }
+        if show_ips:
+            remote = entry.get("remote")
+            player["remote"] = str(remote) if remote is not None else None
+        players.append(player)
+    return players
+
+
 def authenticate_admin(username, password):
     """
     Checks if username & password match any configured admin,
@@ -1070,6 +1235,14 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
         if raw_path == '/api/admin/rankings':
             return self.handle_rankings(params)
 
+        # 11. Who is online (RO3Emu /ro3emu/online, loopback only)
+        if raw_path == '/api/admin/online':
+            return self.handle_online()
+
+        # 12. Server metrics (RO3Emu /ro3emu/metrics, loopback only)
+        if raw_path == '/api/admin/metrics':
+            return self.handle_metrics()
+
         self.send_json(404, {"error": "Endpoint no encontrado"})
 
     def do_POST(self):
@@ -1188,6 +1361,31 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
                 "banned": banned_accounts
             }
         })
+
+    # RO3Emu diagnostics are optional: any failure answers 200 {available: false, reason}.
+    def handle_online(self):
+        show_ips = CONFIG.get("show_player_ips") is True
+        try:
+            players = summarize_online(fetch_ro3_json("/ro3emu/online"), show_ips)
+        except Ro3EmuUnavailable as e:
+            return self.send_json(200, {"available": False, "reason": str(e)})
+        except Exception:
+            return self.send_json(200, {"available": False, "reason": UNEXPECTED_FORMAT})
+        return self.send_json(200, {
+            "available": True,
+            "show_ips": show_ips,
+            "count": len(players),
+            "players": players
+        })
+
+    def handle_metrics(self):
+        try:
+            metrics = summarize_metrics(fetch_ro3_json("/ro3emu/metrics"))
+        except Ro3EmuUnavailable as e:
+            return self.send_json(200, {"available": False, "reason": str(e)})
+        except Exception:
+            return self.send_json(200, {"available": False, "reason": UNEXPECTED_FORMAT})
+        return self.send_json(200, {"available": True, "metrics": metrics})
 
     def handle_accounts_list(self, params):
         q = params.get('q', [''])[0].strip().lower()

@@ -72,6 +72,23 @@
     statBanned: document.getElementById('stat-banned'),
     tabAccountsCount: document.getElementById('tab-accounts-count'),
 
+    // RO3Emu diagnostics (dashboard)
+    metricsPanel: document.getElementById('metrics-panel'),
+    metricsUnavailable: document.getElementById('metrics-unavailable'),
+    metricsGrid: document.getElementById('metrics-grid'),
+    metricsCaptured: document.getElementById('metrics-captured'),
+    metricUptime: document.getElementById('metric-uptime'),
+    metricConnections: document.getElementById('metric-connections'),
+    metricInWorld: document.getElementById('metric-in-world'),
+    metricMemory: document.getElementById('metric-memory'),
+    metricDb: document.getElementById('metric-db'),
+    metricErrors: document.getElementById('metric-errors'),
+    onlineUnavailable: document.getElementById('online-unavailable'),
+    onlineTableWrap: document.getElementById('online-table-wrap'),
+    onlineTbody: document.getElementById('online-tbody'),
+    onlineIpTh: document.getElementById('online-ip-th'),
+    onlineCountLabel: document.getElementById('online-count-label'),
+
     searchInput: document.getElementById('search-input'),
     statusSelect: document.getElementById('status-select'),
     sortSelect: document.getElementById('sort-select'),
@@ -325,6 +342,125 @@
     if (els.statOnline) els.statOnline.textContent = formatNumber(s.server.players_online);
     if (els.statBanned) els.statBanned.textContent = formatNumber(s.counts.banned);
     if (els.tabAccountsCount) els.tabAccountsCount.textContent = s.counts.accounts;
+  }
+
+  // --- RO3Emu diagnostics (optional: loopback-only endpoints) ---
+  function isNum(v) {
+    return typeof v === 'number' && isFinite(v);
+  }
+
+  function formatDuration(seconds) {
+    if (!isNum(seconds)) return '—';
+    var total = Math.floor(seconds);
+    var d = Math.floor(total / 86400);
+    var h = Math.floor((total % 86400) / 3600);
+    var m = Math.floor((total % 3600) / 60);
+    if (d > 0) return d + 'd ' + h + 'h';
+    if (h > 0) return h + 'h ' + m + 'm';
+    return m + 'm ' + (total % 60) + 's';
+  }
+
+  function formatBytes(bytes) {
+    if (!isNum(bytes)) return '—';
+    var units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    var value = bytes;
+    var i = 0;
+    while (value >= 1024 && i < units.length - 1) {
+      value = value / 1024;
+      i++;
+    }
+    return (i === 0 ? String(value) : value.toFixed(1)) + ' ' + units[i];
+  }
+
+  function formatMetric(v) {
+    return isNum(v) ? formatNumber(v) : '—';
+  }
+
+  function setUnavailable(el, reason) {
+    if (!el) return;
+    el.textContent = reason ? 'No disponible: ' + reason : 'No disponible';
+    el.hidden = false;
+  }
+
+  function loadServerMetrics() {
+    apiFetch('/api/admin/metrics')
+      .then(function (data) {
+        renderServerMetrics(data);
+      })
+      .catch(function (err) {
+        renderServerMetrics({ available: false, reason: err.message });
+      });
+  }
+
+  function renderServerMetrics(data) {
+    if (!els.metricsPanel) return;
+    if (!data || !data.available || !data.metrics) {
+      if (els.metricsGrid) els.metricsGrid.hidden = true;
+      if (els.metricsCaptured) els.metricsCaptured.textContent = '';
+      setUnavailable(els.metricsUnavailable, data && data.reason);
+      return;
+    }
+    var m = data.metrics;
+    var sessions = m.sessions || {};
+    var db = m.database || {};
+    var runtime = m.runtime || {};
+    var errors = m.errors || {};
+
+    if (els.metricsUnavailable) els.metricsUnavailable.hidden = true;
+    if (els.metricsGrid) els.metricsGrid.hidden = false;
+    if (els.metricUptime) els.metricUptime.textContent = formatDuration(m.uptime_seconds);
+    if (els.metricConnections) els.metricConnections.textContent = formatMetric(m.connections);
+    if (els.metricInWorld) els.metricInWorld.textContent = formatMetric(sessions.in_world);
+    if (els.metricMemory) els.metricMemory.textContent = formatBytes(runtime.working_set_bytes);
+    if (els.metricDb) els.metricDb.textContent = formatMetric(db.statements) + ' / ' + formatMetric(db.commits);
+    if (els.metricErrors) els.metricErrors.textContent = formatMetric(errors.exceptions) + ' / ' + formatMetric(errors.error_logs);
+    if (els.metricsCaptured) {
+      els.metricsCaptured.textContent = m.captured_utc ? 'Capturado: ' + formatDate(m.captured_utc) : '';
+    }
+  }
+
+  function loadOnlinePlayers() {
+    apiFetch('/api/admin/online')
+      .then(function (data) {
+        renderOnlinePlayers(data);
+      })
+      .catch(function (err) {
+        renderOnlinePlayers({ available: false, reason: err.message });
+      });
+  }
+
+  function renderOnlinePlayers(data) {
+    if (!els.onlineTbody) return;
+    if (!data || !data.available) {
+      if (els.onlineTableWrap) els.onlineTableWrap.hidden = true;
+      if (els.onlineCountLabel) els.onlineCountLabel.textContent = '';
+      setUnavailable(els.onlineUnavailable, data && data.reason);
+      return;
+    }
+    var players = data.players || [];
+    var showIps = data.show_ips === true;
+    var cols = showIps ? 5 : 4;
+
+    if (els.onlineUnavailable) els.onlineUnavailable.hidden = true;
+    if (els.onlineTableWrap) els.onlineTableWrap.hidden = false;
+    if (els.onlineIpTh) els.onlineIpTh.hidden = !showIps;
+    if (els.onlineCountLabel) els.onlineCountLabel.textContent = String(players.length) + ' sesiones';
+
+    if (players.length === 0) {
+      els.onlineTbody.innerHTML = '<tr><td colspan="' + cols + '" style="text-align: center; color: var(--text-muted); padding: 24px;">No hay jugadores conectados.</td></tr>';
+      return;
+    }
+
+    els.onlineTbody.innerHTML = players.map(function (p) {
+      var pos = (isNum(p.x) && isNum(p.z)) ? String(p.x) + ', ' + String(p.z) : '—';
+      var row = '<tr>' +
+        '<td>' + escapeHtml(p.account) + '</td>' +
+        '<td>' + (p.character ? escapeHtml(p.character) : '<span style="color: var(--text-muted);">Sin personaje</span>') + '</td>' +
+        '<td>' + (p.scene_name ? escapeHtml(p.scene_name) : '—') + '</td>' +
+        '<td>' + escapeHtml(pos) + '</td>';
+      if (showIps) row += '<td>' + (p.remote ? escapeHtml(p.remote) : '—') + '</td>';
+      return row + '</tr>';
+    }).join('');
   }
 
   function loadAccounts() {
@@ -1031,6 +1167,8 @@
       loadRankings();
     } else if (tabId === 'dashboard') {
       loadStats();
+      loadServerMetrics();
+      loadOnlinePlayers();
     } else if (tabId === 'accounts') {
       loadAccounts();
     }

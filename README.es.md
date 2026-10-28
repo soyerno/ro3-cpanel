@@ -67,8 +67,19 @@ RO3 CPanel se ejecuta como un servicio autónomo conectado a la base de datos de
     ├── Servidor SPA Integrado (public/index.html, admin.css, admin.js)
     ├── Endpoints REST API (/api/admin/*)
     ├── SQLite Concurrente (WAL) ──► [ro3emu.db]
-    └── Ping de Estado en Vivo  ──► [Servidor RO3Emu (Puerto 5380)]
+    ├── Ping de Estado en Vivo  ──► [Servidor RO3Emu (Puerto 5380)] /ro3emu/status
+    └── Diagnóstico             ──► [Servidor RO3Emu (Puerto 5380)] /ro3emu/online, /ro3emu/metrics (solo loopback)
 ```
+
+### Jugadores en línea y métricas del servidor
+
+El dashboard muestra el tiempo activo de RO3Emu, conexiones, jugadores en el mundo, memoria, sentencias de base de datos y contadores de errores, además de una tabla **En línea** (cuenta, personaje, mapa, posición). El panel los lee de `/ro3emu/metrics` y `/ro3emu/online` de RO3Emu, a través de `GET /api/admin/metrics` y `GET /api/admin/online`.
+
+- **Solo loopback:** RO3Emu responde esos dos endpoints únicamente a pedidos desde `127.0.0.1` / `::1`. Ejecuta el panel en el mismo host que RO3Emu (o con un proxy hacia su loopback). Si no, el dashboard muestra "No disponible" y el resto del panel sigue funcionando.
+- **URL base:** el panel obtiene la dirección de RO3Emu a partir de `ro3_status_url` (le quita `/ro3emu/status`). Define `ro3_base_url` (por ejemplo `http://127.0.0.1:5380`) para sobrescribirla.
+- **IPs de jugadores:** RO3Emu informa la dirección remota de cada sesión. El panel la oculta salvo que `show_player_ips` sea el booleano JSON `true` (por defecto `false`).
+- **Tiempo activo** es el tiempo desde que empezó la época de métricas de RO3Emu (inicio del proceso o el último `/ro3emu/metrics/reset`).
+- Cada pedido mantiene el timeout de 2 s y tiene un tope de respuesta de 1 MB; cualquier fallo responde `200 {"available": false, "reason": "..."}`.
 
 ### Correo de personajes (solo lectura)
 

@@ -6,6 +6,8 @@
   "port": 8095,
   "ro3_db_path": "./data/ro3emu.db",
   "ro3_status_url": "http://127.0.0.1:5380/ro3emu/status",
+  "ro3_base_url": "",
+  "show_player_ips": false,
   "admin_users": [
     {
       "username": "admin",
