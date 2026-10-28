@@ -30,7 +30,16 @@
     accountsPage: 1,
     accountsPages: 1,
     accountsTotal: 0,
-    selectedAccount: null
+    selectedAccount: null,
+    economy: {
+      account: '',
+      character: '',
+      from: '',
+      to: '',
+      page: 1,
+      pageSize: 50,
+      pages: 1
+    }
   };
 
   // DOM Elements
@@ -76,6 +85,17 @@
     tabViewAccounts: document.getElementById('tab-view-accounts'),
     tabViewAudit: document.getElementById('tab-view-audit'),
     auditTbody: document.getElementById('audit-tbody'),
+    tabViewEconomy: document.getElementById('tab-view-economy'),
+    economyForm: document.getElementById('economy-filter-form'),
+    economyAccount: document.getElementById('economy-account'),
+    economyCharacter: document.getElementById('economy-character'),
+    economyFrom: document.getElementById('economy-from'),
+    economyTo: document.getElementById('economy-to'),
+    economyTbody: document.getElementById('economy-tbody'),
+    economyUnavailable: document.getElementById('economy-unavailable'),
+    economyPrev: document.getElementById('economy-prev'),
+    economyNext: document.getElementById('economy-next'),
+    economyPageInfo: document.getElementById('economy-page-info'),
     tabViewRankings: document.getElementById('tab-view-rankings'),
     rankingTypeSelect: document.getElementById('ranking-type-select'),
     rankingPrev: document.getElementById('ranking-prev'),
@@ -663,6 +683,98 @@
       });
   }
 
+  // --- Economy Log (read-only) ---
+  function loadEconomy() {
+    var eco = state.economy;
+    var params = new URLSearchParams();
+    if (eco.account) params.set('account', eco.account);
+    if (eco.character) params.set('character', eco.character);
+    if (eco.from) params.set('from', eco.from);
+    if (eco.to) params.set('to', eco.to);
+    params.set('page', String(eco.page));
+    params.set('page_size', String(eco.pageSize));
+
+    apiFetch('/api/admin/economy?' + params.toString())
+      .then(function (data) {
+        eco.page = data.page || 1;
+        eco.pages = data.pages || 1;
+        if (els.economyUnavailable) els.economyUnavailable.hidden = data.available !== false;
+        renderEconomyTable(data.entries || [], data.available !== false);
+        renderEconomyPager(data.total || 0);
+      })
+      .catch(function (err) {
+        showToast('Error cargando economía: ' + err.message, 'error');
+      });
+  }
+
+  function describeEconomyOwner(e) {
+    if (e.owner_name) return escapeHtml(e.owner_name);
+    return escapeHtml(e.owner_kind_label) + ' ' + escapeHtml(e.owner_id);
+  }
+
+  function renderEconomyTable(entries, available) {
+    if (!els.economyTbody) return;
+    if (!entries.length) {
+      var msg = available ? 'No hay movimientos para los filtros seleccionados.' : 'Registro de economía no disponible en esta base de datos.';
+      els.economyTbody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: var(--text-muted); padding: 24px;">' + msg + '</td></tr>';
+      return;
+    }
+    var html = '';
+    entries.forEach(function (e) {
+      var deltaClass = e.delta < 0 ? 'economy-delta-neg' : 'economy-delta-pos';
+      var deltaText = (e.delta > 0 ? '+' : '') + formatNumber(e.delta);
+      var actorRole = e.actor_role_name ? escapeHtml(e.actor_role_name) : ('#' + escapeHtml(String(e.actor_role)));
+      html += '<tr>' +
+        '<td style="color: var(--text-muted); font-size: 12px;">' + formatDate(e.recorded_utc) + '</td>' +
+        '<td><span class="badge badge-admin">' + escapeHtml(e.command_kind) + '</span>' +
+          '<div class="economy-sub" title="' + escapeHtml(e.operation_id) + '">' + escapeHtml(e.operation_id) + '</div></td>' +
+        '<td><strong style="color: #fff;">' + escapeHtml(e.actor_account) + '</strong>' +
+          '<div class="economy-sub">' + actorRole + '</div></td>' +
+        '<td>' + describeEconomyOwner(e) + '</td>' +
+        '<td>' + escapeHtml(e.asset_label) + '</td>' +
+        '<td class="' + deltaClass + '">' + escapeHtml(deltaText) + '</td>' +
+        '<td style="color: var(--text-muted);">' + escapeHtml(String(e.reason_code)) + '</td>' +
+      '</tr>';
+    });
+    els.economyTbody.innerHTML = html;
+  }
+
+  function renderEconomyPager(total) {
+    var eco = state.economy;
+    if (els.economyPageInfo) {
+      els.economyPageInfo.textContent = 'Página ' + eco.page + ' de ' + eco.pages + ' (' + formatNumber(total) + ' movimientos)';
+    }
+    if (els.economyPrev) els.economyPrev.disabled = eco.page <= 1;
+    if (els.economyNext) els.economyNext.disabled = eco.page >= eco.pages;
+  }
+
+  function applyEconomyFilters(e) {
+    if (e) e.preventDefault();
+    var eco = state.economy;
+    eco.account = (els.economyAccount.value || '').trim();
+    eco.character = (els.economyCharacter.value || '').trim();
+    eco.from = els.economyFrom.value || '';
+    eco.to = els.economyTo.value || '';
+    eco.page = 1;
+    loadEconomy();
+  }
+
+  function resetEconomyFilters() {
+    els.economyAccount.value = '';
+    els.economyCharacter.value = '';
+    els.economyFrom.value = '';
+    els.economyTo.value = '';
+    applyEconomyFilters();
+  }
+
+  function changeEconomyPage(step) {
+    var eco = state.economy;
+    var next = eco.page + step;
+    if (next < 1 || next > eco.pages) return;
+    eco.page = next;
+    loadEconomy();
+  }
+
   // --- Rankings (read-only) ---
   var RANKING_METRIC_LABELS = {
     level: 'Nivel Base',
@@ -760,10 +872,13 @@
     if (els.tabViewDashboard) els.tabViewDashboard.hidden = (tabId !== 'dashboard');
     if (els.tabViewAccounts) els.tabViewAccounts.hidden = (tabId !== 'accounts');
     if (els.tabViewAudit) els.tabViewAudit.hidden = (tabId !== 'audit');
+    if (els.tabViewEconomy) els.tabViewEconomy.hidden = (tabId !== 'economy');
     if (els.tabViewRankings) els.tabViewRankings.hidden = (tabId !== 'rankings');
 
     if (tabId === 'audit') {
       loadAuditLog();
+    } else if (tabId === 'economy') {
+      loadEconomy();
     } else if (tabId === 'rankings') {
       loadRankings();
     } else if (tabId === 'dashboard') {
@@ -904,6 +1019,12 @@
 
     var btnSaveNotes = document.getElementById('btn-save-notes');
     if (btnSaveNotes) btnSaveNotes.addEventListener('click', handleSaveNotes);
+
+    if (els.economyForm) els.economyForm.addEventListener('submit', applyEconomyFilters);
+    var btnEconomyReset = document.getElementById('economy-reset');
+    if (btnEconomyReset) btnEconomyReset.addEventListener('click', resetEconomyFilters);
+    if (els.economyPrev) els.economyPrev.addEventListener('click', function () { changeEconomyPage(-1); });
+    if (els.economyNext) els.economyNext.addEventListener('click', function () { changeEconomyPage(1); });
   }
 
   // Initialization

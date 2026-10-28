@@ -6,6 +6,7 @@ Zero-dependency, standalone server with embedded static assets and RESTful manag
 
 import sys
 import os
+import re
 import json
 import sqlite3
 import hashlib
@@ -17,7 +18,7 @@ import urllib.parse
 from http.server import HTTPServer, ThreadingHTTPServer, BaseHTTPRequestHandler
 from http.cookies import SimpleCookie
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 # --- Configuration Loading ---
 CONFIG_FILE = os.environ.get("RO3_CONFIG_FILE", "config.json")
@@ -469,6 +470,171 @@ def format_role(r, include_progress=False):
     data["created_at"] = format_timestamp(r.get("create_time"))
     return data
 
+# --- Economy Log (read-only view over RO3Emu economy_entry / operation_receipt) ---
+# Enum values mirror upstream ro3emu-server src/Ro3Emu.Server/Economy/EconomyContracts.cs
+# (EconomyOwnerKind, EconomyAssetKind). Role owners store the role id as invariant text in owner_id.
+ECONOMY_DEFAULT_PAGE_SIZE = 50
+ECONOMY_MAX_PAGE_SIZE = 200
+ECONOMY_OWNER_KIND_ROLE = 1
+ECONOMY_OWNER_KIND_LABELS = {
+    1: 'Personaje',
+    2: 'Gremio',
+    3: 'Sistema',
+    4: 'Custodia',
+    5: 'Recuperación'
+}
+ECONOMY_ASSET_KIND_CURRENCY = 2
+ECONOMY_ASSET_KIND_LABELS = {
+    1: 'Ítem',
+    2: 'Moneda',
+    3: 'Recurso de gremio',
+    4: 'Recurso de evento'
+}
+# Upstream RoleStore.cs: currencies are ItemConfig ids and "1 = Zeny".
+ZENY_CURRENCY_ID = 1
+DAY_MS = 24 * 3600 * 1000
+ISO_DATE_RE = re.compile(r'^\d{4}-\d{2}-\d{2}$')
+
+def parse_int_value(raw, default, minimum, maximum):
+    try:
+        value = int(str(raw).strip())
+    except (TypeError, ValueError):
+        return default
+    if value < minimum:
+        value = minimum
+    if maximum is not None and value > maximum:
+        value = maximum
+    return value
+
+def parse_iso_date_ms(raw):
+    """Returns UTC midnight of a YYYY-MM-DD date in epoch milliseconds, None if empty; raises ValueError."""
+    value = (raw or '').strip()
+    if not value:
+        return None
+    if not ISO_DATE_RE.match(value):
+        raise ValueError("invalid date")
+    day = datetime.strptime(value, '%Y-%m-%d').replace(tzinfo=timezone.utc)
+    return int(day.timestamp()) * 1000
+
+def format_utc_ms(ms):
+    if ms is None:
+        return None
+    try:
+        ms = int(ms)
+        dt = datetime.fromtimestamp(ms // 1000, tz=timezone.utc) + timedelta(milliseconds=ms % 1000)
+        return dt.isoformat(timespec='milliseconds')
+    except (TypeError, ValueError, OverflowError, OSError):
+        return None
+
+def query_economy(account, character, from_ms, to_ms, page, page_size):
+    """Strictly read-only query over the economy ledger. Every filter value is bound as a parameter."""
+    result = {
+        "available": False,
+        "entries": [],
+        "total": 0,
+        "page": page,
+        "page_size": page_size,
+        "pages": 1
+    }
+    with get_db() as con:
+        con.execute("PRAGMA query_only = ON")
+        tables = {row[0] for row in con.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('economy_entry', 'operation_receipt', 'role')"
+        )}
+        if 'economy_entry' not in tables or 'operation_receipt' not in tables:
+            return result
+        has_role = 'role' in tables
+
+        where = []
+        args = []
+        if account:
+            where.append("LOWER(r.actor_account) = LOWER(?)")
+            args.append(account)
+        if character:
+            if has_role:
+                where.append(
+                    "(r.actor_role IN (SELECT id FROM role WHERE LOWER(name) = LOWER(?))"
+                    " OR (e.owner_kind = ? AND e.owner_id IN"
+                    " (SELECT CAST(id AS TEXT) FROM role WHERE LOWER(name) = LOWER(?))))"
+                )
+                args.extend([character, ECONOMY_OWNER_KIND_ROLE, character])
+            else:
+                where.append("0")
+        if from_ms is not None:
+            where.append("e.recorded_utc_ms >= ?")
+            args.append(from_ms)
+        if to_ms is not None:
+            where.append("e.recorded_utc_ms < ?")
+            args.append(to_ms + DAY_MS)
+
+        base_sql = " FROM economy_entry e JOIN operation_receipt r ON r.operation_id = e.operation_id"
+        if where:
+            base_sql += " WHERE " + " AND ".join(where)
+
+        total = con.execute("SELECT COUNT(*)" + base_sql, args).fetchone()[0]
+        offset = (page - 1) * page_size
+        rows = []
+        if offset < total:
+            rows = con.execute(
+                "SELECT e.entry_id, e.recorded_utc_ms, e.operation_id, r.command_kind, r.actor_account,"
+                " r.actor_role, e.owner_kind, e.owner_id, e.asset_kind, e.asset_id, e.delta, e.reason_code"
+                + base_sql + " ORDER BY e.entry_id DESC LIMIT ? OFFSET ?",
+                args + [page_size, offset]
+            ).fetchall()
+
+        role_ids = set()
+        for row in rows:
+            if row["actor_role"] is not None:
+                role_ids.add(int(row["actor_role"]))
+            owner_id = str(row["owner_id"] or "")
+            if row["owner_kind"] == ECONOMY_OWNER_KIND_ROLE and owner_id.isdigit():
+                role_ids.add(int(owner_id))
+        role_names = {}
+        if has_role and role_ids:
+            ids = sorted(role_ids)
+            placeholders = ",".join("?" for _ in ids)
+            for role_row in con.execute("SELECT id, name FROM role WHERE id IN (" + placeholders + ")", ids):
+                role_names[role_row["id"]] = role_row["name"]
+
+        entries = []
+        for row in rows:
+            owner_id = str(row["owner_id"] or "")
+            owner_name = None
+            if row["owner_kind"] == ECONOMY_OWNER_KIND_ROLE and owner_id.isdigit():
+                owner_name = role_names.get(int(owner_id))
+            asset_kind = row["asset_kind"]
+            if asset_kind == ECONOMY_ASSET_KIND_CURRENCY and row["asset_id"] == ZENY_CURRENCY_ID:
+                asset_label = "Zeny"
+            else:
+                asset_label = f"{ECONOMY_ASSET_KIND_LABELS.get(asset_kind, 'Activo')} #{row['asset_id']}"
+            actor_role = row["actor_role"]
+            entries.append({
+                "entry_id": row["entry_id"],
+                "recorded_utc": format_utc_ms(row["recorded_utc_ms"]),
+                "operation_id": row["operation_id"],
+                "command_kind": row["command_kind"],
+                "actor_account": row["actor_account"],
+                "actor_role": actor_role,
+                "actor_role_name": role_names.get(int(actor_role)) if actor_role is not None else None,
+                "owner_kind": row["owner_kind"],
+                "owner_kind_label": ECONOMY_OWNER_KIND_LABELS.get(row["owner_kind"], f"Tipo {row['owner_kind']}"),
+                "owner_id": owner_id,
+                "owner_name": owner_name,
+                "asset_kind": asset_kind,
+                "asset_id": row["asset_id"],
+                "asset_label": asset_label,
+                "delta": row["delta"],
+                "reason_code": row["reason_code"]
+            })
+
+    result.update({
+        "available": True,
+        "entries": entries,
+        "total": total,
+        "pages": max(1, (total + page_size - 1) // page_size)
+    })
+    return result
+
 def authenticate_admin(username, password):
     """
     Checks if username & password match any configured admin,
@@ -636,6 +802,10 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
         # 7. Audit Log
         if raw_path == '/api/admin/audit-log':
             return self.handle_audit_log(params)
+
+        # 9. Economy Log (read-only)
+        if raw_path == '/api/admin/economy':
+            return self.handle_economy(params)
 
         # 8. Rankings (read-only)
         if raw_path == '/api/admin/rankings':
@@ -1085,6 +1255,21 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
             ).fetchall()
             logs = [dict(r) for r in rows]
         return self.send_json(200, {"logs": logs})
+
+    def handle_economy(self, params):
+        account = params.get('account', [''])[0].strip()
+        character = params.get('character', [''])[0].strip()
+        page = parse_int_value(params.get('page', [''])[0], 1, 1, None)
+        page_size = parse_int_value(params.get('page_size', [''])[0], ECONOMY_DEFAULT_PAGE_SIZE, 1, ECONOMY_MAX_PAGE_SIZE)
+
+        try:
+            from_ms = parse_iso_date_ms(params.get('from', [''])[0])
+            to_ms = parse_iso_date_ms(params.get('to', [''])[0])
+        except ValueError:
+            return self.send_json(400, {"error": "Fecha inválida. Use el formato AAAA-MM-DD."})
+
+        result = query_economy(account, character, from_ms, to_ms, page, page_size)
+        return self.send_json(200, result)
 
     def handle_rankings(self, params):
         ranking_type = params.get('type', ['level'])[0].strip().lower() or 'level'

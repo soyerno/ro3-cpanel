@@ -87,6 +87,9 @@
     <button class="tab-btn" data-tab="audit">
       <span>📜 Registro de Auditoría</span>
     </button>
+    <button class="tab-btn" data-tab="economy">
+      <span>💰 Economía</span>
+    </button>
   </nav>
 
   <!-- 4. Contenedor Principal -->
@@ -275,6 +278,70 @@
             </tr>
           </tbody>
         </table>
+      </div>
+    </section>
+
+    <!-- Vista 4: Registro de Economía (solo lectura) -->
+    <section id="tab-view-economy" hidden>
+      <div class="toolbar-card" style="display: block;">
+        <h3 style="font-size: 15px; font-weight: 700; color: #fff; margin-bottom: 4px;">Registro de Economía</h3>
+        <span style="font-size: 12px; color: var(--text-muted);">Movimientos de zeny, ítems y recursos registrados por el emulador (solo lectura). Útil para auditar duplicaciones y disputas.</span>
+
+        <form id="economy-filter-form" class="economy-filters">
+          <div class="economy-field">
+            <label class="form-label" for="economy-account">Cuenta</label>
+            <input type="text" id="economy-account" class="select-filter" placeholder="Nombre exacto de cuenta" autocomplete="off">
+          </div>
+          <div class="economy-field">
+            <label class="form-label" for="economy-character">Personaje</label>
+            <input type="text" id="economy-character" class="select-filter" placeholder="Nombre exacto de personaje" autocomplete="off">
+          </div>
+          <div class="economy-field">
+            <label class="form-label" for="economy-from">Desde (UTC)</label>
+            <input type="date" id="economy-from" class="select-filter">
+          </div>
+          <div class="economy-field">
+            <label class="form-label" for="economy-to">Hasta (UTC)</label>
+            <input type="date" id="economy-to" class="select-filter">
+          </div>
+          <div class="economy-actions">
+            <button type="submit" class="btn btn-primary">🔍 Filtrar</button>
+            <button type="button" id="economy-reset" class="btn btn-secondary">Limpiar</button>
+          </div>
+        </form>
+
+        <div id="economy-unavailable" class="economy-notice" hidden>
+          La base de datos no contiene las tablas de economía (<code>economy_entry</code> / <code>operation_receipt</code>). Actualice el emulador RO3Emu para habilitar este registro.
+        </div>
+      </div>
+
+      <div class="table-container">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th style="width: 15%;">Fecha (UTC)</th>
+              <th style="width: 17%;">Operación</th>
+              <th style="width: 15%;">Actor</th>
+              <th style="width: 15%;">Dueño</th>
+              <th style="width: 15%;">Activo</th>
+              <th style="width: 11%;">Delta</th>
+              <th>Razón</th>
+            </tr>
+          </thead>
+          <tbody id="economy-tbody">
+            <tr>
+              <td colspan="7" style="text-align: center; color: var(--text-muted); padding: 32px;">
+                Cargando movimientos...
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="economy-pager">
+        <button type="button" id="economy-prev" class="btn btn-secondary btn-sm" disabled>‹ Anterior</button>
+        <span id="economy-page-info">Página 1 de 1</span>
+        <button type="button" id="economy-next" class="btn btn-secondary btn-sm" disabled>Siguiente ›</button>
       </div>
     </section>
 
