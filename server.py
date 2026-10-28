@@ -125,8 +125,114 @@ SCENE_MAP = {
     10514: 'Morroc Field',
     10600: 'Izlude',
     10700: 'Al De Baran',
-    10800: 'Lutie'
+    10800: 'Lutie',
+    # Story/tutorial dungeon scenes (DungeonConfig scene entries), ids and names as listed in
+    # aethai/ro3emu-server docs/systems/dungeon-inventory.md. Entries named "Unknown Area",
+    # placeholder names ("@{1}") and test scenes are left out.
+    1000101: 'Job Advance Scene',
+    1010101: 'Izlude',
+    1011301: 'Prontera North Gate',
+    1020051: 'Payon',
+    1021301: 'Southern Payon',
+    1021851: 'Eastern Payon',
+    1022001: 'Payon Forest',
+    1023001: 'Payon Instance',
+    1030051: 'Geffen',
+    1032101: 'Goblin Forest',
+    1033051: 'Geffen East Gate',
+    1033052: 'Geffen East Gate',
+    1051001: 'Desert Crossroad',
+    1051051: 'Desert Crossroad',
+    1054001: 'Ant Hell',
+    3120402: 'Culvert',
+    3120702: 'Pharaoh',
+    3120703: 'Pharaoh',
+    3120802: 'Moonlight Flower',
+    3120902: 'Baphomet',
+    5000101: 'MVP Role-Playing Party',
+    8100001: 'Boss Challenge',
+    8100002: 'Boss Challenge',
+    8100003: 'Boss Challenge',
+    8100004: 'Boss Challenge',
+    8100005: 'Boss Challenge',
+    8100006: 'Boss Challenge',
+    8100007: 'Boss Challenge'
 }
+
+
+def _as_int(value):
+    """Return value as an int id, or None when it is not an integer id."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    try:
+        return int(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def career_name(career_id):
+    """Display name for a career (class) id; unknown ids render as "Clase <id>"."""
+    name = CAREER_MAP.get(_as_int(career_id))
+    return name if name is not None else f"Clase {career_id}"
+
+
+def scene_name(scene_id):
+    """Display name for a scene (map) id; unknown ids render as "Mapa <id>"."""
+    name = SCENE_MAP.get(_as_int(scene_id))
+    return name if name is not None else f"Mapa {scene_id}"
+
+
+def _parse_names_section(section_name, section):
+    """Keep only integer-id keys with non-empty string names; report what was skipped."""
+    parsed = {}
+    if section is None:
+        return parsed
+    if not isinstance(section, dict):
+        print(f"[Config Warning] names_file: '{section_name}' must be an object, ignored", file=sys.stderr)
+        return parsed
+    skipped = 0
+    for key, value in section.items():
+        key_id = _as_int(key)
+        if key_id is None or not isinstance(value, str) or not value.strip():
+            skipped += 1
+            continue
+        parsed[key_id] = value.strip()
+    if skipped:
+        print(f"[Config Warning] names_file: skipped {skipped} invalid '{section_name}' entries "
+              "(keys must be integer ids, names non-empty strings)", file=sys.stderr)
+    return parsed
+
+
+def load_names_file(path):
+    """Read a names_file ({"careers": {...}, "scenes": {...}}). Returns (careers, scenes); never raises."""
+    if path is None or not str(path).strip():
+        return {}, {}
+    path = str(path).strip()
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError) as e:
+        print(f"[Config Warning] names_file: cannot read '{path}', using built-in names: {e}", file=sys.stderr)
+        return {}, {}
+    if not isinstance(data, dict):
+        print(f"[Config Warning] names_file: '{path}' must contain a JSON object, using built-in names", file=sys.stderr)
+        return {}, {}
+    return (_parse_names_section("careers", data.get("careers")),
+            _parse_names_section("scenes", data.get("scenes")))
+
+
+def apply_names_file(path):
+    """Merge a names_file over CAREER_MAP / SCENE_MAP in place (overrides and extends the defaults)."""
+    careers, scenes = load_names_file(path)
+    CAREER_MAP.update(careers)
+    SCENE_MAP.update(scenes)
+    if careers or scenes:
+        print(f"[Config] names_file: loaded {len(careers)} career and {len(scenes)} scene names from {path}")
+
+
+apply_names_file(CONFIG.get("names_file"))
 
 def get_db():
     if not os.path.exists(DB_PATH):
@@ -559,22 +665,20 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
                     roles_by_acc[acc] = []
                 
                 career_id = r.get("career") or 1000
-                career_name = CAREER_MAP.get(career_id, f"Clase {career_id}")
                 scene_id = r.get("scene_entry") or 0
-                scene_name = SCENE_MAP.get(scene_id, f"Mapa {scene_id}")
 
                 roles_by_acc[acc].append({
                     "id": r["id"],
                     "name": r["name"],
                     "sex": "M" if r.get("sex") == 1 else "F",
                     "career": career_id,
-                    "career_name": career_name,
+                    "career_name": career_name(career_id),
                     "level": r.get("level", 1),
                     "job_level": r.get("job_level", 1),
                     "currency": parse_currency(r.get("currency")),
                     "stats": parse_stats(r.get("stats")),
                     "scene_id": scene_id,
-                    "scene_name": scene_name,
+                    "scene_name": scene_name(scene_id),
                     "pos": {
                         "x": round(r.get("pos_x") or 0, 1),
                         "y": round(r.get("pos_y") or 0, 1),
@@ -652,7 +756,7 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
                     "name": r["name"],
                     "sex": "M" if r.get("sex") == 1 else "F",
                     "career": career_id,
-                    "career_name": CAREER_MAP.get(career_id, f"Clase {career_id}"),
+                    "career_name": career_name(career_id),
                     "level": r.get("level", 1),
                     "job_level": r.get("job_level", 1),
                     "exp": r.get("exp", 0),
@@ -661,7 +765,7 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
                     "stats": parse_stats(r.get("stats")),
                     "bonus_points": r.get("bonus_points", 0),
                     "scene_id": scene_id,
-                    "scene_name": SCENE_MAP.get(scene_id, f"Mapa {scene_id}"),
+                    "scene_name": scene_name(scene_id),
                     "pos": {
                         "x": round(r.get("pos_x") or 0, 1),
                         "y": round(r.get("pos_y") or 0, 1),

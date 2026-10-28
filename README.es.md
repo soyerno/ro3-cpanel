@@ -73,6 +73,7 @@ RO3 CPanel se ejecuta como un servicio autónomo conectado a la base de datos de
 
 - [Guía de Alojamiento y Despliegue](docs/guide/hosting.md) (Tareas programadas de Windows, Linux systemd, Docker, Nginx, Cloudflare)
 - [Guía de Personalización de Marca Blanca](docs/guide/white-label.md) (Temas, textos, logotipo y rutas)
+- [Nombres de Clases y Mapas](docs/guide/names.md) (Nombres de clases y mapas, archivo `names_file` personalizado)
 - [Arquitectura de Seguridad](docs/guide/security.md) (Hashes PBKDF2, cookies HttpOnly, registro de auditoría)
 - [Guía de Pruebas Automatizadas](docs/guide/testing.md) (Ejecución del test suite con unittest)
 

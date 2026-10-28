@@ -75,6 +75,7 @@ RO3 CPanel operates as an autonomous daemon connecting to your `RO3Emu` database
 
 - [Hosting & Deployment Guide](docs/guide/hosting.md) (Windows Scheduled Tasks, Linux systemd, Docker, Nginx, Cloudflare)
 - [White-Label Customization Guide](docs/guide/white-label.md) (Theming, server branding, logo customization)
+- [Career and Scene Names](docs/guide/names.md) (Class and map names, custom `names_file`)
 - [Security Architecture](docs/guide/security.md) (PBKDF2 hashing, session tokens, audit trail)
 - [Testing Guide](docs/guide/testing.md) (Running the automated unit test suite)
 
