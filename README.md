@@ -35,7 +35,10 @@ Inspired by classic Ragnarok Online control panels (FluxCP / CeresCP), built wit
   </tr>
   <tr>
     <td width="50%" valign="top"><b>1:1 RO3Emu compatibility</b><br>Password hashing matches RO3Emu's PBKDF2-SHA256 (100,000 iterations + 16-byte random salt) exactly. Sessions and tokens are cleanly revoked upon password updates or bans.</td>
-    <td width="50%" valign="top"><b>Complete account management</b><br>Real-time search, player character sheets (Base/Job Lv, stats, Zeny, Diamonds, coordinates), account creation, password resets, suspension, and audit logs.</td>
+    <td width="50%" valign="top"><b>Complete account management</b><br>Real-time search, player character sheets (Base/Job Lv, stats, Zeny, Diamonds, coordinates, read-only inventory), account creation, password resets, suspension, and audit logs.</td>
+  </tr>
+  <tr>
+    <td colspan="2" valign="top"><b>Economy log viewer</b><br>Read-only, paginated view of RO3Emu's <code>economy_entry</code> ledger joined with <code>operation_receipt</code> (the FluxCP zeny/pick log equivalent) to audit dupes and disputes. Filter by account, character, and UTC date range (<code>GET /api/admin/economy?account=&amp;character=&amp;from=YYYY-MM-DD&amp;to=YYYY-MM-DD&amp;page=&amp;page_size=</code>). Queries are parameterized and run on a <code>query_only</code> connection; databases without the economy tables report <code>"available": false</code>.</td>
   </tr>
 </table>
 
@@ -88,10 +91,48 @@ The panel never writes it. The endpoint is `GET /api/admin/characters/<role_id>/
 
 ---
 
+## Character Inventory
+
+Each character card in the account sheet has a **Ver inventario** button that lists the character's items, grouped by bag (`pack`: Items, Equipment, Cards, Totems, Emblems, Currency, Career special). The view is read-only: the panel only runs `SELECT` queries against the `item` table.
+
+- API: `GET /api/admin/characters/<role_id>/items` (requires an admin session). Returns `{character, items, total, available}`; each item has `guid`, `entry`, `name`, `stack`, `pack`, `pack_name`, `equipped`, `locked`, `bind_type`. `available` is `false` when the database has no `item` table yet.
+- Item names are not stored in SQLite (they live in the server's config tables). To show names, point `item_names_file` in `config.json` to a JSON object that maps item config ids (`entry`) to names:
+
+  ```json
+  { "100001": "Red Potion", "200002": "Sword" }
+  ```
+
+  Leave it empty (`""`, the default) to disable names. When the file is missing or invalid, a warning is printed once to stderr and items are shown as `#<entry>`.
+
+## Rankings
+
+The **🏆 Rankings** tab shows read-only, paginated leaderboards. Deleted characters (`deleted_time != 0`) are always excluded.
+
+```
+GET /api/admin/rankings?type=level|zeny|power|guilds&limit=20&page=1
+```
+
+| `type` | Ordering | `value` |
+|---|---|---|
+| `level` (default) | Base level, then job level, then base EXP | Base level |
+| `zeny` | Zeny held (currency item `1` in `role.currency`) | Zeny amount |
+| `power` | Leaderboard power stored by RO3Emu in `role.emblems` (`Power.CurrentNormal + Power.CurrentSeason`) | Power total |
+| `guilds` | Active members, then summed member base level | Member count |
+
+- `limit` defaults to `20` and is clamped to `1..100`; `page` starts at `1`. Each row carries its global `rank`.
+- Character rows include `id`, `name`, `account`, `career`, `career_name`, `level` and `job_level`; guild rows include `id`, `name`, `member_count` and `total_level`.
+- `power` lists only characters whose power has been published by the game server at least once; blobs that cannot be parsed are skipped.
+- `zeny` and `power` are decoded in Python from a single pass over the non-deleted characters (only the needed columns are loaded), so their cost grows with the number of characters.
+- On databases without the `guild` / `guild_member` tables, `type=guilds` returns an empty list with `"available": false` instead of an error.
+- An unknown `type` returns `400`. The endpoint requires an authenticated admin session, like every other `/api/admin/*` read.
+
+---
+
 ## Documentation Guides
 
 - [Hosting & Deployment Guide](docs/guide/hosting.md) (Windows Scheduled Tasks, Linux systemd, Docker, Nginx, Cloudflare)
 - [White-Label Customization Guide](docs/guide/white-label.md) (Theming, server branding, logo customization)
+- [Career and Scene Names](docs/guide/names.md) (Class and map names, custom `names_file`)
 - [Security Architecture](docs/guide/security.md) (PBKDF2 hashing, session tokens, audit trail)
 - [Testing Guide](docs/guide/testing.md) (Running the automated unit test suite)
 

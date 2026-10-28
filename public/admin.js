@@ -19,6 +19,10 @@
     accounts: [],
     filteredAccounts: [],
     auditLogs: [],
+    rankingType: 'level',
+    rankingPage: 1,
+    rankingTotal: 0,
+    rankingLimit: 20,
     activeTab: 'accounts',
     searchQuery: '',
     statusFilter: 'all',
@@ -26,7 +30,16 @@
     accountsPage: 1,
     accountsPages: 1,
     accountsTotal: 0,
-    selectedAccount: null
+    selectedAccount: null,
+    economy: {
+      account: '',
+      character: '',
+      from: '',
+      to: '',
+      page: 1,
+      pageSize: 50,
+      pages: 1
+    }
   };
 
   // DOM Elements
@@ -72,6 +85,24 @@
     tabViewAccounts: document.getElementById('tab-view-accounts'),
     tabViewAudit: document.getElementById('tab-view-audit'),
     auditTbody: document.getElementById('audit-tbody'),
+    tabViewEconomy: document.getElementById('tab-view-economy'),
+    economyForm: document.getElementById('economy-filter-form'),
+    economyAccount: document.getElementById('economy-account'),
+    economyCharacter: document.getElementById('economy-character'),
+    economyFrom: document.getElementById('economy-from'),
+    economyTo: document.getElementById('economy-to'),
+    economyTbody: document.getElementById('economy-tbody'),
+    economyUnavailable: document.getElementById('economy-unavailable'),
+    economyPrev: document.getElementById('economy-prev'),
+    economyNext: document.getElementById('economy-next'),
+    economyPageInfo: document.getElementById('economy-page-info'),
+    tabViewRankings: document.getElementById('tab-view-rankings'),
+    rankingTypeSelect: document.getElementById('ranking-type-select'),
+    rankingPrev: document.getElementById('ranking-prev'),
+    rankingNext: document.getElementById('ranking-next'),
+    rankingPageLabel: document.getElementById('ranking-page-label'),
+    rankingsThead: document.getElementById('rankings-thead'),
+    rankingsTbody: document.getElementById('rankings-tbody'),
 
     // Modals
     modalDetail: document.getElementById('modal-detail'),
@@ -458,9 +489,11 @@
                   '<div><div class="stat-box-lbl">DEX</div><div class="stat-box-val">' + c.stats.dex + '</div></div>' +
                   '<div><div class="stat-box-lbl">LUK</div><div class="stat-box-val">' + c.stats.luk + '</div></div>' +
                 '</div>' +
-                '<div class="char-mail-actions">' +
+                '<div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px;">' +
+                  '<button class="btn btn-secondary btn-sm btn-view-inventory" data-role-id="' + escapeHtml(String(c.id)) + '" title="Ver objetos del personaje">Ver inventario</button>' +
                   '<button type="button" class="btn btn-secondary btn-sm btn-view-mail" data-role-id="' + escapeHtml(String(c.id)) + '" title="Ver correo del personaje (solo lectura)">Ver correo</button>' +
                 '</div>' +
+                '<div class="char-inventory" hidden></div>' +
                 '<div class="char-mail-panel" id="char-mail-' + escapeHtml(String(c.id)) + '" hidden></div>' +
               '</div>';
             });
@@ -537,6 +570,84 @@
       .catch(function (err) {
         panel.innerHTML = '<p class="char-mail-empty">' + escapeHtml('Error cargando correo: ' + err.message) + '</p>';
       });
+  }
+
+  // --- Character Inventory (read-only) ---
+  function toggleCharacterInventory(btn) {
+    var card = btn.closest('.char-card-detail');
+    var container = card ? card.querySelector('.char-inventory') : null;
+    var roleId = btn.getAttribute('data-role-id');
+    if (!container || !roleId) return;
+
+    if (!container.hidden) {
+      container.hidden = true;
+      btn.textContent = 'Ver inventario';
+      return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = 'Cargando...';
+    apiFetch('/api/admin/characters/' + encodeURIComponent(roleId) + '/items')
+      .then(function (data) {
+        container.innerHTML = renderInventory(data);
+        container.hidden = false;
+        btn.textContent = 'Ocultar inventario';
+      })
+      .catch(function (err) {
+        btn.textContent = 'Ver inventario';
+        showToast('Error cargando inventario: ' + err.message, 'error');
+      })
+      .finally(function () {
+        btn.disabled = false;
+      });
+  }
+
+  function renderInventory(data) {
+    var boxStyle = 'margin-top: 8px; padding: 10px; background: #0c1018; border: 1px solid var(--border-color); border-radius: var(--radius-sm); font-size: 12px;';
+    if (!data || data.available === false) {
+      return '<div style="' + boxStyle + ' color: var(--text-muted);">El inventario no está disponible en esta base de datos.</div>';
+    }
+    var items = data.items || [];
+    if (!items.length) {
+      return '<div style="' + boxStyle + ' color: var(--text-muted);">Este personaje no tiene objetos.</div>';
+    }
+
+    // Group by pack, keeping the server order (pack, sort, guid).
+    var groups = [];
+    var byPack = {};
+    items.forEach(function (item) {
+      var key = String(item.pack);
+      if (!byPack[key]) {
+        byPack[key] = { pack: item.pack, packName: item.pack_name, items: [] };
+        groups.push(byPack[key]);
+      }
+      byPack[key].items.push(item);
+    });
+
+    var html = '<div style="' + boxStyle + '">' +
+      '<div style="color: var(--text-muted); margin-bottom: 8px;">Total de objetos: <strong style="color: #fff;">' + formatNumber(data.total) + '</strong></div>';
+    groups.forEach(function (g) {
+      var label = g.packName || ('Bolsa ' + g.pack);
+      html += '<div style="margin-bottom: 10px;">' +
+        '<span class="badge badge-admin">' + escapeHtml(label) + ' (' + g.items.length + ')</span>' +
+        '<table class="data-table" style="margin-top: 6px;">' +
+          '<thead><tr><th>Objeto</th><th>Cantidad</th><th>Estado</th></tr></thead><tbody>';
+      g.items.forEach(function (item) {
+        var name = item.name ? escapeHtml(item.name) : '#' + escapeHtml(String(item.entry));
+        var flags = [];
+        if (item.equipped) flags.push('<span class="badge badge-active">Equipado</span>');
+        if (item.locked) flags.push('<span class="badge badge-banned">Bloqueado</span>');
+        if (item.bind_type) flags.push('<span class="badge badge-admin">Ligado</span>');
+        html += '<tr>' +
+          '<td><strong style="color: #fff;">' + name + '</strong> <span style="color: var(--text-dim);">#' + escapeHtml(String(item.entry)) + '</span></td>' +
+          '<td>' + formatNumber(item.stack) + '</td>' +
+          '<td>' + (flags.length ? flags.join(' ') : '—') + '</td>' +
+        '</tr>';
+      });
+      html += '</tbody></table></div>';
+    });
+    html += '</div>';
+    return html;
   }
 
   function handleSaveNotes() {
@@ -720,6 +831,185 @@
       });
   }
 
+  // --- Economy Log (read-only) ---
+  function loadEconomy() {
+    var eco = state.economy;
+    var params = new URLSearchParams();
+    if (eco.account) params.set('account', eco.account);
+    if (eco.character) params.set('character', eco.character);
+    if (eco.from) params.set('from', eco.from);
+    if (eco.to) params.set('to', eco.to);
+    params.set('page', String(eco.page));
+    params.set('page_size', String(eco.pageSize));
+
+    apiFetch('/api/admin/economy?' + params.toString())
+      .then(function (data) {
+        eco.page = data.page || 1;
+        eco.pages = data.pages || 1;
+        if (els.economyUnavailable) els.economyUnavailable.hidden = data.available !== false;
+        renderEconomyTable(data.entries || [], data.available !== false);
+        renderEconomyPager(data.total || 0);
+      })
+      .catch(function (err) {
+        showToast('Error cargando economía: ' + err.message, 'error');
+      });
+  }
+
+  function describeEconomyOwner(e) {
+    if (e.owner_name) return escapeHtml(e.owner_name);
+    return escapeHtml(e.owner_kind_label) + ' ' + escapeHtml(e.owner_id);
+  }
+
+  function renderEconomyTable(entries, available) {
+    if (!els.economyTbody) return;
+    if (!entries.length) {
+      var msg = available ? 'No hay movimientos para los filtros seleccionados.' : 'Registro de economía no disponible en esta base de datos.';
+      els.economyTbody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: var(--text-muted); padding: 24px;">' + msg + '</td></tr>';
+      return;
+    }
+    var html = '';
+    entries.forEach(function (e) {
+      var deltaClass = e.delta < 0 ? 'economy-delta-neg' : 'economy-delta-pos';
+      var deltaText = (e.delta > 0 ? '+' : '') + formatNumber(e.delta);
+      var actorRole = e.actor_role_name ? escapeHtml(e.actor_role_name) : ('#' + escapeHtml(String(e.actor_role)));
+      html += '<tr>' +
+        '<td style="color: var(--text-muted); font-size: 12px;">' + formatDate(e.recorded_utc) + '</td>' +
+        '<td><span class="badge badge-admin">' + escapeHtml(e.command_kind) + '</span>' +
+          '<div class="economy-sub" title="' + escapeHtml(e.operation_id) + '">' + escapeHtml(e.operation_id) + '</div></td>' +
+        '<td><strong style="color: #fff;">' + escapeHtml(e.actor_account) + '</strong>' +
+          '<div class="economy-sub">' + actorRole + '</div></td>' +
+        '<td>' + describeEconomyOwner(e) + '</td>' +
+        '<td>' + escapeHtml(e.asset_label) + '</td>' +
+        '<td class="' + deltaClass + '">' + escapeHtml(deltaText) + '</td>' +
+        '<td style="color: var(--text-muted);">' + escapeHtml(String(e.reason_code)) + '</td>' +
+      '</tr>';
+    });
+    els.economyTbody.innerHTML = html;
+  }
+
+  function renderEconomyPager(total) {
+    var eco = state.economy;
+    if (els.economyPageInfo) {
+      els.economyPageInfo.textContent = 'Página ' + eco.page + ' de ' + eco.pages + ' (' + formatNumber(total) + ' movimientos)';
+    }
+    if (els.economyPrev) els.economyPrev.disabled = eco.page <= 1;
+    if (els.economyNext) els.economyNext.disabled = eco.page >= eco.pages;
+  }
+
+  function applyEconomyFilters(e) {
+    if (e) e.preventDefault();
+    var eco = state.economy;
+    eco.account = (els.economyAccount.value || '').trim();
+    eco.character = (els.economyCharacter.value || '').trim();
+    eco.from = els.economyFrom.value || '';
+    eco.to = els.economyTo.value || '';
+    eco.page = 1;
+    loadEconomy();
+  }
+
+  function resetEconomyFilters() {
+    els.economyAccount.value = '';
+    els.economyCharacter.value = '';
+    els.economyFrom.value = '';
+    els.economyTo.value = '';
+    applyEconomyFilters();
+  }
+
+  function changeEconomyPage(step) {
+    var eco = state.economy;
+    var next = eco.page + step;
+    if (next < 1 || next > eco.pages) return;
+    eco.page = next;
+    loadEconomy();
+  }
+
+  // --- Rankings (read-only) ---
+  var RANKING_METRIC_LABELS = {
+    level: 'Nivel Base',
+    zeny: 'Zeny',
+    power: 'Poder'
+  };
+
+  function renderRankingsHead(type) {
+    if (!els.rankingsThead) return;
+    if (type === 'guilds') {
+      els.rankingsThead.innerHTML = '<tr>' +
+        '<th style="width: 10%;">#</th>' +
+        '<th>Clan</th>' +
+        '<th style="width: 22%;">Miembros Activos</th>' +
+        '<th style="width: 22%;">Nivel Total</th>' +
+      '</tr>';
+      return;
+    }
+    els.rankingsThead.innerHTML = '<tr>' +
+      '<th style="width: 8%;">#</th>' +
+      '<th>Personaje</th>' +
+      '<th style="width: 18%;">Cuenta</th>' +
+      '<th style="width: 18%;">Clase</th>' +
+      '<th style="width: 14%;">Nivel / Job</th>' +
+      '<th style="width: 16%;">' + escapeHtml(RANKING_METRIC_LABELS[type] || '') + '</th>' +
+    '</tr>';
+  }
+
+  function renderRankingsPager() {
+    var totalPages = Math.max(1, Math.ceil(state.rankingTotal / state.rankingLimit));
+    if (els.rankingPageLabel) {
+      els.rankingPageLabel.textContent = 'Página ' + state.rankingPage + ' de ' + totalPages +
+        ' (' + formatNumber(state.rankingTotal) + ')';
+    }
+    if (els.rankingPrev) els.rankingPrev.disabled = state.rankingPage <= 1;
+    if (els.rankingNext) els.rankingNext.disabled = state.rankingPage >= totalPages;
+  }
+
+  function loadRankings() {
+    var type = state.rankingType;
+    var url = '/api/admin/rankings?type=' + encodeURIComponent(type) +
+      '&limit=' + state.rankingLimit + '&page=' + state.rankingPage;
+    renderRankingsHead(type);
+    apiFetch(url)
+      .then(function (data) {
+        if (!els.rankingsTbody) return;
+        var rows = data.rankings || [];
+        var colspan = type === 'guilds' ? 4 : 6;
+        state.rankingTotal = data.total || 0;
+        renderRankingsPager();
+
+        if (data.available === false) {
+          els.rankingsTbody.innerHTML = '<tr><td colspan="' + colspan + '" style="text-align: center; color: var(--text-muted); padding: 24px;">La base de datos no tiene tablas de clanes todavía.</td></tr>';
+          return;
+        }
+        if (!rows.length) {
+          els.rankingsTbody.innerHTML = '<tr><td colspan="' + colspan + '" style="text-align: center; color: var(--text-muted); padding: 24px;">No hay datos para este ranking.</td></tr>';
+          return;
+        }
+
+        var html = '';
+        rows.forEach(function (r) {
+          if (type === 'guilds') {
+            html += '<tr>' +
+              '<td><strong style="color: var(--gold);">' + r.rank + '</strong></td>' +
+              '<td><strong style="color: #fff;">' + escapeHtml(r.name) + '</strong></td>' +
+              '<td>' + formatNumber(r.member_count) + '</td>' +
+              '<td>' + formatNumber(r.total_level) + '</td>' +
+            '</tr>';
+            return;
+          }
+          html += '<tr>' +
+            '<td><strong style="color: var(--gold);">' + r.rank + '</strong></td>' +
+            '<td><strong style="color: #fff;">' + escapeHtml(r.name) + '</strong></td>' +
+            '<td style="color: var(--text-muted);">' + escapeHtml(r.account) + '</td>' +
+            '<td>' + escapeHtml(r.career_name) + '</td>' +
+            '<td>' + formatNumber(r.level) + ' / ' + formatNumber(r.job_level) + '</td>' +
+            '<td><strong>' + formatNumber(r.value) + '</strong></td>' +
+          '</tr>';
+        });
+        els.rankingsTbody.innerHTML = html;
+      })
+      .catch(function (err) {
+        showToast('Error cargando rankings: ' + err.message, 'error');
+      });
+  }
+
   // --- Tabs Switching ---
   function switchTab(tabId) {
     state.activeTab = tabId;
@@ -730,9 +1020,15 @@
     if (els.tabViewDashboard) els.tabViewDashboard.hidden = (tabId !== 'dashboard');
     if (els.tabViewAccounts) els.tabViewAccounts.hidden = (tabId !== 'accounts');
     if (els.tabViewAudit) els.tabViewAudit.hidden = (tabId !== 'audit');
+    if (els.tabViewEconomy) els.tabViewEconomy.hidden = (tabId !== 'economy');
+    if (els.tabViewRankings) els.tabViewRankings.hidden = (tabId !== 'rankings');
 
     if (tabId === 'audit') {
       loadAuditLog();
+    } else if (tabId === 'economy') {
+      loadEconomy();
+    } else if (tabId === 'rankings') {
+      loadRankings();
     } else if (tabId === 'dashboard') {
       loadStats();
     } else if (tabId === 'accounts') {
@@ -787,6 +1083,30 @@
     if (els.pagerNext) {
       els.pagerNext.addEventListener('click', function () {
         goToAccountsPage(state.accountsPage + 1);
+      });
+    }
+
+    if (els.rankingTypeSelect) {
+      els.rankingTypeSelect.addEventListener('change', function () {
+        state.rankingType = this.value;
+        state.rankingPage = 1;
+        loadRankings();
+      });
+    }
+
+    if (els.rankingPrev) {
+      els.rankingPrev.addEventListener('click', function () {
+        if (state.rankingPage > 1) {
+          state.rankingPage -= 1;
+          loadRankings();
+        }
+      });
+    }
+
+    if (els.rankingNext) {
+      els.rankingNext.addEventListener('click', function () {
+        state.rankingPage += 1;
+        loadRankings();
       });
     }
 
@@ -845,6 +1165,14 @@
     var formDel = document.getElementById('form-delete');
     if (formDel) formDel.addEventListener('submit', handleDeleteAccount);
 
+    var detailCharsList = document.getElementById('detail-chars-list');
+    if (detailCharsList) {
+      detailCharsList.addEventListener('click', function (e) {
+        var btn = e.target.closest('.btn-view-inventory');
+        if (btn) toggleCharacterInventory(btn);
+      });
+    }
+
     var btnSaveNotes = document.getElementById('btn-save-notes');
     if (btnSaveNotes) btnSaveNotes.addEventListener('click', handleSaveNotes);
 
@@ -868,6 +1196,12 @@
         }
       });
     }
+
+    if (els.economyForm) els.economyForm.addEventListener('submit', applyEconomyFilters);
+    var btnEconomyReset = document.getElementById('economy-reset');
+    if (btnEconomyReset) btnEconomyReset.addEventListener('click', resetEconomyFilters);
+    if (els.economyPrev) els.economyPrev.addEventListener('click', function () { changeEconomyPage(-1); });
+    if (els.economyNext) els.economyNext.addEventListener('click', function () { changeEconomyPage(1); });
   }
 
   // Initialization

@@ -33,7 +33,10 @@ Inspirado en los paneles clásicos de Ragnarok Online (FluxCP / CeresCP), desarr
   </tr>
   <tr>
     <td width="50%" valign="top"><b>Compatibilidad 1:1 con RO3Emu</b><br>El cálculo de contraseñas replica exactamente el algoritmo PBKDF2-SHA256 (100.000 iteraciones + sal de 16 bytes). Al suspender o cambiar claves, las sesiones del juego se revocan de inmediato.</td>
-    <td width="50%" valign="top"><b>Gestión integral de cuentas</b><br>Buscador en tiempo real, fichas detalladas de personajes (Lv Base/Job, estadísticas, Zeny, Diamantes, coordenadas), creación de cuentas, reseteo de claves y auditoría.</td>
+    <td width="50%" valign="top"><b>Gestión integral de cuentas</b><br>Buscador en tiempo real, fichas detalladas de personajes (Lv Base/Job, estadísticas, Zeny, Diamantes, coordenadas, inventario de solo lectura), creación de cuentas, reseteo de claves y auditoría.</td>
+  </tr>
+  <tr>
+    <td colspan="2" valign="top"><b>Visor del registro de economía</b><br>Vista paginada y de solo lectura del libro <code>economy_entry</code> de RO3Emu unido a <code>operation_receipt</code> (el equivalente a los logs de zeny/pick de FluxCP) para auditar duplicaciones y disputas. Filtra por cuenta, personaje y rango de fechas UTC (<code>GET /api/admin/economy?account=&amp;character=&amp;from=AAAA-MM-DD&amp;to=AAAA-MM-DD&amp;page=&amp;page_size=</code>). Las consultas son parametrizadas y corren sobre una conexión <code>query_only</code>; si la base no tiene las tablas de economía responde <code>"available": false</code>.</td>
   </tr>
 </table>
 
@@ -86,10 +89,48 @@ El panel nunca lo modifica. El endpoint es `GET /api/admin/characters/<role_id>/
 
 ---
 
+## Inventario de Personajes
+
+Cada tarjeta de personaje en la ficha de la cuenta tiene un botón **Ver inventario** que lista los objetos del personaje agrupados por bolsa (`pack`: Objetos, Equipo, Cartas, Tótems, Emblemas, Monedas, Especial de clase). La vista es de solo lectura: el panel solo ejecuta consultas `SELECT` sobre la tabla `item`.
+
+- API: `GET /api/admin/characters/<role_id>/items` (requiere sesión de administrador). Devuelve `{character, items, total, available}`; cada objeto incluye `guid`, `entry`, `name`, `stack`, `pack`, `pack_name`, `equipped`, `locked`, `bind_type`. `available` es `false` cuando la base todavía no tiene la tabla `item`.
+- Los nombres de los objetos no se guardan en SQLite (viven en las tablas de configuración del servidor). Para mostrarlos, apunta `item_names_file` en `config.json` a un objeto JSON que relacione el id de configuración del objeto (`entry`) con su nombre:
+
+  ```json
+  { "100001": "Poción Roja", "200002": "Espada" }
+  ```
+
+  Déjalo vacío (`""`, valor por defecto) para desactivar los nombres. Si el archivo no existe o es inválido, se imprime una advertencia una sola vez en stderr y los objetos se muestran como `#<entry>`.
+
+## Rankings
+
+La pestaña **🏆 Rankings** muestra clasificaciones de solo lectura y paginadas. Los personajes eliminados (`deleted_time != 0`) siempre quedan excluidos.
+
+```
+GET /api/admin/rankings?type=level|zeny|power|guilds&limit=20&page=1
+```
+
+| `type` | Orden | `value` |
+|---|---|---|
+| `level` (por defecto) | Nivel base, luego nivel de job, luego EXP base | Nivel base |
+| `zeny` | Zeny en posesión (ítem de moneda `1` en `role.currency`) | Cantidad de Zeny |
+| `power` | Poder de leaderboard guardado por RO3Emu en `role.emblems` (`Power.CurrentNormal + Power.CurrentSeason`) | Poder total |
+| `guilds` | Miembros activos, luego suma del nivel base de los miembros | Cantidad de miembros |
+
+- `limit` vale `20` por defecto y se acota a `1..100`; `page` empieza en `1`. Cada fila incluye su `rank` global.
+- Las filas de personajes incluyen `id`, `name`, `account`, `career`, `career_name`, `level` y `job_level`; las de clanes incluyen `id`, `name`, `member_count` y `total_level`.
+- `power` lista solo personajes cuyo poder ya fue publicado al menos una vez por el servidor de juego; los blobs que no se pueden interpretar se omiten.
+- `zeny` y `power` se decodifican en Python con una sola pasada sobre los personajes no eliminados (cargando solo las columnas necesarias), por lo que su costo crece con la cantidad de personajes.
+- En bases sin las tablas `guild` / `guild_member`, `type=guilds` devuelve una lista vacía con `"available": false` en lugar de un error.
+- Un `type` desconocido devuelve `400`. El endpoint requiere una sesión de administrador autenticada, igual que el resto de las lecturas `/api/admin/*`.
+
+---
+
 ## Guías de Documentación
 
 - [Guía de Alojamiento y Despliegue](docs/guide/hosting.md) (Tareas programadas de Windows, Linux systemd, Docker, Nginx, Cloudflare)
 - [Guía de Personalización de Marca Blanca](docs/guide/white-label.md) (Temas, textos, logotipo y rutas)
+- [Nombres de Clases y Mapas](docs/guide/names.md) (Nombres de clases y mapas, archivo `names_file` personalizado)
 - [Arquitectura de Seguridad](docs/guide/security.md) (Hashes PBKDF2, cookies HttpOnly, registro de auditoría)
 - [Guía de Pruebas Automatizadas](docs/guide/testing.md) (Ejecución del test suite con unittest)
 

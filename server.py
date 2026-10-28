@@ -6,6 +6,7 @@ Zero-dependency, standalone server with embedded static assets and RESTful manag
 
 import sys
 import os
+import re
 import json
 import re
 import sqlite3
@@ -18,7 +19,7 @@ import urllib.parse
 from http.server import HTTPServer, ThreadingHTTPServer, BaseHTTPRequestHandler
 from http.cookies import SimpleCookie
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 # --- Configuration Loading ---
 CONFIG_FILE = os.environ.get("RO3_CONFIG_FILE", "config.json")
@@ -127,8 +128,158 @@ SCENE_MAP = {
     10514: 'Morroc Field',
     10600: 'Izlude',
     10700: 'Al De Baran',
-    10800: 'Lutie'
+    10800: 'Lutie',
+    # Story/tutorial dungeon scenes (DungeonConfig scene entries), ids and names as listed in
+    # aethai/ro3emu-server docs/systems/dungeon-inventory.md. Entries named "Unknown Area",
+    # placeholder names ("@{1}") and test scenes are left out.
+    1000101: 'Job Advance Scene',
+    1010101: 'Izlude',
+    1011301: 'Prontera North Gate',
+    1020051: 'Payon',
+    1021301: 'Southern Payon',
+    1021851: 'Eastern Payon',
+    1022001: 'Payon Forest',
+    1023001: 'Payon Instance',
+    1030051: 'Geffen',
+    1032101: 'Goblin Forest',
+    1033051: 'Geffen East Gate',
+    1033052: 'Geffen East Gate',
+    1051001: 'Desert Crossroad',
+    1051051: 'Desert Crossroad',
+    1054001: 'Ant Hell',
+    3120402: 'Culvert',
+    3120702: 'Pharaoh',
+    3120703: 'Pharaoh',
+    3120802: 'Moonlight Flower',
+    3120902: 'Baphomet',
+    5000101: 'MVP Role-Playing Party',
+    8100001: 'Boss Challenge',
+    8100002: 'Boss Challenge',
+    8100003: 'Boss Challenge',
+    8100004: 'Boss Challenge',
+    8100005: 'Boss Challenge',
+    8100006: 'Boss Challenge',
+    8100007: 'Boss Challenge'
 }
+
+# RO3Emu PackType values stored in item.pack (aethai/ro3emu-server
+# src/Ro3Emu.Server/Protos/romsg/MG_Pack.proto, enum PackType).
+PACK_NAMES = {
+    0: 'Sin bolsa',
+    1: 'Objetos',
+    2: 'Equipo',
+    3: 'Cartas',
+    4: 'Tótems',
+    5: 'Emblemas',
+    20: 'Monedas',
+    100: 'Especial de clase'
+}
+
+# Max value of a signed 64-bit SQLite INTEGER.
+MAX_SQLITE_INT = 2 ** 63 - 1
+
+# Cache of the optional item names file ({"<entry>": "<name>"}).
+# "key" is (absolute path, mtime); "warned" holds paths already reported on stderr.
+ITEM_NAMES_STATE = {"key": None, "names": None, "warned": set()}
+
+def load_item_names():
+    """Returns the {entry: name} mapping from config 'item_names_file', or None when unavailable."""
+    path = str(CONFIG.get("item_names_file") or "").strip()
+    if not path:
+        return None
+    abs_path = os.path.abspath(path)
+    try:
+        key = (abs_path, os.path.getmtime(abs_path))
+        if ITEM_NAMES_STATE["key"] == key:
+            return ITEM_NAMES_STATE["names"]
+        with open(abs_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if not isinstance(data, dict):
+            raise ValueError("expected a JSON object {\"<entry>\": \"<name>\"}")
+        names = {str(k): v for k, v in data.items() if isinstance(v, str)}
+        ITEM_NAMES_STATE["key"] = key
+        ITEM_NAMES_STATE["names"] = names
+        return names
+    except (OSError, ValueError) as e:
+        if abs_path not in ITEM_NAMES_STATE["warned"]:
+            ITEM_NAMES_STATE["warned"].add(abs_path)
+            print(f"[Config Warning] Could not load item_names_file '{abs_path}', item names disabled: {e}", file=sys.stderr)
+        return None
+
+
+def _as_int(value):
+    """Return value as an int id, or None when it is not an integer id."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    try:
+        return int(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def career_name(career_id):
+    """Display name for a career (class) id; unknown ids render as "Clase <id>"."""
+    name = CAREER_MAP.get(_as_int(career_id))
+    return name if name is not None else f"Clase {career_id}"
+
+
+def scene_name(scene_id):
+    """Display name for a scene (map) id; unknown ids render as "Mapa <id>"."""
+    name = SCENE_MAP.get(_as_int(scene_id))
+    return name if name is not None else f"Mapa {scene_id}"
+
+
+def _parse_names_section(section_name, section):
+    """Keep only integer-id keys with non-empty string names; report what was skipped."""
+    parsed = {}
+    if section is None:
+        return parsed
+    if not isinstance(section, dict):
+        print(f"[Config Warning] names_file: '{section_name}' must be an object, ignored", file=sys.stderr)
+        return parsed
+    skipped = 0
+    for key, value in section.items():
+        key_id = _as_int(key)
+        if key_id is None or not isinstance(value, str) or not value.strip():
+            skipped += 1
+            continue
+        parsed[key_id] = value.strip()
+    if skipped:
+        print(f"[Config Warning] names_file: skipped {skipped} invalid '{section_name}' entries "
+              "(keys must be integer ids, names non-empty strings)", file=sys.stderr)
+    return parsed
+
+
+def load_names_file(path):
+    """Read a names_file ({"careers": {...}, "scenes": {...}}). Returns (careers, scenes); never raises."""
+    if path is None or not str(path).strip():
+        return {}, {}
+    path = str(path).strip()
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError) as e:
+        print(f"[Config Warning] names_file: cannot read '{path}', using built-in names: {e}", file=sys.stderr)
+        return {}, {}
+    if not isinstance(data, dict):
+        print(f"[Config Warning] names_file: '{path}' must contain a JSON object, using built-in names", file=sys.stderr)
+        return {}, {}
+    return (_parse_names_section("careers", data.get("careers")),
+            _parse_names_section("scenes", data.get("scenes")))
+
+
+def apply_names_file(path):
+    """Merge a names_file over CAREER_MAP / SCENE_MAP in place (overrides and extends the defaults)."""
+    careers, scenes = load_names_file(path)
+    CAREER_MAP.update(careers)
+    SCENE_MAP.update(scenes)
+    if careers or scenes:
+        print(f"[Config] names_file: loaded {len(careers)} career and {len(scenes)} scene names from {path}")
+
+
+apply_names_file(CONFIG.get("names_file"))
 
 @contextmanager
 def get_db():
@@ -216,6 +367,72 @@ def parse_currency(curr_str):
     except Exception:
         pass
     return result
+
+# RO3Emu RoleStore: role.currency is "itemId:amount,..." where item 1 = Zeny.
+ZENY_ITEM_ID = 1
+
+RANKING_TYPES = ("level", "zeny", "power", "guilds")
+RANKING_DEFAULT_LIMIT = 20
+RANKING_MAX_LIMIT = 100
+
+
+def currency_amount(curr_str, item_id):
+    """Amount of one currency item in a role.currency string; malformed pairs are ignored."""
+    if not curr_str:
+        return 0
+    for part in str(curr_str).split(","):
+        key, sep, value = part.partition(":")
+        if not sep:
+            continue
+        try:
+            if int(key.strip()) == item_id:
+                return int(value.strip())
+        except ValueError:
+            continue
+    return 0
+
+
+def parse_power_total(emblems_blob):
+    """
+    Leaderboard power of a role, mirroring RO3Emu PowerService: the role.emblems blob is the
+    EmblemService.EmblemState JSON (default System.Text.Json, PascalCase) and the committed total is
+    Power.CurrentNormal + Power.CurrentSeason. Returns None when the blob is missing, unparsable,
+    or the power was never published.
+    """
+    if emblems_blob is None:
+        return None
+    try:
+        if isinstance(emblems_blob, (bytes, bytearray, memoryview)):
+            emblems_blob = bytes(emblems_blob).decode("utf-8")
+        state = json.loads(emblems_blob)
+        power = state.get("Power") if isinstance(state, dict) else None
+        if not isinstance(power, dict):
+            return None
+        normal = power.get("CurrentNormal", 0)
+        season = power.get("CurrentSeason", 0)
+        if isinstance(normal, bool) or isinstance(season, bool):
+            return None
+        if not isinstance(normal, int) or not isinstance(season, int):
+            return None
+        return normal + season
+    except (UnicodeDecodeError, ValueError, TypeError):
+        return None
+
+
+def parse_ranking_int(params, key, default, minimum, maximum=None):
+    try:
+        value = int(params.get(key, [default])[0])
+    except (TypeError, ValueError):
+        return default
+    value = max(value, minimum)
+    if maximum is not None:
+        value = min(value, maximum)
+    return value
+
+
+def career_label(career_id):
+    return CAREER_MAP.get(career_id, f"Clase {career_id}")
+
 
 def parse_stats(stats_str):
     result = {"str": 0, "agi": 0, "vit": 0, "int": 0, "dex": 0, "luk": 0}
@@ -358,7 +575,7 @@ def format_role(r, include_progress=False):
         "name": r["name"],
         "sex": "M" if r.get("sex") == 1 else "F",
         "career": career_id,
-        "career_name": CAREER_MAP.get(career_id, f"Clase {career_id}"),
+        "career_name": career_name(career_id),
         "level": r.get("level", 1),
         "job_level": r.get("job_level", 1),
     }
@@ -370,7 +587,7 @@ def format_role(r, include_progress=False):
     if include_progress:
         data["bonus_points"] = r.get("bonus_points", 0)
     data["scene_id"] = scene_id
-    data["scene_name"] = SCENE_MAP.get(scene_id, f"Mapa {scene_id}")
+    data["scene_name"] = scene_name(scene_id)
     data["pos"] = {
         "x": round(r.get("pos_x") or 0, 1),
         "y": round(r.get("pos_y") or 0, 1),
@@ -379,6 +596,171 @@ def format_role(r, include_progress=False):
     data["last_login"] = format_timestamp(r.get("last_login_time"))
     data["created_at"] = format_timestamp(r.get("create_time"))
     return data
+
+# --- Economy Log (read-only view over RO3Emu economy_entry / operation_receipt) ---
+# Enum values mirror upstream ro3emu-server src/Ro3Emu.Server/Economy/EconomyContracts.cs
+# (EconomyOwnerKind, EconomyAssetKind). Role owners store the role id as invariant text in owner_id.
+ECONOMY_DEFAULT_PAGE_SIZE = 50
+ECONOMY_MAX_PAGE_SIZE = 200
+ECONOMY_OWNER_KIND_ROLE = 1
+ECONOMY_OWNER_KIND_LABELS = {
+    1: 'Personaje',
+    2: 'Gremio',
+    3: 'Sistema',
+    4: 'Custodia',
+    5: 'Recuperación'
+}
+ECONOMY_ASSET_KIND_CURRENCY = 2
+ECONOMY_ASSET_KIND_LABELS = {
+    1: 'Ítem',
+    2: 'Moneda',
+    3: 'Recurso de gremio',
+    4: 'Recurso de evento'
+}
+# Upstream RoleStore.cs: currencies are ItemConfig ids and "1 = Zeny".
+ZENY_CURRENCY_ID = 1
+DAY_MS = 24 * 3600 * 1000
+ISO_DATE_RE = re.compile(r'^\d{4}-\d{2}-\d{2}$')
+
+def parse_int_value(raw, default, minimum, maximum):
+    try:
+        value = int(str(raw).strip())
+    except (TypeError, ValueError):
+        return default
+    if value < minimum:
+        value = minimum
+    if maximum is not None and value > maximum:
+        value = maximum
+    return value
+
+def parse_iso_date_ms(raw):
+    """Returns UTC midnight of a YYYY-MM-DD date in epoch milliseconds, None if empty; raises ValueError."""
+    value = (raw or '').strip()
+    if not value:
+        return None
+    if not ISO_DATE_RE.match(value):
+        raise ValueError("invalid date")
+    day = datetime.strptime(value, '%Y-%m-%d').replace(tzinfo=timezone.utc)
+    return int(day.timestamp()) * 1000
+
+def format_utc_ms(ms):
+    if ms is None:
+        return None
+    try:
+        ms = int(ms)
+        dt = datetime.fromtimestamp(ms // 1000, tz=timezone.utc) + timedelta(milliseconds=ms % 1000)
+        return dt.isoformat(timespec='milliseconds')
+    except (TypeError, ValueError, OverflowError, OSError):
+        return None
+
+def query_economy(account, character, from_ms, to_ms, page, page_size):
+    """Strictly read-only query over the economy ledger. Every filter value is bound as a parameter."""
+    result = {
+        "available": False,
+        "entries": [],
+        "total": 0,
+        "page": page,
+        "page_size": page_size,
+        "pages": 1
+    }
+    with get_db() as con:
+        con.execute("PRAGMA query_only = ON")
+        tables = {row[0] for row in con.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('economy_entry', 'operation_receipt', 'role')"
+        )}
+        if 'economy_entry' not in tables or 'operation_receipt' not in tables:
+            return result
+        has_role = 'role' in tables
+
+        where = []
+        args = []
+        if account:
+            where.append("LOWER(r.actor_account) = LOWER(?)")
+            args.append(account)
+        if character:
+            if has_role:
+                where.append(
+                    "(r.actor_role IN (SELECT id FROM role WHERE LOWER(name) = LOWER(?))"
+                    " OR (e.owner_kind = ? AND e.owner_id IN"
+                    " (SELECT CAST(id AS TEXT) FROM role WHERE LOWER(name) = LOWER(?))))"
+                )
+                args.extend([character, ECONOMY_OWNER_KIND_ROLE, character])
+            else:
+                where.append("0")
+        if from_ms is not None:
+            where.append("e.recorded_utc_ms >= ?")
+            args.append(from_ms)
+        if to_ms is not None:
+            where.append("e.recorded_utc_ms < ?")
+            args.append(to_ms + DAY_MS)
+
+        base_sql = " FROM economy_entry e JOIN operation_receipt r ON r.operation_id = e.operation_id"
+        if where:
+            base_sql += " WHERE " + " AND ".join(where)
+
+        total = con.execute("SELECT COUNT(*)" + base_sql, args).fetchone()[0]
+        offset = (page - 1) * page_size
+        rows = []
+        if offset < total:
+            rows = con.execute(
+                "SELECT e.entry_id, e.recorded_utc_ms, e.operation_id, r.command_kind, r.actor_account,"
+                " r.actor_role, e.owner_kind, e.owner_id, e.asset_kind, e.asset_id, e.delta, e.reason_code"
+                + base_sql + " ORDER BY e.entry_id DESC LIMIT ? OFFSET ?",
+                args + [page_size, offset]
+            ).fetchall()
+
+        role_ids = set()
+        for row in rows:
+            if row["actor_role"] is not None:
+                role_ids.add(int(row["actor_role"]))
+            owner_id = str(row["owner_id"] or "")
+            if row["owner_kind"] == ECONOMY_OWNER_KIND_ROLE and owner_id.isdigit():
+                role_ids.add(int(owner_id))
+        role_names = {}
+        if has_role and role_ids:
+            ids = sorted(role_ids)
+            placeholders = ",".join("?" for _ in ids)
+            for role_row in con.execute("SELECT id, name FROM role WHERE id IN (" + placeholders + ")", ids):
+                role_names[role_row["id"]] = role_row["name"]
+
+        entries = []
+        for row in rows:
+            owner_id = str(row["owner_id"] or "")
+            owner_name = None
+            if row["owner_kind"] == ECONOMY_OWNER_KIND_ROLE and owner_id.isdigit():
+                owner_name = role_names.get(int(owner_id))
+            asset_kind = row["asset_kind"]
+            if asset_kind == ECONOMY_ASSET_KIND_CURRENCY and row["asset_id"] == ZENY_CURRENCY_ID:
+                asset_label = "Zeny"
+            else:
+                asset_label = f"{ECONOMY_ASSET_KIND_LABELS.get(asset_kind, 'Activo')} #{row['asset_id']}"
+            actor_role = row["actor_role"]
+            entries.append({
+                "entry_id": row["entry_id"],
+                "recorded_utc": format_utc_ms(row["recorded_utc_ms"]),
+                "operation_id": row["operation_id"],
+                "command_kind": row["command_kind"],
+                "actor_account": row["actor_account"],
+                "actor_role": actor_role,
+                "actor_role_name": role_names.get(int(actor_role)) if actor_role is not None else None,
+                "owner_kind": row["owner_kind"],
+                "owner_kind_label": ECONOMY_OWNER_KIND_LABELS.get(row["owner_kind"], f"Tipo {row['owner_kind']}"),
+                "owner_id": owner_id,
+                "owner_name": owner_name,
+                "asset_kind": asset_kind,
+                "asset_id": row["asset_id"],
+                "asset_label": asset_label,
+                "delta": row["delta"],
+                "reason_code": row["reason_code"]
+            })
+
+    result.update({
+        "available": True,
+        "entries": entries,
+        "total": total,
+        "pages": max(1, (total + page_size - 1) // page_size)
+    })
+    return result
 
 def authenticate_admin(username, password):
     """
@@ -544,14 +926,27 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
             acc_name = raw_path[len('/api/admin/accounts/'):].strip()
             return self.handle_account_detail(acc_name)
 
-        # 7. Audit Log
+        # 7. Character Inventory: /api/admin/characters/<role_id>/items
+        if raw_path.startswith('/api/admin/characters/') and raw_path.endswith('/items'):
+            role_id_str = raw_path[len('/api/admin/characters/'):-len('/items')]
+            return self.handle_character_items(role_id_str)
+
+        # 8. Audit Log
         if raw_path == '/api/admin/audit-log':
             return self.handle_audit_log(params)
 
-        # 8. Character Mailbox (read-only): /api/admin/characters/<role_id>/mail
+        # 10. Character Mailbox (read-only): /api/admin/characters/<role_id>/mail
         mail_match = CHARACTER_MAIL_PATH.match(raw_path)
         if mail_match:
             return self.handle_character_mail(mail_match.group(1), params)
+
+        # 9. Economy Log (read-only)
+        if raw_path == '/api/admin/economy':
+            return self.handle_economy(params)
+
+        # 8. Rankings (read-only)
+        if raw_path == '/api/admin/rankings':
+            return self.handle_rankings(params)
 
         self.send_json(404, {"error": "Endpoint no encontrado"})
 
@@ -851,6 +1246,58 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
         })
         return self.send_json(200, data)
 
+    def handle_character_items(self, role_id_str):
+        """Read-only inventory of one character (SELECT only)."""
+        if not (role_id_str.isascii() and role_id_str.isdigit()) or not (0 < int(role_id_str) <= MAX_SQLITE_INT):
+            return self.send_json(400, {"error": "ID de personaje inválido: debe ser un entero positivo"})
+        role_id = int(role_id_str)
+
+        try:
+            with get_db() as con:
+                role = con.execute(
+                    "SELECT id, name, account, deleted_time FROM role WHERE id=?", (role_id,)
+                ).fetchone()
+                if not role or (role["deleted_time"] or 0) != 0:
+                    return self.send_json(404, {"error": "Personaje no encontrado"})
+                character = {"id": role["id"], "name": role["name"], "account": role["account"]}
+
+                has_item_table = con.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='item'"
+                ).fetchone()
+                if not has_item_table:
+                    return self.send_json(200, {"character": character, "items": [], "total": 0, "available": False})
+
+                rows = [dict(r) for r in con.execute(
+                    "SELECT * FROM item WHERE role_id=? ORDER BY pack, sort, guid", (role_id,)
+                ).fetchall()]
+        except sqlite3.Error as e:
+            print(f"[Inventory Error] {e}", file=sys.stderr)
+            return self.send_json(500, {"error": "Error leyendo el inventario del personaje"})
+
+        names = load_item_names() or {}
+        items = []
+        for r in rows:
+            entry = r.get("entry")
+            pack = r.get("pack")
+            items.append({
+                "guid": r.get("guid"),
+                "entry": entry,
+                "name": names.get(str(entry)),
+                "stack": r.get("stack"),
+                "pack": pack,
+                "pack_name": PACK_NAMES.get(pack),
+                "equipped": bool(r.get("grid") or 0),
+                "locked": bool(r.get("is_locked") or 0),
+                "bind_type": r.get("bind_type") or 0
+            })
+
+        return self.send_json(200, {
+            "character": character,
+            "items": items,
+            "total": len(items),
+            "available": True
+        })
+
     def handle_create_account(self, admin_user, client_ip):
         body = self.read_json_body()
         if not body:
@@ -1043,6 +1490,126 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
             ).fetchall()
             logs = [dict(r) for r in rows]
         return self.send_json(200, {"logs": logs})
+
+    def handle_economy(self, params):
+        account = params.get('account', [''])[0].strip()
+        character = params.get('character', [''])[0].strip()
+        page = parse_int_value(params.get('page', [''])[0], 1, 1, None)
+        page_size = parse_int_value(params.get('page_size', [''])[0], ECONOMY_DEFAULT_PAGE_SIZE, 1, ECONOMY_MAX_PAGE_SIZE)
+
+        try:
+            from_ms = parse_iso_date_ms(params.get('from', [''])[0])
+            to_ms = parse_iso_date_ms(params.get('to', [''])[0])
+        except ValueError:
+            return self.send_json(400, {"error": "Fecha inválida. Use el formato AAAA-MM-DD."})
+
+        result = query_economy(account, character, from_ms, to_ms, page, page_size)
+        return self.send_json(200, result)
+
+    def handle_rankings(self, params):
+        ranking_type = params.get('type', ['level'])[0].strip().lower() or 'level'
+        if ranking_type not in RANKING_TYPES:
+            return self.send_json(400, {
+                "error": "Tipo de ranking inválido. Valores permitidos: " + ", ".join(RANKING_TYPES)
+            })
+
+        limit = parse_ranking_int(params, 'limit', RANKING_DEFAULT_LIMIT, 1, RANKING_MAX_LIMIT)
+        page = parse_ranking_int(params, 'page', 1, 1)
+        offset = (page - 1) * limit
+
+        with get_db() as con:
+            if ranking_type == 'level':
+                rows, total = self.rank_by_level(con, limit, offset)
+            elif ranking_type == 'zeny':
+                rows, total = self.rank_by_metric(con, 'currency', lambda v: currency_amount(v, ZENY_ITEM_ID), limit, offset)
+            elif ranking_type == 'power':
+                rows, total = self.rank_by_metric(con, 'emblems', parse_power_total, limit, offset)
+            else:
+                try:
+                    rows, total = self.rank_guilds(con, limit, offset)
+                except sqlite3.OperationalError as e:
+                    if "no such table" not in str(e).lower():
+                        raise
+                    return self.send_json(200, {
+                        "type": ranking_type, "page": page, "limit": limit,
+                        "total": 0, "available": False, "rankings": []
+                    })
+
+        for index, row in enumerate(rows):
+            row["rank"] = offset + index + 1
+
+        return self.send_json(200, {
+            "type": ranking_type,
+            "page": page,
+            "limit": limit,
+            "total": total,
+            "available": True,
+            "rankings": rows
+        })
+
+    @staticmethod
+    def character_row(r, value):
+        career_id = r["career"] or 1000
+        return {
+            "id": r["id"],
+            "name": r["name"],
+            "account": r["account"],
+            "career": career_id,
+            "career_name": career_label(career_id),
+            "level": r["level"],
+            "job_level": r["job_level"],
+            "value": value
+        }
+
+    def rank_by_level(self, con, limit, offset):
+        total = con.execute("SELECT COUNT(*) FROM role WHERE deleted_time = 0").fetchone()[0]
+        rows = con.execute("""
+            SELECT id, account, name, career, level, job_level
+            FROM role
+            WHERE deleted_time = 0
+            ORDER BY level DESC, job_level DESC, exp DESC, id ASC
+            LIMIT ? OFFSET ?
+        """, (limit, offset)).fetchall()
+        return [self.character_row(r, r["level"]) for r in rows], total
+
+    def rank_by_metric(self, con, column, extract, limit, offset):
+        # The metric lives inside a TEXT/BLOB column, so it is decoded in Python. Only the columns
+        # needed for the row are loaded (one tuple per non-deleted character) to bound memory.
+        query = (
+            "SELECT id, account, name, career, level, job_level, " + column + " AS metric "
+            "FROM role WHERE deleted_time = 0"
+        )
+        scored = []
+        for r in con.execute(query):
+            value = extract(r["metric"])
+            if value is None:
+                continue
+            scored.append((value, r))
+        scored.sort(key=lambda item: (-item[0], item[1]["id"]))
+        page = scored[offset:offset + limit]
+        return [self.character_row(r, value) for value, r in page], len(scored)
+
+    def rank_guilds(self, con, limit, offset):
+        total = con.execute("SELECT COUNT(*) FROM guild").fetchone()[0]
+        rows = con.execute("""
+            SELECT g.id, g.name,
+                   COUNT(r.id) AS member_count,
+                   COALESCE(SUM(r.level), 0) AS total_level
+            FROM guild g
+            LEFT JOIN guild_member gm ON gm.guild_id = g.id
+            LEFT JOIN role r ON r.id = gm.role_id AND r.deleted_time = 0
+            GROUP BY g.id, g.name
+            ORDER BY member_count DESC, total_level DESC, g.id ASC
+            LIMIT ? OFFSET ?
+        """, (limit, offset)).fetchall()
+        result = [{
+            "id": r["id"],
+            "name": r["name"],
+            "member_count": r["member_count"],
+            "total_level": r["total_level"],
+            "value": r["member_count"]
+        } for r in rows]
+        return result, total
 
 def main():
     print("=" * 60)
