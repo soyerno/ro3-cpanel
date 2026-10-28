@@ -1055,6 +1055,70 @@ def summarize_online(entries, show_ips):
     return players
 
 
+# --- Read-only guild and auction views (issue #9) ---
+# Schemas follow aethai/ro3emu-server: guild/guild_member in Accounts/Persistence/GuildStorePlans.cs,
+# auction_item/auction_prebuy in Accounts/Persistence/CoreSchemaPlans.cs (AuctionSchemaPlan), and the
+# auction_item columns AuctionItemColumns.Migrate adds. Everything else lives in JSON state blobs.
+
+LIST_PAGE_SIZE_DEFAULT = 50
+LIST_PAGE_SIZE_MAX = 200
+
+# Verified relational columns per auction view; columns added by later RO3Emu migrations read as NULL when absent.
+AUCTION_VIEWS = {
+    'lots': {
+        'table': 'auction_item',
+        'columns': ['id', 'source_key', 'settled', 'auction_type', 'run_id', 'end_time'],
+        'booleans': ['settled'],
+    },
+    'prebuy': {
+        'table': 'auction_prebuy',
+        'columns': ['id', 'role_id', 'auction_type', 'src_type', 'item_id', 'quantity',
+                    'unit_price', 'currency', 'processed', 'paused'],
+        'booleans': ['processed', 'paused'],
+    },
+}
+
+def open_read_only(con):
+    """Makes the connection refuse writes; used by the read-only views."""
+    con.execute("PRAGMA query_only = ON")
+
+def table_exists(con, table):
+    return con.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", (table,)).fetchone() is not None
+
+def table_columns(con, table):
+    # PRAGMA cannot take a bound parameter; table always comes from AUCTION_VIEWS, never from the request.
+    return {row[1] for row in con.execute(f"PRAGMA table_info({table})")}
+
+def paging(total, page, page_size):
+    return {"total": total, "page": page, "page_size": page_size, "pages": max(1, -(-total // page_size))}
+
+def guild_state_level(state_blob):
+    """GuildStore.State.Level from the System.Text.Json blob (default options, PascalCase); None if unreadable."""
+    try:
+        level = json.loads(state_blob).get("Level")
+    except (TypeError, ValueError, AttributeError):
+        return None
+    return level if isinstance(level, int) and not isinstance(level, bool) else None
+
+# Guild row plus live (non-deleted) member count and summed level.
+GUILD_SUMMARY_SQL = """
+    SELECT g.id, g.name, g.state,
+           COUNT(r.id) AS member_count,
+           COALESCE(SUM(r.level), 0) AS total_level
+    FROM guild g
+    LEFT JOIN guild_member m ON m.guild_id = g.id
+    LEFT JOIN role r ON r.id = m.role_id AND r.deleted_time = 0
+"""
+
+def format_guild_summary(row):
+    return {
+        "id": row["id"],
+        "name": row["name"],
+        "level": guild_state_level(row["state"]),
+        "member_count": row["member_count"],
+        "total_level": row["total_level"],
+    }
+
 def authenticate_admin(username, password):
     """
     Checks if username & password match any configured admin,
@@ -1407,16 +1471,16 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
         if raw_path == '/api/admin/audit-log':
             return self.handle_audit_log(params)
 
-        # 10. Character Mailbox (read-only): /api/admin/characters/<role_id>/mail
+        # 9. Character Mailbox (read-only): /api/admin/characters/<role_id>/mail
         mail_match = CHARACTER_MAIL_PATH.match(raw_path)
         if mail_match:
             return self.handle_character_mail(mail_match.group(1), params)
 
-        # 9. Economy Log (read-only)
+        # 10. Economy Log (read-only)
         if raw_path == '/api/admin/economy':
             return self.handle_economy(params)
 
-        # 8. Rankings (read-only)
+        # 11. Rankings (read-only)
         if raw_path == '/api/admin/rankings':
             return self.handle_rankings(params)
 
@@ -1427,6 +1491,16 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
         # 12. Server metrics (RO3Emu /ro3emu/metrics, loopback only)
         if raw_path == '/api/admin/metrics':
             return self.handle_metrics()
+
+        # 13. Guilds (read-only): list and /api/admin/guilds/<id>
+        if raw_path == '/api/admin/guilds':
+            return self.handle_guilds_list(params)
+        if raw_path.startswith('/api/admin/guilds/'):
+            return self.handle_guild_detail(raw_path[len('/api/admin/guilds/'):].strip())
+
+        # 14. Auctions (read-only)
+        if raw_path == '/api/admin/auctions':
+            return self.handle_auctions_list(params)
 
         self.send_json(404, {"error": "Endpoint no encontrado"})
 
@@ -1797,6 +1871,115 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
             "total": len(items),
             "available": True
         })
+
+    def handle_guilds_list(self, params):
+        q = params.get('q', [''])[0].strip().lower()
+        page = parse_int_param(params, 'page', 1, minimum=1)
+        page_size = parse_int_param(params, 'page_size', LIST_PAGE_SIZE_DEFAULT,
+                                    minimum=1, maximum=LIST_PAGE_SIZE_MAX)
+
+        with get_db() as con:
+            open_read_only(con)
+            if not (table_exists(con, 'guild') and table_exists(con, 'guild_member')):
+                return self.send_json(200, {"available": False, "guilds": [], **paging(0, page, page_size)})
+            con.create_function("PY_LOWER", 1, sql_py_lower)
+
+            where_sql, where_args = "", []
+            if q:
+                # instr() is a literal substring test, so LIKE wildcards in q never apply.
+                where_sql, where_args = "WHERE instr(PY_LOWER(g.name), ?) > 0", [q]
+
+            total = con.execute(f"SELECT COUNT(*) FROM guild g {where_sql}", where_args).fetchone()[0]
+            offset = (page - 1) * page_size
+            guilds = []
+            if offset < total:
+                rows = con.execute(
+                    f"{GUILD_SUMMARY_SQL} {where_sql} GROUP BY g.id ORDER BY g.id ASC LIMIT ? OFFSET ?",
+                    where_args + [page_size, offset],
+                ).fetchall()
+                guilds = [format_guild_summary(r) for r in rows]
+
+        return self.send_json(200, {"available": True, "guilds": guilds, **paging(total, page, page_size)})
+
+    def handle_guild_detail(self, raw_id):
+        # ASCII digits only, within SQLite's signed 64-bit range; anything else cannot be a guild id.
+        guild_id = None
+        if raw_id.isascii() and raw_id.isdigit() and len(raw_id) <= 18:
+            guild_id = int(raw_id)
+
+        with get_db() as con:
+            open_read_only(con)
+            if not (table_exists(con, 'guild') and table_exists(con, 'guild_member')):
+                return self.send_json(200, {"available": False, "guild": None, "members": []})
+
+            row = None
+            if guild_id is not None:
+                row = con.execute(f"{GUILD_SUMMARY_SQL} WHERE g.id = ? GROUP BY g.id", (guild_id,)).fetchone()
+            if not row:
+                return self.send_json(404, {"error": "Gremio no encontrado"})
+
+            members = []
+            for r in con.execute(
+                """
+                SELECT r.id, r.name, r.account, r.career, r.level
+                FROM guild_member m
+                JOIN role r ON r.id = m.role_id AND r.deleted_time = 0
+                WHERE m.guild_id = ?
+                ORDER BY r.level DESC, r.id ASC
+                """,
+                (guild_id,),
+            ):
+                career_id = r["career"] or 1000
+                members.append({
+                    "role_id": r["id"],
+                    "name": r["name"],
+                    "account": r["account"],
+                    "career": career_id,
+                    "career_name": career_name(career_id),
+                    "level": r["level"],
+                })
+
+        return self.send_json(200, {"available": True, "guild": format_guild_summary(row), "members": members})
+
+    def handle_auctions_list(self, params):
+        view = params.get('view', ['lots'])[0].strip().lower()
+        if view not in AUCTION_VIEWS:
+            view = 'lots'
+        spec = AUCTION_VIEWS[view]
+        table = spec['table']
+        page = parse_int_param(params, 'page', 1, minimum=1)
+        page_size = parse_int_param(params, 'page_size', LIST_PAGE_SIZE_DEFAULT,
+                                    minimum=1, maximum=LIST_PAGE_SIZE_MAX)
+
+        with get_db() as con:
+            open_read_only(con)
+            if not table_exists(con, table):
+                return self.send_json(200, {"available": False, "view": view, "rows": [],
+                                            **paging(0, page, page_size)})
+
+            present = table_columns(con, table)
+            select_sql = ", ".join(f"t.{c}" if c in present else f"NULL AS {c}" for c in spec['columns'])
+            join_sql = ""
+            if view == 'prebuy':
+                select_sql += ", r.name AS role_name"
+                join_sql = "LEFT JOIN role r ON r.id = t.role_id"
+
+            total = con.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+            offset = (page - 1) * page_size
+            rows = []
+            if offset < total:
+                for r in con.execute(
+                    f"SELECT {select_sql} FROM {table} t {join_sql} ORDER BY t.id DESC LIMIT ? OFFSET ?",
+                    (page_size, offset),
+                ):
+                    item = dict(r)
+                    for col in spec['booleans']:
+                        if item[col] is not None:
+                            item[col] = bool(item[col])
+                    rows.append(item)
+
+        return self.send_json(200, {"available": True, "view": view, "rows": rows,
+                                    **paging(total, page, page_size)})
 
     def handle_create_account(self, admin_user, client_ip):
         body = self.read_json_body()

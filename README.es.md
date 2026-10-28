@@ -147,6 +147,18 @@ GET /api/admin/rankings?type=level|zeny|power|guilds&limit=20&page=1
 - En bases sin las tablas `guild` / `guild_member`, `type=guilds` devuelve una lista vacía con `"available": false` en lugar de un error.
 - Un `type` desconocido devuelve `400`. El endpoint requiere una sesión de administrador autenticada, igual que el resto de las lecturas `/api/admin/*`.
 
+## Vistas de gremios y subastas (solo lectura)
+
+Las pestañas **🛡️ Gremios** y **💰 Subastas** muestran datos de RO3Emu sin escribirlos nunca: cada consulta corre sobre una conexión con `PRAGMA query_only = ON` y todos los valores van como parámetros. Los listados están paginados (`page`, `page_size`; por defecto 50, máximo 200). Si la base no tiene esas tablas, los endpoints responden `200` con `"available": false`.
+
+| Endpoint | Devuelve |
+| --- | --- |
+| `GET /api/admin/guilds?q=&page=&page_size=` | Gremios por id: `id`, `name`, `level`, `member_count`, `total_level`. `q` busca el texto literal en el nombre, sin distinguir mayúsculas. |
+| `GET /api/admin/guilds/<id>` | El gremio y sus miembros: `role_id`, `name`, `account`, `career`, `career_name`, `level`. `404` si el gremio no existe. |
+| `GET /api/admin/auctions?view=lots\|prebuy&page=&page_size=` | Más recientes primero. `lots` (`auction_item`): `id`, `source_key`, `settled`, `auction_type`, `run_id`, `end_time`. `prebuy` (`auction_prebuy`): `id`, `role_id`, `role_name`, `auction_type`, `src_type`, `item_id`, `quantity`, `unit_price`, `currency`, `processed`, `paused`. |
+
+Solo se leen columnas relacionales, tal como las define `ro3emu-server` (`Accounts/Persistence/GuildStorePlans.cs`, `CoreSchemaPlans.cs`, `AuctionItemColumns.cs`). La única excepción es el `level` del gremio, que se lee del campo `Level` del JSON `guild.state` (`GuildStore.State`); vale `null` si el blob no se puede leer. Los conteos de miembros y la suma de niveles incluyen solo personajes no eliminados. Las columnas de `auction_item` que agregan migraciones posteriores de RO3Emu valen `null` en bases anteriores a ellas; valores como `auction_type` y `end_time` se muestran tal como están guardados.
+
 ---
 
 ## Guías de Documentación

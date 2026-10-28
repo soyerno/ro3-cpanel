@@ -149,6 +149,18 @@ GET /api/admin/rankings?type=level|zeny|power|guilds&limit=20&page=1
 - On databases without the `guild` / `guild_member` tables, `type=guilds` returns an empty list with `"available": false` instead of an error.
 - An unknown `type` returns `400`. The endpoint requires an authenticated admin session, like every other `/api/admin/*` read.
 
+## Read-only guild and auction views
+
+The **🛡️ Gremios** and **💰 Subastas** tabs show RO3Emu data without ever writing it: every query runs on a connection with `PRAGMA query_only = ON`, and all values are bound parameters. Lists are paginated (`page`, `page_size`; default 50, max 200). If the database has no such tables, the endpoints answer `200` with `"available": false`.
+
+| Endpoint | Returns |
+| --- | --- |
+| `GET /api/admin/guilds?q=&page=&page_size=` | Guilds by id: `id`, `name`, `level`, `member_count`, `total_level`. `q` is a case-insensitive literal substring of the name. |
+| `GET /api/admin/guilds/<id>` | The guild plus its members: `role_id`, `name`, `account`, `career`, `career_name`, `level`. `404` if the guild does not exist. |
+| `GET /api/admin/auctions?view=lots\|prebuy&page=&page_size=` | Newest first. `lots` (`auction_item`): `id`, `source_key`, `settled`, `auction_type`, `run_id`, `end_time`. `prebuy` (`auction_prebuy`): `id`, `role_id`, `role_name`, `auction_type`, `src_type`, `item_id`, `quantity`, `unit_price`, `currency`, `processed`, `paused`. |
+
+Only relational columns are read, as defined in `ro3emu-server` (`Accounts/Persistence/GuildStorePlans.cs`, `CoreSchemaPlans.cs`, `AuctionItemColumns.cs`). The one exception is the guild `level`, read from the `Level` field of the `guild.state` JSON (`GuildStore.State`); it is `null` when the blob cannot be read. Member counts and level totals include only characters that are not deleted. `auction_item` columns added by later RO3Emu migrations read as `null` on databases that predate them; values such as `auction_type` and `end_time` are shown as stored.
+
 ---
 
 ## Documentation Guides

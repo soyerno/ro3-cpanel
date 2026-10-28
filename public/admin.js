@@ -39,7 +39,15 @@
       page: 1,
       pageSize: 50,
       pages: 1
-    }
+    },
+    guildQuery: '',
+    guildsPage: 1,
+    guildsPages: 1,
+    guildsTotal: 0,
+    auctionView: 'lots',
+    auctionsPage: 1,
+    auctionsPages: 1,
+    auctionsTotal: 0
   };
 
   // DOM Elements
@@ -120,6 +128,26 @@
     rankingPageLabel: document.getElementById('ranking-page-label'),
     rankingsThead: document.getElementById('rankings-thead'),
     rankingsTbody: document.getElementById('rankings-tbody'),
+
+    tabViewGuilds: document.getElementById('tab-view-guilds'),
+    guildSearchInput: document.getElementById('guild-search-input'),
+    guildsUnavailable: document.getElementById('guilds-unavailable'),
+    guildsTbody: document.getElementById('guilds-tbody'),
+    guildsPager: document.getElementById('guilds-pager'),
+    guildsPagerPrev: document.getElementById('guilds-pager-prev'),
+    guildsPagerNext: document.getElementById('guilds-pager-next'),
+    guildsPagerInfo: document.getElementById('guilds-pager-info'),
+    modalGuild: document.getElementById('modal-guild'),
+
+    tabViewAuctions: document.getElementById('tab-view-auctions'),
+    auctionViewSelect: document.getElementById('auction-view-select'),
+    auctionsUnavailable: document.getElementById('auctions-unavailable'),
+    auctionsThead: document.getElementById('auctions-thead'),
+    auctionsTbody: document.getElementById('auctions-tbody'),
+    auctionsPager: document.getElementById('auctions-pager'),
+    auctionsPagerPrev: document.getElementById('auctions-pager-prev'),
+    auctionsPagerNext: document.getElementById('auctions-pager-next'),
+    auctionsPagerInfo: document.getElementById('auctions-pager-info'),
 
     // Modals
     modalDetail: document.getElementById('modal-detail'),
@@ -1239,6 +1267,173 @@
       });
   }
 
+  // --- Read-only views: Guilds & Auctions ---
+  // escapeHtml() returns '' for 0, so numbers go through String() first.
+  function cellValue(value) {
+    if (value === null || value === undefined) return '—';
+    return escapeHtml(String(value));
+  }
+
+  function emptyRow(colspan, text) {
+    return '<tr><td colspan="' + colspan + '" style="text-align: center; color: var(--text-muted); padding: 32px;">' +
+      escapeHtml(text) + '</td></tr>';
+  }
+
+  function renderPager(pagerEl, infoEl, prevEl, nextEl, page, pages, total, noun) {
+    if (!pagerEl) return;
+    pagerEl.hidden = total === 0;
+    if (infoEl) {
+      infoEl.textContent = 'Página ' + page + ' de ' + pages + ' (' + formatNumber(total) + ' ' + noun + ')';
+    }
+    if (prevEl) prevEl.disabled = page <= 1;
+    if (nextEl) nextEl.disabled = page >= pages;
+  }
+
+  function loadGuilds() {
+    var params = new URLSearchParams();
+    if (state.guildQuery) params.set('q', state.guildQuery);
+    params.set('page', String(state.guildsPage));
+
+    apiFetch('/api/admin/guilds?' + params.toString())
+      .then(function (data) {
+        state.guildsPages = data.pages || 1;
+        state.guildsTotal = data.total || 0;
+        if (els.guildsUnavailable) els.guildsUnavailable.hidden = data.available !== false;
+        renderGuildsTable(data.guilds || []);
+        renderPager(els.guildsPager, els.guildsPagerInfo, els.guildsPagerPrev, els.guildsPagerNext,
+          state.guildsPage, state.guildsPages, state.guildsTotal, 'gremios');
+      })
+      .catch(function (err) {
+        showToast('Error cargando gremios: ' + err.message, 'error');
+      });
+  }
+
+  function renderGuildsTable(guilds) {
+    if (!els.guildsTbody) return;
+    if (!guilds.length) {
+      els.guildsTbody.innerHTML = emptyRow(6, 'No se encontraron gremios.');
+      return;
+    }
+    var html = '';
+    guilds.forEach(function (g) {
+      html += '<tr>' +
+        '<td style="color: var(--text-muted);">' + cellValue(g.id) + '</td>' +
+        '<td><strong style="color: #fff;">' + escapeHtml(g.name) + '</strong></td>' +
+        '<td>' + cellValue(g.level) + '</td>' +
+        '<td>' + cellValue(g.member_count) + '</td>' +
+        '<td>' + cellValue(g.total_level) + '</td>' +
+        '<td><button class="btn btn-secondary btn-sm btn-view-guild" data-guild="' + cellValue(g.id) + '" title="Ver miembros">Ficha</button></td>' +
+      '</tr>';
+    });
+    els.guildsTbody.innerHTML = html;
+  }
+
+  function goToGuildsPage(page) {
+    if (page < 1 || page > state.guildsPages || page === state.guildsPage) return;
+    state.guildsPage = page;
+    loadGuilds();
+  }
+
+  function showGuildDetail(guildId) {
+    apiFetch('/api/admin/guilds/' + encodeURIComponent(guildId))
+      .then(function (data) {
+        if (data.available === false || !data.guild) {
+          showToast('La base de datos no contiene tablas de gremios.', 'info');
+          return;
+        }
+        var g = data.guild;
+        document.getElementById('guild-detail-name').textContent = g.name;
+        document.getElementById('guild-detail-summary').innerHTML =
+          '<div><strong>ID:</strong> <div>' + cellValue(g.id) + '</div></div>' +
+          '<div><strong>Nivel:</strong> <div>' + cellValue(g.level) + '</div></div>' +
+          '<div><strong>Miembros:</strong> <div>' + cellValue(g.member_count) + '</div></div>' +
+          '<div><strong>Nivel total:</strong> <div>' + cellValue(g.total_level) + '</div></div>';
+
+        var members = data.members || [];
+        var tbody = document.getElementById('guild-members-tbody');
+        if (!members.length) {
+          tbody.innerHTML = emptyRow(4, 'Este gremio no tiene miembros activos.');
+        } else {
+          var html = '';
+          members.forEach(function (m) {
+            html += '<tr>' +
+              '<td><strong style="color: #fff;">' + escapeHtml(m.name) + '</strong></td>' +
+              '<td>' + escapeHtml(m.account) + '</td>' +
+              '<td>' + escapeHtml(m.career_name) + '</td>' +
+              '<td>' + cellValue(m.level) + '</td>' +
+            '</tr>';
+          });
+          tbody.innerHTML = html;
+        }
+        openModal(els.modalGuild);
+      })
+      .catch(function (err) {
+        showToast('Error cargando gremio: ' + err.message, 'error');
+      });
+  }
+
+  var AUCTION_COLUMNS = {
+    lots: [
+      ['id', 'ID'], ['source_key', 'Origen'], ['auction_type', 'Tipo'],
+      ['run_id', 'Ronda'], ['end_time', 'Fin'], ['settled', 'Liquidado']
+    ],
+    prebuy: [
+      ['id', 'ID'], ['role_name', 'Personaje'], ['role_id', 'ID Personaje'], ['auction_type', 'Tipo'],
+      ['item_id', 'Ítem'], ['quantity', 'Cantidad'], ['unit_price', 'Precio unitario'],
+      ['currency', 'Moneda'], ['processed', 'Procesado'], ['paused', 'Pausado']
+    ]
+  };
+
+  function auctionCell(value) {
+    if (value === true) return 'Sí';
+    if (value === false) return 'No';
+    return cellValue(value);
+  }
+
+  function loadAuctions() {
+    var params = new URLSearchParams();
+    params.set('view', state.auctionView);
+    params.set('page', String(state.auctionsPage));
+
+    apiFetch('/api/admin/auctions?' + params.toString())
+      .then(function (data) {
+        state.auctionsPages = data.pages || 1;
+        state.auctionsTotal = data.total || 0;
+        if (els.auctionsUnavailable) els.auctionsUnavailable.hidden = data.available !== false;
+        renderAuctionsTable(data.view || state.auctionView, data.rows || []);
+        renderPager(els.auctionsPager, els.auctionsPagerInfo, els.auctionsPagerPrev, els.auctionsPagerNext,
+          state.auctionsPage, state.auctionsPages, state.auctionsTotal, 'registros');
+      })
+      .catch(function (err) {
+        showToast('Error cargando subastas: ' + err.message, 'error');
+      });
+  }
+
+  function renderAuctionsTable(view, rows) {
+    var columns = AUCTION_COLUMNS[view] || AUCTION_COLUMNS.lots;
+    if (els.auctionsThead) {
+      els.auctionsThead.innerHTML = '<tr>' + columns.map(function (c) {
+        return '<th>' + escapeHtml(c[1]) + '</th>';
+      }).join('') + '</tr>';
+    }
+    if (!els.auctionsTbody) return;
+    if (!rows.length) {
+      els.auctionsTbody.innerHTML = emptyRow(columns.length, 'No hay registros de subastas.');
+      return;
+    }
+    els.auctionsTbody.innerHTML = rows.map(function (r) {
+      return '<tr>' + columns.map(function (c) {
+        return '<td>' + auctionCell(r[c[0]]) + '</td>';
+      }).join('') + '</tr>';
+    }).join('');
+  }
+
+  function goToAuctionsPage(page) {
+    if (page < 1 || page > state.auctionsPages || page === state.auctionsPage) return;
+    state.auctionsPage = page;
+    loadAuctions();
+  }
+
   // --- Tabs Switching ---
   function switchTab(tabId) {
     state.activeTab = tabId;
@@ -1251,6 +1446,8 @@
     if (els.tabViewAudit) els.tabViewAudit.hidden = (tabId !== 'audit');
     if (els.tabViewEconomy) els.tabViewEconomy.hidden = (tabId !== 'economy');
     if (els.tabViewRankings) els.tabViewRankings.hidden = (tabId !== 'rankings');
+    if (els.tabViewGuilds) els.tabViewGuilds.hidden = (tabId !== 'guilds');
+    if (els.tabViewAuctions) els.tabViewAuctions.hidden = (tabId !== 'auctions');
 
     if (tabId === 'audit') {
       loadAuditLog();
@@ -1258,6 +1455,10 @@
       loadEconomy();
     } else if (tabId === 'rankings') {
       loadRankings();
+    } else if (tabId === 'guilds') {
+      loadGuilds();
+    } else if (tabId === 'auctions') {
+      loadAuctions();
     } else if (tabId === 'dashboard') {
       loadStats();
       loadServerMetrics();
@@ -1338,6 +1539,57 @@
       els.rankingNext.addEventListener('click', function () {
         state.rankingPage += 1;
         loadRankings();
+      });
+    }
+
+    var guildSearchTimeout = null;
+    if (els.guildSearchInput) {
+      els.guildSearchInput.addEventListener('input', function () {
+        clearTimeout(guildSearchTimeout);
+        state.guildQuery = this.value.trim().toLowerCase();
+        state.guildsPage = 1;
+        guildSearchTimeout = setTimeout(loadGuilds, 250);
+      });
+    }
+
+    if (els.guildsPagerPrev) {
+      els.guildsPagerPrev.addEventListener('click', function () {
+        goToGuildsPage(state.guildsPage - 1);
+      });
+    }
+
+    if (els.guildsPagerNext) {
+      els.guildsPagerNext.addEventListener('click', function () {
+        goToGuildsPage(state.guildsPage + 1);
+      });
+    }
+
+    if (els.guildsTbody) {
+      els.guildsTbody.addEventListener('click', function (e) {
+        var target = e.target.closest('button.btn-view-guild');
+        if (!target) return;
+        var guildId = target.getAttribute('data-guild');
+        if (guildId) showGuildDetail(guildId);
+      });
+    }
+
+    if (els.auctionViewSelect) {
+      els.auctionViewSelect.addEventListener('change', function () {
+        state.auctionView = this.value;
+        state.auctionsPage = 1;
+        loadAuctions();
+      });
+    }
+
+    if (els.auctionsPagerPrev) {
+      els.auctionsPagerPrev.addEventListener('click', function () {
+        goToAuctionsPage(state.auctionsPage - 1);
+      });
+    }
+
+    if (els.auctionsPagerNext) {
+      els.auctionsPagerNext.addEventListener('click', function () {
+        goToAuctionsPage(state.auctionsPage + 1);
       });
     }
 
