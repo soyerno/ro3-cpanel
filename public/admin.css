@@ -1140,3 +1140,68 @@ body {
     grid-template-columns: 1fr;
   }
 }
+
+/* Account vault and web market (read-only) */
+.badge-neutral {
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid var(--border-color);
+}
+
+.vault-section {
+  margin-top: 16px;
+}
+
+.vault-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.vault-panel {
+  margin-top: 8px;
+  padding: 10px;
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+}
+
+.vault-vip {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.vault-meta {
+  color: var(--text-muted);
+}
+
+.vault-empty {
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.vault-item,
+.market-item,
+.market-account {
+  color: var(--text-main);
+}
+
+.market-price {
+  color: var(--success);
+  font-weight: 700;
+}
+
+.market-date {
+  color: var(--text-muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.market-toolbar {
+  align-items: flex-end;
+}

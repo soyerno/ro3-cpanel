@@ -177,6 +177,7 @@ Solo se leen columnas relacionales, tal como las define `ro3emu-server` (`Accoun
 
 - [Guía de Alojamiento y Despliegue](docs/guide/hosting.md) (Tareas programadas de Windows, Linux systemd, Docker, Nginx, Cloudflare)
 - [Guía de Personalización de Marca Blanca](docs/guide/white-label.md) (Temas, textos, logotipo y rutas)
+- [Bóveda de cuenta y mercado web](docs/guide/vault-market.md) (Vistas de solo lectura de la bóveda y el mercado del portal web)
 - [Códigos de regalo](docs/guide/gift-codes.md) (Crear y administrar códigos canjeables desde el panel)
 - [Idioma](docs/guide/language.md) (inglés por defecto, traducción al español, cambio desde el panel)
 - [Nombres de Clases y Mapas](docs/guide/names.md) (Nombres de clases y mapas, archivo `names_file` personalizado)
