@@ -23,24 +23,24 @@
       <div class="login-notice">
         <strong data-i18n="Restricted access:">Restricted access:</strong> <span data-i18n="Exclusively for authorized administrators and Game Masters.">Exclusively for authorized administrators and Game Masters.</span>
         <div class="login-security-pill">
-          <span>🔒</span> <span data-i18n="Protected with client-side encryption (Zero-Plaintext PBKDF2).">Protected with client-side encryption (Zero-Plaintext PBKDF2).</span>
+          <span aria-hidden="true">🔒</span> <span data-i18n="Protected with client-side encryption (Zero-Plaintext PBKDF2).">Protected with client-side encryption (Zero-Plaintext PBKDF2).</span>
         </div>
       </div>
 
       <form id="login-form">
-        <div class="form-group" style="text-align: left;">
+        <div class="form-group">
           <label class="form-label" for="login-user" data-i18n="Administrator Username">Administrator Username</label>
           <input type="text" id="login-user" class="form-input" placeholder="GM username" data-i18n-placeholder="GM username" autocomplete="username" maxlength="32" required autofocus>
         </div>
 
-        <div class="form-group" style="text-align: left;">
+        <div class="form-group">
           <label class="form-label" for="login-pass" data-i18n="Password">Password</label>
           <input type="password" id="login-pass" class="form-input" placeholder="••••••••" autocomplete="current-password" maxlength="128" required>
         </div>
 
-        <div id="login-error" style="color: var(--danger); font-size: 12px; margin-bottom: 16px; text-align: left;" hidden></div>
+        <div id="login-error" class="login-error" role="alert" hidden></div>
 
-        <button type="submit" id="login-submit" class="btn btn-primary" style="width: 100%; padding: 12px;" data-i18n="Access Panel">
+        <button type="submit" id="login-submit" class="btn btn-primary btn-block" data-i18n="Access Panel">
           Access Panel
         </button>
       </form>
@@ -65,8 +65,8 @@
       <div class="server-pill" title="RO3Emu game emulator status" data-i18n-title="RO3Emu game emulator status">
         <span id="server-status-dot" class="status-dot"></span>
         <span id="server-status-text" data-i18n="Connecting...">Connecting...</span>
-        <span style="color: var(--text-dim);">|</span>
-        <span><span data-i18n="Online:">Online:</span> <strong id="server-online-count" style="color: var(--gold);">0</strong></span>
+        <span class="pill-sep" aria-hidden="true">|</span>
+        <span><span data-i18n="Online:">Online:</span> <strong id="server-online-count" class="text-gold">0</strong></span>
       </div>
 
       <div id="lang-switch-app" class="lang-switch" role="group" aria-label="Language" data-i18n-aria-label="Language">
@@ -76,7 +76,7 @@
 
       <div class="user-profile">
         <div class="gm-badge">
-          <span>👑</span>
+          <span aria-hidden="true">👑</span>
           <span id="admin-name">Admin</span>
         </div>
         <button id="btn-logout" class="btn-logout" data-i18n="Log Out">Log Out</button>
@@ -85,34 +85,43 @@
   </header>
 
   <!-- 3. Tab navigation (subnav) -->
-  <nav id="app-subnav" class="subnav-tabs" hidden>
-    <button class="tab-btn active" data-tab="accounts">
-      <span data-i18n="👥 Accounts">👥 Accounts</span>
+  <nav id="app-subnav" class="subnav-tabs" aria-label="Panel sections" data-i18n-aria-label="Panel sections" hidden>
+    <button class="tab-btn active" data-tab="accounts" type="button" aria-current="page">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M17 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2"/><circle cx="10" cy="7" r="4"/><path d="M21 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+      <span data-i18n="Accounts">Accounts</span>
       <span id="tab-accounts-count" class="tab-counter">0</span>
     </button>
-    <button class="tab-btn" data-tab="dashboard">
-      <span data-i18n="📊 Dashboard">📊 Dashboard</span>
+    <button class="tab-btn" data-tab="dashboard" type="button">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M18 20V10"/><path d="M12 20V4"/><path d="M6 20v-6"/></svg>
+      <span data-i18n="Dashboard">Dashboard</span>
     </button>
-    <button class="tab-btn" data-tab="rankings">
-      <span data-i18n="🏆 Rankings">🏆 Rankings</span>
+    <button class="tab-btn" data-tab="rankings" type="button">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M8 21h8"/><path d="M12 17v4"/><path d="M7 4h10v5a5 5 0 0 1-10 0V4z"/><path d="M17 4h3v2a3 3 0 0 1-3 3"/><path d="M7 4H4v2a3 3 0 0 0 3 3"/></svg>
+      <span data-i18n="Rankings">Rankings</span>
     </button>
-    <button class="tab-btn" data-tab="guilds">
-      <span data-i18n="🛡️ Guilds">🛡️ Guilds</span>
+    <button class="tab-btn" data-tab="guilds" type="button">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+      <span data-i18n="Guilds">Guilds</span>
     </button>
-    <button class="tab-btn" data-tab="auctions">
-      <span data-i18n="💰 Auctions">💰 Auctions</span>
+    <button class="tab-btn" data-tab="auctions" type="button">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><circle cx="7" cy="7" r="1.5"/></svg>
+      <span data-i18n="Auctions">Auctions</span>
     </button>
-    <button class="tab-btn" data-tab="audit">
-      <span data-i18n="📜 Audit Log">📜 Audit Log</span>
+    <button class="tab-btn" data-tab="audit" type="button">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M8 13h8"/><path d="M8 17h8"/></svg>
+      <span data-i18n="Audit Log">Audit Log</span>
     </button>
-    <button class="tab-btn" data-tab="economy">
-      <span data-i18n="💰 Economy">💰 Economy</span>
+    <button class="tab-btn" data-tab="economy" type="button">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 17l6-6 4 4 8-8"/><path d="M14 7h7v7"/></svg>
+      <span data-i18n="Economy">Economy</span>
     </button>
-    <button class="tab-btn" data-tab="giftcodes">
-      <span data-i18n="🎁 Gift Codes">🎁 Gift Codes</span>
+    <button class="tab-btn" data-tab="giftcodes" type="button">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3" y="8" width="18" height="4" rx="1"/><path d="M12 8v13"/><path d="M19 12v7a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-7"/><path d="M7.5 8a2.5 2.5 0 0 1 0-5C11 3 12 8 12 8s1-5 4.5-5a2.5 2.5 0 0 1 0 5"/></svg>
+      <span data-i18n="Gift Codes">Gift Codes</span>
     </button>
-    <button class="tab-btn" data-tab="market">
-      <span data-i18n="🏪 Market">🏪 Market</span>
+    <button class="tab-btn" data-tab="market" type="button">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 9l1-5h16l1 5"/><path d="M4 9v11h16V9"/><path d="M9 20v-6h6v6"/><path d="M3 9a3 3 0 0 0 6 0 3 3 0 0 0 6 0 3 3 0 0 0 6 0"/></svg>
+      <span data-i18n="Market">Market</span>
     </button>
   </nav>
 
@@ -123,18 +132,18 @@
     <section id="tab-view-accounts">
       <div class="toolbar-card">
         <div class="search-box">
-          <span style="color: var(--text-muted);">🔍</span>
-          <input type="text" id="search-input" placeholder="Search by username or character name..." data-i18n-placeholder="Search by username or character name...">
+          <span class="search-icon" aria-hidden="true">🔍</span>
+          <input type="text" id="search-input" placeholder="Search by username or character name..." data-i18n-placeholder="Search by username or character name..." aria-label="Search accounts" data-i18n-aria-label="Search accounts">
         </div>
 
         <div class="filter-group">
-          <select id="status-select" class="select-filter">
+          <select id="status-select" class="select-filter" aria-label="Filter accounts by status" data-i18n-aria-label="Filter accounts by status">
             <option value="all" data-i18n="All accounts">All accounts</option>
             <option value="active" data-i18n="Active only">Active only</option>
             <option value="banned" data-i18n="Banned / Suspended only">Banned / Suspended only</option>
           </select>
 
-          <select id="sort-select" class="select-filter">
+          <select id="sort-select" class="select-filter" aria-label="Sort accounts" data-i18n-aria-label="Sort accounts">
             <option value="created_desc" data-i18n="Newest first">Newest first</option>
             <option value="created_asc" data-i18n="Oldest first">Oldest first</option>
             <option value="name_asc" data-i18n="Name (A - Z)">Name (A - Z)</option>
@@ -142,30 +151,30 @@
           </select>
 
           <button id="btn-refresh" class="btn btn-secondary" title="Refresh data" data-i18n-title="Refresh data">
-            <span>🔄</span> <span data-i18n="Refresh">Refresh</span>
+            <span aria-hidden="true">🔄</span> <span data-i18n="Refresh">Refresh</span>
           </button>
 
           <button id="btn-new-account" class="btn btn-primary">
-            <span>➕</span> <span data-i18n="Create Account">Create Account</span>
+            <span aria-hidden="true">➕</span> <span data-i18n="Create Account">Create Account</span>
           </button>
         </div>
       </div>
 
       <div class="table-container">
-        <table class="data-table">
+        <table class="data-table data-table--stack">
           <thead>
             <tr>
-              <th style="width: 18%;" data-i18n="Account">Account</th>
-              <th style="width: 12%;" data-i18n="Status">Status</th>
+              <th class="w-18" data-i18n="Account">Account</th>
+              <th class="w-12" data-i18n="Status">Status</th>
               <th data-i18n="Associated Characters">Associated Characters</th>
-              <th style="width: 18%;" data-i18n="Registration Date">Registration Date</th>
-              <th style="width: 18%;" data-i18n="Last Login">Last Login</th>
-              <th style="width: 16%;" data-i18n="Actions">Actions</th>
+              <th class="w-18" data-i18n="Registration Date">Registration Date</th>
+              <th class="w-18" data-i18n="Last Login">Last Login</th>
+              <th class="w-16" data-i18n="Actions">Actions</th>
             </tr>
           </thead>
-          <tbody id="accounts-tbody">
+          <tbody id="accounts-tbody" aria-busy="true">
             <tr>
-              <td colspan="6" style="text-align: center; color: var(--text-muted); padding: 32px;" data-i18n="Loading account list...">
+              <td colspan="6" class="table-state" data-i18n="Loading account list...">
                 Loading account list...
               </td>
             </tr>
@@ -298,7 +307,7 @@
     <section id="tab-view-dashboard" hidden>
       <div class="stats-grid">
         <div class="stat-card">
-          <div class="stat-icon accounts">👥</div>
+          <div class="stat-icon accounts" aria-hidden="true">👥</div>
           <div>
             <div id="stat-accounts" class="stat-val">0</div>
             <div class="stat-lbl" data-i18n="Registered Accounts">Registered Accounts</div>
@@ -306,7 +315,7 @@
         </div>
 
         <div class="stat-card">
-          <div class="stat-icon chars">⚔️</div>
+          <div class="stat-icon chars" aria-hidden="true">⚔️</div>
           <div>
             <div id="stat-chars" class="stat-val">0</div>
             <div class="stat-lbl" data-i18n="Characters Created">Characters Created</div>
@@ -314,7 +323,7 @@
         </div>
 
         <div class="stat-card">
-          <div class="stat-icon online">⚡</div>
+          <div class="stat-icon online" aria-hidden="true">⚡</div>
           <div>
             <div id="stat-online" class="stat-val">0</div>
             <div class="stat-lbl" data-i18n="Players Online">Players Online</div>
@@ -322,7 +331,7 @@
         </div>
 
         <div class="stat-card">
-          <div class="stat-icon banned">🚫</div>
+          <div class="stat-icon banned" aria-hidden="true">🚫</div>
           <div>
             <div id="stat-banned" class="stat-val">0</div>
             <div class="stat-lbl" data-i18n="Suspended Accounts">Suspended Accounts</div>
@@ -387,21 +396,21 @@
         </div>
       </div>
 
-      <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 20px;">
-        <div class="toolbar-card" style="display: block;">
-          <h3 style="font-size: 15px; font-weight: 700; color: #fff; margin-bottom: 12px;" data-i18n="Quick Administrator Actions">Quick Administrator Actions</h3>
-          <p style="color: var(--text-muted); font-size: 13px; margin-bottom: 16px;" data-i18n="From this panel you can register new test accounts, reset passwords for players who forgot their credentials, or apply preventive suspensions.">
+      <div class="dash-grid">
+        <div class="toolbar-card toolbar-card-block">
+          <h3 class="card-title mb-12" data-i18n="Quick Administrator Actions">Quick Administrator Actions</h3>
+          <p class="card-note" data-i18n="From this panel you can register new test accounts, reset passwords for players who forgot their credentials, or apply preventive suspensions.">
             From this panel you can register new test accounts, reset passwords for players who forgot their credentials, or apply preventive suspensions.
           </p>
-          <div style="display: flex; gap: 10px;">
+          <div class="button-row">
             <button id="btn-new-account-dash" class="btn btn-primary" data-i18n="➕ Register New Account">➕ Register New Account</button>
-            <button class="btn btn-secondary" onclick="document.querySelector('[data-tab=\'accounts\']').click()" data-i18n="🔍 Browse All Accounts">🔍 Browse All Accounts</button>
+            <button type="button" id="btn-browse-accounts" class="btn btn-secondary" data-i18n="🔍 Browse All Accounts">🔍 Browse All Accounts</button>
           </div>
         </div>
 
-        <div class="toolbar-card" style="display: block;">
-          <h3 style="font-size: 15px; font-weight: 700; color: #fff; margin-bottom: 12px;" data-i18n="Server Information">Server Information</h3>
-          <ul style="list-style: none; font-size: 12px; color: var(--text-muted); line-height: 2;">
+        <div class="toolbar-card toolbar-card-block">
+          <h3 class="card-title mb-12" data-i18n="Server Information">Server Information</h3>
+          <ul class="info-list">
             <li><strong data-i18n="Engine:">Engine:</strong> RO3Emu Native</li>
             <li><strong data-i18n="Database:">Database:</strong> SQLite WAL Mode</li>
             <li><strong data-i18n="Security:">Security:</strong> PBKDF2 SHA-256 (100k iters)</li>
@@ -415,8 +424,8 @@
     <section id="tab-view-rankings" hidden>
       <div class="toolbar-card">
         <div>
-          <h3 style="font-size: 15px; font-weight: 700; color: #fff;" data-i18n="Server Rankings">Server Rankings</h3>
-          <span style="font-size: 12px; color: var(--text-muted);" data-i18n="Deleted characters excluded">Deleted characters excluded</span>
+          <h3 class="card-title" data-i18n="Server Rankings">Server Rankings</h3>
+          <span class="muted-note" data-i18n="Deleted characters excluded">Deleted characters excluded</span>
         </div>
 
         <div class="filter-group">
@@ -428,7 +437,7 @@
           </select>
 
           <button id="ranking-prev" class="btn btn-secondary" title="Previous page" data-i18n-title="Previous page" data-i18n="◀ Previous">◀ Previous</button>
-          <span id="ranking-page-label" style="font-size: 12px; color: var(--text-muted);" data-i18n="Page 1">Page 1</span>
+          <span id="ranking-page-label" class="muted-note" data-i18n="Page 1">Page 1</span>
           <button id="ranking-next" class="btn btn-secondary" title="Next page" data-i18n-title="Next page" data-i18n="Next ▶">Next ▶</button>
         </div>
       </div>
@@ -436,9 +445,9 @@
       <div class="table-container">
         <table class="data-table">
           <thead id="rankings-thead"></thead>
-          <tbody id="rankings-tbody">
+          <tbody id="rankings-tbody" aria-busy="true">
             <tr>
-              <td colspan="6" style="text-align: center; color: var(--text-muted); padding: 32px;" data-i18n="Loading rankings...">
+              <td colspan="6" class="table-state" data-i18n="Loading rankings...">
                 Loading rankings...
               </td>
             </tr>
@@ -451,10 +460,10 @@
     <section id="tab-view-guilds" hidden>
       <div class="toolbar-card">
         <div class="search-box">
-          <span style="color: var(--text-muted);">🔍</span>
+          <span class="search-icon" aria-hidden="true">🔍</span>
           <input type="text" id="guild-search-input" placeholder="Search guild by name..." data-i18n-placeholder="Search guild by name..." aria-label="Search guild by name" data-i18n-aria-label="Search guild by name">
         </div>
-        <span style="font-size: 12px; color: var(--text-muted);" data-i18n="Read-only view">Read-only view</span>
+        <span class="muted-note" data-i18n="Read-only view">Read-only view</span>
       </div>
 
       <div id="guilds-unavailable" class="readonly-notice" hidden data-i18n="The RO3Emu database contains no guild tables.">
@@ -465,17 +474,17 @@
         <table class="data-table">
           <thead>
             <tr>
-              <th style="width: 10%;">ID</th>
+              <th class="w-10">ID</th>
               <th data-i18n="Guild">Guild</th>
-              <th style="width: 12%;" data-i18n="Level">Level</th>
-              <th style="width: 14%;" data-i18n="Members">Members</th>
-              <th style="width: 16%;" data-i18n="Total level">Total level</th>
-              <th style="width: 12%;" data-i18n="Actions">Actions</th>
+              <th class="w-12" data-i18n="Level">Level</th>
+              <th class="w-14" data-i18n="Members">Members</th>
+              <th class="w-16" data-i18n="Total level">Total level</th>
+              <th class="w-12" data-i18n="Actions">Actions</th>
             </tr>
           </thead>
-          <tbody id="guilds-tbody">
+          <tbody id="guilds-tbody" aria-busy="true">
             <tr>
-              <td colspan="6" style="text-align: center; color: var(--text-muted); padding: 32px;" data-i18n="Loading guilds...">
+              <td colspan="6" class="table-state" data-i18n="Loading guilds...">
                 Loading guilds...
               </td>
             </tr>
@@ -499,7 +508,7 @@
             <option value="prebuy" data-i18n="Pre-buy orders">Pre-buy orders</option>
           </select>
         </div>
-        <span style="font-size: 12px; color: var(--text-muted);" data-i18n="Read-only view">Read-only view</span>
+        <span class="muted-note" data-i18n="Read-only view">Read-only view</span>
       </div>
 
       <div id="auctions-unavailable" class="readonly-notice" hidden data-i18n="The RO3Emu database does not contain this auction table.">
@@ -509,9 +518,9 @@
       <div class="table-container">
         <table class="data-table">
           <thead id="auctions-thead"></thead>
-          <tbody id="auctions-tbody">
+          <tbody id="auctions-tbody" aria-busy="true">
             <tr>
-              <td style="text-align: center; color: var(--text-muted); padding: 32px;" data-i18n="Loading auctions...">
+              <td colspan="6" class="table-state" data-i18n="Loading auctions...">
                 Loading auctions...
               </td>
             </tr>
@@ -529,24 +538,24 @@
     <!-- View 6: Audit log -->
     <section id="tab-view-audit" hidden>
       <div class="toolbar-card">
-        <h3 style="font-size: 15px; font-weight: 700; color: #fff;" data-i18n="Administration Action History">Administration Action History</h3>
-        <span style="font-size: 12px; color: var(--text-muted);" data-i18n="Immutable log of password changes, bans and creations">Immutable log of password changes, bans and creations</span>
+        <h3 class="card-title" data-i18n="Administration Action History">Administration Action History</h3>
+        <span class="muted-note" data-i18n="Immutable log of password changes, bans and creations">Immutable log of password changes, bans and creations</span>
       </div>
 
       <div class="table-container">
         <table class="data-table">
           <thead>
             <tr>
-              <th style="width: 20%;" data-i18n="Date (UTC)">Date (UTC)</th>
-              <th style="width: 15%;" data-i18n="Administrator">Administrator</th>
-              <th style="width: 18%;" data-i18n="Action">Action</th>
-              <th style="width: 20%;" data-i18n="Target Account">Target Account</th>
+              <th class="w-20" data-i18n="Date (UTC)">Date (UTC)</th>
+              <th class="w-15" data-i18n="Administrator">Administrator</th>
+              <th class="w-18" data-i18n="Action">Action</th>
+              <th class="w-20" data-i18n="Target Account">Target Account</th>
               <th data-i18n="Details">Details</th>
             </tr>
           </thead>
-          <tbody id="audit-tbody">
+          <tbody id="audit-tbody" aria-busy="true">
             <tr>
-              <td colspan="5" style="text-align: center; color: var(--text-muted); padding: 32px;" data-i18n="Loading records...">
+              <td colspan="5" class="table-state" data-i18n="Loading records...">
                 Loading records...
               </td>
             </tr>
@@ -563,9 +572,9 @@
 
     <!-- View 7: Economy log (read-only) -->
     <section id="tab-view-economy" hidden>
-      <div class="toolbar-card" style="display: block;">
-        <h3 style="font-size: 15px; font-weight: 700; color: #fff; margin-bottom: 4px;" data-i18n="Economy Log">Economy Log</h3>
-        <span style="font-size: 12px; color: var(--text-muted);" data-i18n="Zeny, item and resource movements recorded by the emulator (read-only). Useful for auditing duplications and disputes.">Zeny, item and resource movements recorded by the emulator (read-only). Useful for auditing duplications and disputes.</span>
+      <div class="toolbar-card toolbar-card-block">
+        <h3 class="card-title mb-4" data-i18n="Economy Log">Economy Log</h3>
+        <span class="muted-note" data-i18n="Zeny, item and resource movements recorded by the emulator (read-only). Useful for auditing duplications and disputes.">Zeny, item and resource movements recorded by the emulator (read-only). Useful for auditing duplications and disputes.</span>
 
         <form id="economy-filter-form" class="economy-filters">
           <div class="economy-field">
@@ -599,18 +608,18 @@
         <table class="data-table">
           <thead>
             <tr>
-              <th style="width: 15%;" data-i18n="Date (UTC)">Date (UTC)</th>
-              <th style="width: 17%;" data-i18n="Operation">Operation</th>
-              <th style="width: 15%;" data-i18n="Actor">Actor</th>
-              <th style="width: 15%;" data-i18n="Owner">Owner</th>
-              <th style="width: 15%;" data-i18n="Asset">Asset</th>
-              <th style="width: 11%;" data-i18n="Delta">Delta</th>
+              <th class="w-15" data-i18n="Date (UTC)">Date (UTC)</th>
+              <th class="w-17" data-i18n="Operation">Operation</th>
+              <th class="w-15" data-i18n="Actor">Actor</th>
+              <th class="w-15" data-i18n="Owner">Owner</th>
+              <th class="w-15" data-i18n="Asset">Asset</th>
+              <th class="w-11" data-i18n="Delta">Delta</th>
               <th data-i18n="Reason">Reason</th>
             </tr>
           </thead>
-          <tbody id="economy-tbody">
+          <tbody id="economy-tbody" aria-busy="true">
             <tr>
-              <td colspan="7" style="text-align: center; color: var(--text-muted); padding: 32px;" data-i18n="Loading movements...">
+              <td colspan="7" class="table-state" data-i18n="Loading movements...">
                 Loading movements...
               </td>
             </tr>
@@ -629,15 +638,15 @@
     <section id="tab-view-giftcodes" hidden>
       <div class="toolbar-card">
         <div>
-          <h3 style="font-size: 15px; font-weight: 700; color: #fff; margin-bottom: 4px;" data-i18n="Gift Codes">Gift Codes</h3>
-          <span style="font-size: 12px; color: var(--text-muted);" data-i18n="Redeemable reward codes. Players redeem them in the game client, not in this panel.">Redeemable reward codes. Players redeem them in the game client, not in this panel.</span>
+          <h3 class="card-title mb-4" data-i18n="Gift Codes">Gift Codes</h3>
+          <span class="muted-note" data-i18n="Redeemable reward codes. Players redeem them in the game client, not in this panel.">Redeemable reward codes. Players redeem them in the game client, not in this panel.</span>
         </div>
         <div class="filter-group">
           <button type="button" id="btn-giftcodes-refresh" class="btn btn-secondary" title="Refresh data" data-i18n-title="Refresh data">
-            <span>🔄</span> <span data-i18n="Refresh">Refresh</span>
+            <span aria-hidden="true">🔄</span> <span data-i18n="Refresh">Refresh</span>
           </button>
           <button type="button" id="btn-new-giftcode" class="btn btn-primary">
-            <span>➕</span> <span data-i18n="Create Gift Code">Create Gift Code</span>
+            <span aria-hidden="true">➕</span> <span data-i18n="Create Gift Code">Create Gift Code</span>
           </button>
         </div>
       </div>
@@ -660,9 +669,9 @@
               <th data-i18n="Actions">Actions</th>
             </tr>
           </thead>
-          <tbody id="giftcodes-tbody">
+          <tbody id="giftcodes-tbody" aria-busy="true">
             <tr>
-              <td colspan="10" style="text-align: center; color: var(--text-muted); padding: 32px;" data-i18n="Loading gift codes...">
+              <td colspan="10" class="table-state" data-i18n="Loading gift codes...">
                 Loading gift codes...
               </td>
             </tr>
@@ -675,8 +684,8 @@
     <section id="tab-view-market" hidden>
       <div class="toolbar-card market-toolbar">
         <div>
-          <h3 style="font-size: 15px; font-weight: 700; color: #fff; margin-bottom: 4px;" data-i18n="Web Market">Web Market</h3>
-          <span style="font-size: 12px; color: var(--text-muted);" data-i18n="Player-to-player listings of the web marketplace (read-only).">Player-to-player listings of the web marketplace (read-only).</span>
+          <h3 class="card-title mb-4" data-i18n="Web Market">Web Market</h3>
+          <span class="muted-note" data-i18n="Player-to-player listings of the web marketplace (read-only).">Player-to-player listings of the web marketplace (read-only).</span>
         </div>
 
         <form id="market-filter-form" class="economy-filters">
@@ -704,28 +713,28 @@
 
       <div id="market-summary" class="stats-grid">
         <div class="stat-card">
-          <div class="stat-icon online">🏪</div>
+          <div class="stat-icon online" aria-hidden="true">🏪</div>
           <div>
             <div id="market-stat-active" class="stat-val">0</div>
             <div class="stat-lbl" data-i18n="Active listings">Active listings</div>
           </div>
         </div>
         <div class="stat-card">
-          <div class="stat-icon chars">✅</div>
+          <div class="stat-icon chars" aria-hidden="true">✅</div>
           <div>
             <div id="market-stat-sold" class="stat-val">0</div>
             <div class="stat-lbl" data-i18n="Sold">Sold</div>
           </div>
         </div>
         <div class="stat-card">
-          <div class="stat-icon accounts">💰</div>
+          <div class="stat-icon accounts" aria-hidden="true">💰</div>
           <div>
             <div id="market-stat-active-zeny" class="stat-val">0</div>
             <div class="stat-lbl" data-i18n="Zeny in active listings">Zeny in active listings</div>
           </div>
         </div>
         <div class="stat-card" id="market-card-pending">
-          <div class="stat-icon banned">⏳</div>
+          <div class="stat-icon banned" aria-hidden="true">⏳</div>
           <div>
             <div id="market-stat-pending-zeny" class="stat-val">0</div>
             <div class="stat-lbl" data-i18n="Zeny pending to claim">Zeny pending to claim</div>
@@ -748,9 +757,9 @@
               <th data-i18n="Updated">Updated</th>
             </tr>
           </thead>
-          <tbody id="market-tbody">
+          <tbody id="market-tbody" aria-busy="true">
             <tr>
-              <td colspan="8" style="text-align: center; color: var(--text-muted); padding: 32px;" data-i18n="Loading listings...">
+              <td colspan="8" class="table-state" data-i18n="Loading listings...">
                 Loading listings...
               </td>
             </tr>
@@ -770,20 +779,20 @@
   <!-- ================= MODALS ================= -->
 
   <!-- Modal: Guild record (read-only) -->
-  <div id="modal-guild" class="modal-backdrop" hidden>
-    <div class="modal-dialog">
+  <div id="modal-guild" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="guild-modal-title" hidden>
+    <div class="modal-dialog" tabindex="-1">
       <div class="modal-header">
-        <div class="modal-title">
+        <div id="guild-modal-title" class="modal-title">
           <span data-i18n="🛡️ Guild:">🛡️ Guild:</span>
-          <span id="guild-detail-name" style="color: var(--gold);">—</span>
+          <span id="guild-detail-name" class="text-gold">—</span>
         </div>
-        <button class="modal-close" data-close-modal>&times;</button>
+        <button type="button" class="modal-close" data-close-modal aria-label="Close" data-i18n-aria-label="Close">&times;</button>
       </div>
 
       <div class="modal-body">
         <div id="guild-detail-summary" class="guild-summary"></div>
 
-        <h4 style="font-size: 13px; font-weight: 700; color: #fff; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.5px;" data-i18n="Members">
+        <h4 class="modal-subtitle" data-i18n="Members">
           Members
         </h4>
         <div class="table-container">
@@ -793,7 +802,7 @@
                 <th data-i18n="Character">Character</th>
                 <th data-i18n="Account">Account</th>
                 <th data-i18n="Class">Class</th>
-                <th style="width: 14%;" data-i18n="Level">Level</th>
+                <th class="w-14" data-i18n="Level">Level</th>
               </tr>
             </thead>
             <tbody id="guild-members-tbody"></tbody>
@@ -808,16 +817,16 @@
   </div>
 
   <!-- Modal 2: Change password -->
-  <div id="modal-password" class="modal-backdrop" hidden>
-    <div class="modal-dialog" style="max-width: 440px;">
+  <div id="modal-password" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="password-modal-title" hidden>
+    <div class="modal-dialog modal-dialog-sm" tabindex="-1">
       <div class="modal-header">
-        <div class="modal-title" data-i18n="🔑 Change Password">🔑 Change Password</div>
-        <button class="modal-close" data-close-modal>&times;</button>
+        <div id="password-modal-title" class="modal-title" data-i18n="🔑 Change Password">🔑 Change Password</div>
+        <button type="button" class="modal-close" data-close-modal aria-label="Close" data-i18n-aria-label="Close">&times;</button>
       </div>
 
       <form id="form-password">
         <div class="modal-body">
-          <p id="pw-intro" class="modal-intro" style="font-size: 13px; color: var(--text-muted); margin-bottom: 16px;"></p>
+          <p id="pw-intro" class="modal-intro"></p>
 
           <div class="form-group">
             <label class="form-label" for="pw-new-pass" data-i18n="New Password">New Password</label>
@@ -834,11 +843,11 @@
   </div>
 
   <!-- Modal 3: Create new account -->
-  <div id="modal-create" class="modal-backdrop" hidden>
-    <div class="modal-dialog" style="max-width: 460px;">
+  <div id="modal-create" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="create-modal-title" hidden>
+    <div class="modal-dialog modal-dialog-md" tabindex="-1">
       <div class="modal-header">
-        <div class="modal-title" data-i18n="➕ Create New Account">➕ Create New Account</div>
-        <button class="modal-close" data-close-modal>&times;</button>
+        <div id="create-modal-title" class="modal-title" data-i18n="➕ Create New Account">➕ Create New Account</div>
+        <button type="button" class="modal-close" data-close-modal aria-label="Close" data-i18n-aria-label="Close">&times;</button>
       </div>
 
       <form id="form-create">
@@ -868,16 +877,16 @@
   </div>
 
   <!-- Modal 4: Suspend / ban account -->
-  <div id="modal-ban" class="modal-backdrop" hidden>
-    <div class="modal-dialog" style="max-width: 440px;">
+  <div id="modal-ban" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="ban-modal-title" hidden>
+    <div class="modal-dialog modal-dialog-sm" tabindex="-1">
       <div class="modal-header">
-        <div class="modal-title" style="color: var(--danger);" data-i18n="🚫 Suspend Account">🚫 Suspend Account</div>
-        <button class="modal-close" data-close-modal>&times;</button>
+        <div id="ban-modal-title" class="modal-title modal-title-danger" data-i18n="🚫 Suspend Account">🚫 Suspend Account</div>
+        <button type="button" class="modal-close" data-close-modal aria-label="Close" data-i18n-aria-label="Close">&times;</button>
       </div>
 
       <form id="form-ban">
         <div class="modal-body">
-          <p id="ban-intro" class="modal-intro" style="font-size: 13px; color: var(--text-muted); margin-bottom: 16px;"></p>
+          <p id="ban-intro" class="modal-intro"></p>
 
           <div class="form-group">
             <label class="form-label" for="ban-reason" data-i18n="Suspension Reason">Suspension Reason</label>
@@ -904,16 +913,16 @@
   </div>
 
   <!-- Modal 5: Delete account -->
-  <div id="modal-delete" class="modal-backdrop" hidden>
-    <div class="modal-dialog" style="max-width: 440px;">
+  <div id="modal-delete" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="delete-modal-title" hidden>
+    <div class="modal-dialog modal-dialog-sm" tabindex="-1">
       <div class="modal-header">
-        <div class="modal-title" style="color: var(--danger);" data-i18n="⚠️ Delete Account">⚠️ Delete Account</div>
-        <button class="modal-close" data-close-modal>&times;</button>
+        <div id="delete-modal-title" class="modal-title modal-title-danger" data-i18n="⚠️ Delete Account">⚠️ Delete Account</div>
+        <button type="button" class="modal-close" data-close-modal aria-label="Close" data-i18n-aria-label="Close">&times;</button>
       </div>
 
       <form id="form-delete">
         <div class="modal-body">
-          <p id="del-intro" class="modal-intro" style="font-size: 13px; color: var(--text-muted); margin-bottom: 16px;"></p>
+          <p id="del-intro" class="modal-intro"></p>
 
           <div class="form-group">
             <label class="form-label" for="del-confirm-name" data-i18n="Confirm Name">Confirm Name</label>
@@ -931,7 +940,7 @@
 
   <!-- Modal 6: Create gift code -->
   <div id="modal-giftcode" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="giftcode-modal-title" hidden>
-    <div class="modal-dialog" style="max-width: 560px;">
+    <div class="modal-dialog modal-dialog-lg" tabindex="-1">
       <div class="modal-header">
         <div id="giftcode-modal-title" class="modal-title" data-i18n="🎁 Create Gift Code">🎁 Create Gift Code</div>
         <button type="button" class="modal-close" data-close-modal aria-label="Close" data-i18n-aria-label="Close">&times;</button>
@@ -989,7 +998,7 @@
   </div>
 
   <!-- Toast notifications container -->
-  <div id="toast-container" class="toast-container"></div>
+  <div id="toast-container" class="toast-container" aria-live="polite" aria-relevant="additions"></div>
 
   <script src="admin.js"></script>
 </body>
