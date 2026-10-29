@@ -142,10 +142,18 @@ ES_MESSAGES = {
     "Invalid request body": "Cuerpo de solicitud inválido",
     "Signed out successfully": "Sesión cerrada correctamente",
     "Enter a username and password": "Debe ingresar usuario y contraseña",
+    "The username must not exceed 32 characters": "El usuario no debe superar los 32 caracteres",
+    "The password must not exceed 128 characters": "La contraseña no debe superar los 128 caracteres",
     "Too many failed attempts. Try again in {seconds} seconds.":
         "Demasiados intentos fallidos. Intente nuevamente en {seconds} segundos.",
+    "Too many failed attempts. Temporary ban active. Try again in {seconds} seconds.":
+        "Demasiados intentos fallidos. Bloqueo temporal activo. Intente nuevamente en {seconds} segundos.",
     "Access denied: invalid administrator credentials.":
         "Acceso denegado: credenciales de administrador inválidas.",
+    "Access denied: invalid administrator credentials. {remaining} attempt(s) remaining before temporary ban.":
+        "Acceso denegado: credenciales de administrador inválidas. Quedan {remaining} intento(s) antes del bloqueo temporal.",
+    "Access denied: invalid administrator credentials. Maximum attempts reached.":
+        "Acceso denegado: credenciales de administrador inválidas. Límite de intentos alcanzado.",
     # Accounts, characters, guilds
     "Account not found": "Cuenta no encontrada",
     "Invalid character ID": "ID de personaje inválido",
@@ -2033,6 +2041,12 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
         if not username or not password:
             return self.send_json(400, {"error": tr("Enter a username and password")})
 
+        if len(username) > 32:
+            return self.send_json(400, {"error": tr("The username must not exceed 32 characters")})
+
+        if len(password) > 128:
+            return self.send_json(400, {"error": tr("The password must not exceed 128 characters")})
+
         # Failures are tracked per IP and per username. X-Forwarded-For can be spoofed to
         # rotate the IP key, so the username key is what stops a distributed guess on one
         # admin. Tradeoff (accepted): anyone can lock an admin out for the window.
@@ -2043,14 +2057,27 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
             log_audit("system", "login_throttled", username, f"Retry in {retry_after}s", client_ip)
             return self.send_json(
                 429,
-                {"error": tr("Too many failed attempts. Try again in {seconds} seconds.", seconds=retry_after)},
+                {
+                    "error": tr("Too many failed attempts. Temporary ban active. Try again in {seconds} seconds.", seconds=retry_after),
+                    "retry_after": retry_after,
+                    "temporary_ban": True
+                },
                 {"Retry-After": str(retry_after)}
             )
 
         valid, resolved_user = authenticate_admin(username, password)
         if not valid:
             log_audit("system", "login_failed", username, "Invalid credentials", client_ip)
-            return self.send_json(401, {"error": tr("Access denied: invalid administrator credentials.")})
+            failures = max(
+                LOGIN_THROTTLE.failure_count("ip:" + client_ip),
+                LOGIN_THROTTLE.failure_count("user:" + username.lower())
+            )
+            remaining = max(0, LOGIN_THROTTLE.max_failures - failures)
+            if remaining > 0:
+                err_text = tr("Access denied: invalid administrator credentials. {remaining} attempt(s) remaining before temporary ban.", remaining=remaining)
+            else:
+                err_text = tr("Access denied: invalid administrator credentials. Maximum attempts reached.")
+            return self.send_json(401, {"error": err_text, "remaining_attempts": remaining})
 
         LOGIN_THROTTLE.reset(*throttle_keys)
 

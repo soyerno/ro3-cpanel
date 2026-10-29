@@ -415,13 +415,53 @@
     if (els.loginError) els.loginError.hidden = true;
   }
 
+  var loginLockoutTimer = null;
+
+  function startLoginLockout(seconds) {
+    if (loginLockoutTimer) clearInterval(loginLockoutTimer);
+    var remaining = Math.max(1, Math.ceil(seconds));
+    if (els.loginSubmit) {
+      els.loginSubmit.disabled = true;
+      els.loginSubmit.textContent = t('Temporarily banned ({seconds}s)', { seconds: remaining });
+    }
+    loginLockoutTimer = setInterval(function () {
+      remaining--;
+      if (remaining <= 0) {
+        clearInterval(loginLockoutTimer);
+        loginLockoutTimer = null;
+        if (els.loginSubmit) {
+          els.loginSubmit.disabled = false;
+          els.loginSubmit.textContent = t('Access Panel');
+        }
+        if (els.loginError) {
+          els.loginError.hidden = true;
+        }
+      } else {
+        if (els.loginSubmit) {
+          els.loginSubmit.textContent = t('Temporarily banned ({seconds}s)', { seconds: remaining });
+        }
+      }
+    }, 1000);
+  }
+
   function handleLogin(e) {
     e.preventDefault();
+    if (loginLockoutTimer) return;
     var user = (els.loginUser.value || '').trim();
     var pass = els.loginPass.value || '';
 
     if (!user || !pass) {
       showLoginError(t('Please enter username and password.'));
+      return;
+    }
+
+    if (user.length > 32) {
+      showLoginError(t('Username must not exceed 32 characters.'));
+      return;
+    }
+
+    if (pass.length > 128) {
+      showLoginError(t('Password must not exceed 128 characters.'));
       return;
     }
 
@@ -434,16 +474,26 @@
       body: { username: user, password: pass }
     })
       .then(function (data) {
+        if (loginLockoutTimer) {
+          clearInterval(loginLockoutTimer);
+          loginLockoutTimer = null;
+        }
         showToast(t('Welcome, {user} (Administrator)', { user: data.user }), 'success');
         els.loginPass.value = '';
         setAuthenticated(data.user);
       })
       .catch(function (err) {
         showLoginError(err.message || t('Invalid credentials'));
+        if (err.status === 429 || (err.data && (err.data.temporary_ban || err.data.retry_after))) {
+          var wait = (err.data && err.data.retry_after) ? parseInt(err.data.retry_after, 10) : 60;
+          startLoginLockout(wait);
+        }
       })
       .finally(function () {
-        els.loginSubmit.disabled = false;
-        els.loginSubmit.textContent = t('Access Panel');
+        if (!loginLockoutTimer) {
+          els.loginSubmit.disabled = false;
+          els.loginSubmit.textContent = t('Access Panel');
+        }
       });
   }
 
@@ -1209,11 +1259,21 @@
         }
         var html = '';
         logs.forEach(function (l) {
+          var targetRaw = l.target || '';
+          var targetDisplay = targetRaw;
+          var MAX_TARGET_CHARS = 20;
+          if (targetDisplay.length > MAX_TARGET_CHARS) {
+            targetDisplay = targetDisplay.substring(0, MAX_TARGET_CHARS) + '…';
+          }
+          var targetCell = targetRaw
+            ? '<strong class="audit-target" title="' + escapeHtml(targetRaw) + '" style="color: #fff;">' + escapeHtml(targetDisplay) + '</strong>'
+            : '—';
+
           html += '<tr>' +
             '<td style="color: var(--text-muted); font-size: 12px;">' + formatDate(l.created_utc) + '</td>' +
             '<td><strong style="color: var(--gold);">' + escapeHtml(l.admin_user) + '</strong></td>' +
             '<td><span class="badge badge-admin">' + escapeHtml(l.action) + '</span></td>' +
-            '<td>' + (l.target ? '<strong style="color: #fff;">' + escapeHtml(l.target) + '</strong>' : '—') + '</td>' +
+            '<td>' + targetCell + '</td>' +
             '<td style="color: var(--text-muted);">' + escapeHtml(l.details) + '</td>' +
           '</tr>';
         });

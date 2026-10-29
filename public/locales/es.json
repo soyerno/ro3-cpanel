@@ -329,5 +329,8 @@
   "Max uses must be 0 (unlimited) or a positive whole number.": "Los usos máximos deben ser 0 (ilimitados) o un número entero positivo.",
   "Uses per account must be a positive whole number.": "Los usos por cuenta deben ser un número entero positivo.",
   "Enter valid start and expiry dates.": "Ingresá fechas de inicio y vencimiento válidas.",
-  "The expiry must be later than the start.": "El vencimiento debe ser posterior al inicio."
+  "The expiry must be later than the start.": "El vencimiento debe ser posterior al inicio.",
+  "Username must not exceed 32 characters.": "El usuario no debe superar los 32 caracteres.",
+  "Password must not exceed 128 characters.": "La contraseña no debe superar los 128 caracteres.",
+  "Temporarily banned ({seconds}s)": "Bloqueo temporal ({seconds}s)"
 }

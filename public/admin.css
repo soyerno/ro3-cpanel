@@ -503,6 +503,15 @@ body {
   background-color: var(--bg-card-hover);
 }
 
+.audit-target {
+  display: inline-block;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
 /* Badges */
 .badge {
   display: inline-flex;
