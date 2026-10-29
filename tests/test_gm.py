@@ -172,7 +172,7 @@ class GmEndpointTest(unittest.TestCase):
         rows = self.audit_rows()
         self.assertEqual(len(rows), before + 1, "every attempt is audit-logged")
         self.assertEqual(rows[-1]["admin_user"], ADMIN_USER)
-        self.assertIn("rechazado", rows[-1]["details"])
+        self.assertIn("rejected", rows[-1]["details"])
         return data, rows[-1]
 
     # --- allowed commands ---
@@ -194,7 +194,7 @@ class GmEndpointTest(unittest.TestCase):
         self.assertEqual(rows[0]["admin_user"], ADMIN_USER)
         self.assertEqual(rows[0]["target"], "player1")
         self.assertIn("!warp 10111 150 190", rows[0]["details"])
-        self.assertIn("enviado", rows[0]["details"])
+        self.assertIn("sent", rows[0]["details"])
         self.assertEqual(rows[0]["ip_address"], "127.0.0.1")
 
     def test_warp_without_point_and_negative_coordinates(self):
@@ -307,7 +307,7 @@ class GmEndpointTest(unittest.TestCase):
             with self.subTest(url=url):
                 server.CONFIG["ro3_base_url"] = url
                 data, _ = self.assert_rejected({"account": "player1", "command": "warp", "args": {"scene": 10100}})
-                self.assertIn("mismo host", data["error"])
+                self.assertIn("same host", data["error"])
 
     def test_base_url_with_userinfo_is_refused(self):
         port = self.fake.httpd.server_address[1]
@@ -315,8 +315,8 @@ class GmEndpointTest(unittest.TestCase):
             with self.subTest(url=url):
                 server.CONFIG["ro3_base_url"] = url
                 data, row = self.assert_rejected({"account": "player1", "command": "warp", "args": {"scene": 10100}})
-                self.assertIn("usuario", data["error"])
-                self.assertIn("rechazado", row["details"])
+                self.assertIn("username", data["error"])
+                self.assertIn("rejected", row["details"])
 
     def test_loopback_host_helper(self):
         for host in ["127.0.0.1", "127.8.9.10", "::1", "localhost", "LOCALHOST"]:
@@ -333,12 +333,12 @@ class GmEndpointTest(unittest.TestCase):
         rows = self.audit_rows()
         self.assertEqual(len(rows), 1)
         self.assertIn("!warp 10100", rows[0]["details"])
-        self.assertIn("fallido", rows[0]["details"])
+        self.assertIn("failed", rows[0]["details"])
         return data
 
     def test_not_in_game_maps_to_409(self):
         self.fake.status, self.fake.body = 400, b'"not in game"'
-        self.assert_failed(409, "no está en el juego")
+        self.assert_failed(409, "not in the game")
         self.assertEqual(len(self.fake.requests), 1)
 
     def test_loop_not_accepting_maps_to_503(self):
@@ -347,7 +347,7 @@ class GmEndpointTest(unittest.TestCase):
 
     def test_upstream_404_maps_to_502(self):
         self.fake.status, self.fake.body = 404, b""
-        self.assert_failed(502, "mismo host")
+        self.assert_failed(502, "same host")
 
     def test_unexpected_upstream_status_maps_to_502(self):
         self.fake.status, self.fake.body = 500, b"boom"
@@ -355,12 +355,12 @@ class GmEndpointTest(unittest.TestCase):
 
     def test_unreachable_endpoint_maps_to_502(self):
         server.CONFIG["ro3_base_url"] = "http://127.0.0.1:%d" % closed_port()
-        self.assert_failed(502, "Endpoint GM no disponible")
+        self.assert_failed(502, "GM endpoint unavailable")
 
     def test_timeout_maps_to_502(self):
         self.fake.delay = 1.0
         with mock.patch.object(server, "GM_TIMEOUT_SECONDS", 0.2):
-            self.assert_failed(502, "Endpoint GM no disponible")
+            self.assert_failed(502, "GM endpoint unavailable")
 
     def test_error_body_that_stalls_still_answers_and_is_audited(self):
         # RO3Emu sends 400 headers announcing 100 bytes, writes 3 of them, then stalls past the GM timeout.
@@ -374,7 +374,7 @@ class GmEndpointTest(unittest.TestCase):
         rows = self.audit_rows()
         self.assertEqual(len(rows), 1)
         self.assertIn("!warp 10100", rows[0]["details"])
-        self.assertIn("fallido", rows[0]["details"])
+        self.assertIn("failed", rows[0]["details"])
 
     def test_upstream_redirect_is_not_followed(self):
         self.fake.status, self.fake.body = 302, b""

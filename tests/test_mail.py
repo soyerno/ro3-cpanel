@@ -283,14 +283,14 @@ class MailViewTest(unittest.TestCase):
             with self.subTest(raw=raw):
                 status, data = self.request("/api/admin/characters/%s/mail" % raw)
                 self.assertEqual(status, 400)
-                self.assertEqual(data["error"], "ID de personaje inválido")
+                self.assertEqual(data["error"], "Invalid character ID")
 
     def test_unknown_or_deleted_role_returns_404(self):
         for role_id in [999999, self.role_ids["Deleted"]]:
             with self.subTest(role_id=role_id):
                 status, data = self.request("/api/admin/characters/%d/mail" % role_id)
                 self.assertEqual(status, 404)
-                self.assertEqual(data["error"], "Personaje no encontrado")
+                self.assertEqual(data["error"], "Character not found")
 
     def test_requires_authentication(self):
         status, data = self.request("/api/admin/characters/%d/mail" % self.role_ids["Rich"], auth=False)

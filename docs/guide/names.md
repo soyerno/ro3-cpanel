@@ -5,7 +5,7 @@ ids (`role.career`, `role.scene_entry`), so the panel maps them to names with tw
 `CAREER_MAP` and `SCENE_MAP`.
 
 - A known id renders as its name, for example `1100` -> `Swordman`.
-- An unknown id renders safely as `Clase <id>` or `Mapa <id>`.
+- An unknown id renders safely as `Class <id>` or `Map <id>` (`Clase <id>` / `Mapa <id>` when the panel is in Spanish).
 
 ## Built-in names
 
