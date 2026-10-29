@@ -169,6 +169,7 @@ ES_MESSAGES = {
     "Username required": "Usuario requerido",
     "Account '{username}' already exists": "La cuenta '{username}' ya existe",
     "Account '{username}' does not exist": "La cuenta '{username}' no existe",
+    "Account '{username}' is not suspended": "La cuenta '{username}' no está suspendida",
     "Account '{username}' created successfully.": "Cuenta '{username}' creada exitosamente.",
     "Password for '{username}' updated successfully. Sessions revoked.":
         "Contraseña de '{username}' actualizada exitosamente. Sesiones revocadas.",
@@ -2813,7 +2814,9 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
         with get_db() as con:
             if not bans_supported(con):
                 return self.send_json(409, {"error": bans_unsupported_error()})
-            con.execute("DELETE FROM account_ban WHERE account=?", (username,))
+            # No row: nothing to lift, so no audit row either (issue #39). An expired row is still removed.
+            if con.execute("DELETE FROM account_ban WHERE account=?", (username,)).rowcount == 0:
+                return self.send_json(404, {"error": tr("Account '{username}' is not suspended", username=username)})
             insert_audit(con, admin_user, "unban_account", username, "Suspension lifted by admin", client_ip)
             con.commit()
 

@@ -40,7 +40,8 @@ account_ban(account TEXT NOT NULL PRIMARY KEY, reason TEXT NOT NULL DEFAULT '',
   writes the `ban_account` audit row, all in one SQLite transaction. Banning a banned account replaces its row. The
   `reason` is text of up to 500 characters (otherwise `400`); it is stored in RO3Emu's table.
 - **Unban** (`POST /api/admin/accounts/unban`, body `{"username"}`) deletes the row and writes the
-  `unban_account` audit row in one transaction.
+  `unban_account` audit row in one transaction. With no row for that name it answers `404` "Account
+  '{username}' is not suspended" and writes nothing. It also lifts the ban of a deleted account.
 - **Temporary ban:** `days` is a whole number from 1 to 3650 (otherwise `400`); the form offers permanent, 1, 7
   and 30 days. RO3Emu lets the account sign in again once `until_utc` has passed; the list, the account sheet and
   the audit row show the end date.

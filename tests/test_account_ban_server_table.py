@@ -240,6 +240,26 @@ class BanWritesServerTableTests(_PanelFixture):
             [(ADMIN_USER, "player1")],
         )
 
+    def test_unban_without_a_ban_is_404_and_writes_nothing(self):
+        # issue #39: an account that exists but has no ban, and a name with no account at all.
+        for name in ("player2", "nobody"):
+            with self.subTest(name=name):
+                status, body = self._call("POST", "/api/admin/accounts/unban", {"username": name})
+                self.assertEqual(status, 404)
+                self.assertEqual(body["error"], "Account '%s' is not suspended" % name)
+        self.assertEqual(self._rows("SELECT COUNT(*) FROM admin_audit_log WHERE action='unban_account'")[0][0], 0)
+        status, body = self._call("POST", "/api/admin/accounts/unban", {"username": "player2"}, lang="es")
+        self.assertEqual(body["error"], "La cuenta 'player2' no está suspendida")
+
+    def test_unban_lifts_the_ban_of_a_deleted_account(self):
+        # A ban outlives its account; the API can still lift it.
+        self._call("POST", "/api/admin/accounts/ban", {"username": "player1", "reason": "cheating"})
+        self._call("POST", "/api/admin/accounts/delete", {"username": "player1"})
+        status, _ = self._call("POST", "/api/admin/accounts/unban", {"username": "player1"})
+
+        self.assertEqual(status, 200)
+        self.assertIsNone(self._ban_row("player1"))
+
     def test_ban_and_audit_share_one_transaction(self):
         with closing(sqlite3.connect(self.db_path)) as con:
             con.execute("DROP TABLE admin_audit_log")
