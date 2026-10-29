@@ -38,7 +38,8 @@ account_ban(account TEXT NOT NULL PRIMARY KEY, reason TEXT NOT NULL DEFAULT '',
   unix seconds, `until_utc` = `NULL`, `banned_by` = the admin user), deletes the account's `auth_token` rows and
   writes the `ban_account` audit row, all in one SQLite transaction. Banning a banned account replaces its row.
 - **Unban** (`POST /api/admin/accounts/unban`, body `{"username"}`) deletes the row and writes the
-  `unban_account` audit row in one transaction.
+  `unban_account` audit row in one transaction. With no row for that name it answers `404` "Account
+  '{username}' is not suspended" and writes nothing. It also lifts the ban of a deleted account.
 - **Active ban:** the row exists and `until_utc` is `NULL` or later than now. The panel never sets
   `until_utc`; a row with a past `until_utc` shows as not banned. The accounts list (`status=banned|active`),
   the account sheet and the dashboard count read only active rows.
