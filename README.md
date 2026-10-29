@@ -105,7 +105,7 @@ The panel never writes it. The endpoint is `GET /api/admin/characters/<role_id>/
 
 ### GM tools
 
-The account detail view has a **GM Tools** panel (warp and unstuck) that relays commands to RO3Emu's
+The account screen has a **GM Tools** panel (warp and unstuck) that relays commands to RO3Emu's
 loopback GM endpoint (`POST /ro3emu/gm?account=<account>`). RO3Emu only answers that endpoint on loopback,
 so it **only works when the panel runs on the same host as RO3Emu** (not from a separate machine or a
 bridged Docker container). Only commands listed in `gm_allowed_commands` (default `["warp"]`) are sent, the
@@ -178,6 +178,7 @@ Only relational columns are read, as defined in `ro3emu-server` (`Accounts/Persi
 
 - [Hosting & Deployment Guide](docs/guide/hosting.md) (Windows Scheduled Tasks, Linux systemd, Docker, Nginx, Cloudflare)
 - [White-Label Customization Guide](docs/guide/white-label.md) (Theming, server branding, logo customization)
+- [Account Screen](docs/guide/account-screen.md) (Manage an account on its own screen: characters, vault, security and moderation)
 - [Account Vault and Web Market](docs/guide/vault-market.md) (Read-only views of the web portal's vault and market)
 - [Gift Codes](docs/guide/gift-codes.md) (Create and manage redeemable codes from the panel)
 - [Language](docs/guide/language.md) (English by default, Spanish translation, switching from the panel)

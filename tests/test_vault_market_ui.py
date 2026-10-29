@@ -96,20 +96,23 @@ class TestMarketTabMarkup(unittest.TestCase):
 class TestVaultMarkup(unittest.TestCase):
     def setUp(self):
         self.html = _read("index.html")
-        start = self.html.index('id="modal-detail"')
-        self.modal = self.html[start:self.html.index('id="modal-guild"')]
+        start = self.html.index('id="account-screen"')
+        self.screen = self.html[start:self.html.index("<!-- /account-screen -->", start)]
+        self.panel = self.screen[self.screen.index('id="account-panel-vault"'):self.screen.index('id="account-panel-security"')]
 
-    def test_vault_section_lives_in_account_detail_modal(self):
-        self.assertIn('id="btn-view-vault"', self.modal)
-        self.assertIn('id="detail-vault"', self.modal)
-        self.assertRegex(self.modal, r'<button type="button"[^>]*id="btn-view-vault"')
-        self.assertRegex(self.modal, r'<div id="detail-vault"[^>]*hidden')
+    def test_vault_section_lives_in_the_account_screen_vault_tab(self):
+        self.assertIn('id="account-tab-vault"', self.screen)
+        self.assertIn('id="account-vault-content"', self.panel)
+        self.assertRegex(self.screen, r'<button type="button"[^>]*id="account-tab-vault"')
+        self.assertRegex(self.panel, r'<div id="account-vault-content"[^>]*>')
+        self.assertRegex(self.panel, r'<h2[^>]*data-i18n="Account vault"')
 
     def test_vault_section_is_after_character_list(self):
-        self.assertGreater(self.modal.index('id="btn-view-vault"'), self.modal.index('id="detail-chars-list"'))
+        self.assertGreater(self.screen.index('id="account-panel-vault"'), self.screen.index('id="account-characters"'))
+        self.assertGreater(self.screen.index('id="account-tab-vault"'), self.screen.index('id="account-tab-characters"'))
 
-    def test_vault_button_label_is_distinct_english(self):
-        self.assertRegex(self.modal, r'id="btn-view-vault"[^>]*data-i18n="Vault">Vault</button>')
+    def test_vault_tab_label_is_distinct_english(self):
+        self.assertRegex(self.screen, r'(?s)id="account-tab-vault"[^>]*>.*?<span data-i18n="Vault">Vault</span>')
 
 
 class TestMarketAndVaultScript(unittest.TestCase):
@@ -167,14 +170,16 @@ class TestMarketAndVaultScript(unittest.TestCase):
                 self.assertIn(needle, self.js)
         self.assertRegex(_function_body(self.js, "applyMarketFilters"), r"state\.market\.page\s*=\s*1")
 
-    def test_vault_toggle_and_pager_wiring(self):
-        self.assertIn("toggleAccountVault", self.js)
-        self.assertIn("getElementById('btn-view-vault')", self.js)
-        self.assertIn("getElementById('detail-vault')", self.js)
+    def test_vault_tab_and_pager_wiring(self):
+        self.assertIn("getElementById('account-vault-content')", self.js)
         self.assertIn("btn-vault-page", self.js)
         self.assertIn("state.vault", self.js)
+        self.assertIn("goToVaultPage(", self.js)
         # Opening a different account starts from a clean vault.
-        self.assertIn("resetAccountVault(", _function_body(self.js, "showAccountDetail"))
+        self.assertIn("resetAccountVault(", _function_body(self.js, "openAccountScreen"))
+        # The vault is fetched for the account that is open, and its tab renders the result.
+        self.assertIn("loadAccountVault(", _function_body(self.js, "setAccountTab"))
+        self.assertIn("loadAccountVault(", _function_body(self.js, "loadAccountScreen"))
 
     def test_server_text_is_escaped(self):
         market = _function_body(self.js, "renderMarketTable")
@@ -212,7 +217,7 @@ class TestMarketAndVaultScript(unittest.TestCase):
             "renderMarketSummary",
             "loadAccountVault",
             "renderAccountVault",
-            "toggleAccountVault",
+            "renderVaultPanel",
         ):
             with self.subTest(name=name):
                 self.assertEqual(HEX_COLOR_RE.findall(_function_body(self.js, name)), [])
@@ -233,7 +238,7 @@ class TestMarketAndVaultLocale(unittest.TestCase):
         "🏪 Market",
         "Web Market",
         "Vault",
-        "Hide vault",
+        "Account vault",
         "Not VIP",
         "VIP (note)",
         "Sold",
@@ -266,7 +271,7 @@ class TestMarketAndVaultLocale(unittest.TestCase):
             "loadAccountVault",
             "renderAccountVault",
             "vaultVipBadge",
-            "toggleAccountVault",
+            "renderVaultPanel",
         )
         for name in names:
             body = _function_body(self.js, name)

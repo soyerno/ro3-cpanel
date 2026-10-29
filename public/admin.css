@@ -61,8 +61,10 @@ body {
   backdrop-filter: blur(10px);
   border-bottom: 1px solid var(--border-color);
   padding: 0 var(--bar-inline);
-  height: 64px;
+  min-height: 64px;
   display: flex;
+  flex-wrap: wrap;
+  row-gap: 8px;
   align-items: center;
   justify-content: space-between;
   position: sticky;
@@ -133,8 +135,10 @@ body {
 
 .header-status-area {
   display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   align-items: center;
-  gap: 16px;
+  gap: 8px 16px;
 }
 
 .server-pill {
@@ -251,6 +255,11 @@ body {
   padding: 0 var(--bar-inline);
   display: flex;
   gap: 8px;
+  /* On a phone the tabs scroll inside the bar; the page itself never scrolls sideways. */
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+  -webkit-overflow-scrolling: touch;
 }
 
 .tab-btn {
@@ -264,6 +273,8 @@ body {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-shrink: 0;
+  white-space: nowrap;
   border-bottom: 2px solid transparent;
   transition: all 0.2s;
 }
@@ -1204,4 +1215,516 @@ body {
 
 .market-toolbar {
   align-items: flex-end;
+}
+
+/* Account management screen */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.account-screen {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+.account-screen a:focus-visible,
+.account-screen .btn:focus-visible,
+.account-screen .form-textarea:focus-visible,
+.account-title:focus-visible,
+.account-panel:focus-visible,
+.account-tab:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+}
+
+.account-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+
+.account-breadcrumb-list {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  list-style: none;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.account-breadcrumb-list li {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+}
+
+.account-breadcrumb-list li + li::before {
+  content: "›";
+  color: var(--text-dim);
+}
+
+.account-breadcrumb-list a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  color: var(--gold);
+  text-decoration: none;
+}
+
+.account-breadcrumb-list a:hover {
+  text-decoration: underline;
+}
+
+.account-breadcrumb-list [aria-current="page"] {
+  color: var(--text-main);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.account-screen .btn {
+  min-height: 44px;
+  text-decoration: none;
+}
+
+.account-screen .btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.account-header,
+.account-card,
+.account-state {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+  padding: 16px;
+}
+
+.account-header-top {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+
+.account-title {
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.25;
+  color: var(--text-main);
+  overflow-wrap: anywhere;
+}
+
+.account-badges {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.account-badges .badge {
+  padding: 4px 8px;
+  font-size: 12px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.account-meta {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px 16px;
+  margin-top: 12px;
+  font-size: 13px;
+}
+
+.account-meta dt,
+.account-summary-row dt,
+.char-facts dt {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.account-meta dd {
+  color: var(--text-main);
+  overflow-wrap: anywhere;
+}
+
+.account-state {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  color: var(--text-main);
+}
+
+.account-state[hidden] {
+  display: none;
+}
+
+/* Mobile first: one column; the rail dissolves so the summary sits on top and the notes follow the tabs. */
+.account-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.account-rail {
+  display: contents;
+}
+
+.account-summary-card {
+  order: 0;
+}
+
+.account-main {
+  order: 1;
+  min-width: 0;
+}
+
+.account-notes-card {
+  order: 2;
+}
+
+.account-card-title {
+  margin-bottom: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--text-main);
+}
+
+.account-card-text {
+  margin-bottom: 12px;
+  font-size: 13px;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.account-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.account-summary-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.account-summary-row:last-child {
+  border-bottom: 0;
+}
+
+.account-summary-row dd {
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.account-notes-card .form-textarea {
+  min-height: 96px;
+  resize: vertical;
+}
+
+.account-notes-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin-top: 8px;
+}
+
+.account-status-text {
+  flex: 1 1 140px;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.account-status-text.success {
+  color: var(--success);
+}
+
+.account-status-text.error {
+  color: var(--danger);
+}
+
+.account-status-text.warning {
+  color: var(--gold);
+}
+
+/* Tabs: a horizontally scrollable strip with snapping; the active tab has an indicator line, not just a colour. */
+.account-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 16px;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: thin;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.account-tab {
+  position: relative;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 16px;
+  background: transparent;
+  border: 0;
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  scroll-snap-align: start;
+}
+
+.account-tab:hover {
+  color: var(--text-main);
+}
+
+.account-tab[aria-selected="true"] {
+  color: var(--gold);
+}
+
+.account-tab::after {
+  content: "";
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: -1px;
+  height: 2px;
+  background: var(--gold);
+  transform: scaleX(0);
+  transition: transform 0.2s ease;
+}
+
+.account-tab[aria-selected="true"]::after {
+  transform: scaleX(1);
+}
+
+.account-panel {
+  min-width: 0;
+}
+
+.account-panel > * + * {
+  margin-top: 16px;
+}
+
+.account-panel-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.account-empty {
+  padding: 12px 0;
+  color: var(--text-muted);
+}
+
+/* Characters: one card per character, built with classes instead of inline styles. */
+.account-screen .char-card-header {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.char-card-name {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.char-card-level {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--gold);
+}
+
+.char-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 8px 16px;
+  margin-bottom: 8px;
+  font-size: 12px;
+}
+
+.char-facts dd {
+  overflow-wrap: anywhere;
+}
+
+.char-fact-zeny {
+  color: var(--success);
+}
+
+.char-fact-other {
+  color: var(--info);
+}
+
+.char-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.account-screen .char-inventory,
+.account-screen .vault-panel .table-container {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.account-screen .char-mail-panel {
+  overflow-wrap: anywhere;
+}
+
+/* Security: the danger zone is separated from the other cards and always comes last. */
+.account-panel > .account-danger-zone {
+  margin-top: 32px;
+}
+
+.account-danger-zone {
+  padding: 16px;
+  background: var(--danger-bg);
+  border: 1px solid var(--danger);
+  border-radius: var(--radius);
+}
+
+.account-danger-zone .account-card-title {
+  color: var(--danger);
+}
+
+/* Loading and error states */
+.skeleton {
+  background: var(--bg-card-hover);
+  border-radius: var(--radius-sm);
+  animation: accountSkeletonPulse 1.4s ease-in-out infinite;
+}
+
+.skeleton-line {
+  height: 16px;
+  margin-bottom: 12px;
+}
+
+.skeleton-line:nth-child(odd) {
+  width: 100%;
+}
+
+.skeleton-line:nth-child(even) {
+  width: 70%;
+}
+
+.skeleton-badge {
+  display: inline-block;
+  width: 88px;
+  height: 24px;
+}
+
+@keyframes accountSkeletonPulse {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
+
+.account-inline-error {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px;
+  background: var(--danger-bg);
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-sm);
+  color: var(--danger);
+}
+
+.vault-panel {
+  transition: opacity 0.2s ease;
+}
+
+.vault-panel.is-busy {
+  opacity: 0.6;
+}
+
+.btn.is-loading {
+  cursor: progress;
+}
+
+.btn.is-loading::before {
+  content: "";
+  width: 14px;
+  height: 14px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: accountSpin 0.8s linear infinite;
+}
+
+@keyframes accountSpin {
+  to { transform: rotate(360deg); }
+}
+
+@media (max-width: 560px) {
+  .account-screen .gm-warp-form {
+    grid-template-columns: 1fr;
+  }
+
+  .account-title {
+    font-size: 20px;
+  }
+}
+
+@media (min-width: 1024px) {
+  .account-layout {
+    display: grid;
+    grid-template-columns: minmax(280px, 320px) minmax(0, 1fr);
+    gap: 24px;
+    align-items: start;
+  }
+
+  .account-rail {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    position: sticky;
+    top: 80px;
+  }
+
+  .account-summary-card,
+  .account-main,
+  .account-notes-card {
+    order: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .account-screen *,
+  .account-screen *::before,
+  .account-screen *::after {
+    animation: none !important;
+    transition: none !important;
+  }
 }

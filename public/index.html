@@ -180,6 +180,120 @@
       </nav>
     </section>
 
+    <!-- View 1b: Account management screen (shown instead of the list while an account is open) -->
+    <section id="account-screen" class="account-screen" aria-labelledby="account-title" hidden>
+      <div class="account-topbar">
+        <nav class="account-breadcrumb" aria-label="Breadcrumb" data-i18n-aria-label="Breadcrumb">
+          <ol class="account-breadcrumb-list">
+            <li><a id="account-breadcrumb-accounts" href="#/accounts" data-i18n="Accounts">Accounts</a></li>
+            <li><span id="account-breadcrumb-current" aria-current="page">—</span></li>
+          </ol>
+        </nav>
+        <a id="account-back" class="btn btn-secondary account-back" href="#/accounts">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg>
+          <span data-i18n="Back to accounts">Back to accounts</span>
+        </a>
+      </div>
+
+      <header class="account-header">
+        <div class="account-header-top">
+          <h1 id="account-title" class="account-title" tabindex="-1">—</h1>
+          <div id="account-badges" class="account-badges"></div>
+        </div>
+        <dl class="account-meta">
+          <div class="account-meta-item"><dt data-i18n="Registered:">Registered:</dt><dd id="account-registered">—</dd></div>
+          <div class="account-meta-item"><dt data-i18n="Sessions:">Sessions:</dt><dd id="account-sessions">—</dd></div>
+          <div class="account-meta-item"><dt data-i18n="Status:">Status:</dt><dd id="account-status-text">—</dd></div>
+        </dl>
+      </header>
+
+      <div id="account-state" class="account-state" hidden></div>
+
+      <div id="account-body" class="account-layout">
+        <div class="account-rail">
+          <section class="account-card account-summary-card" aria-labelledby="account-summary-title">
+            <h2 id="account-summary-title" class="account-card-title" data-i18n="Summary">Summary</h2>
+            <dl id="account-summary" class="account-summary"></dl>
+          </section>
+
+          <section class="account-card account-notes-card" aria-labelledby="account-notes-title">
+            <h2 id="account-notes-title" class="account-card-title" data-i18n="Notes">Notes</h2>
+            <label class="form-label" for="account-notes" data-i18n="GM Administrative Notes">GM Administrative Notes</label>
+            <textarea id="account-notes" class="form-textarea" rows="4" placeholder="Private notes about the account (warnings, contact, etc.)..." data-i18n-placeholder="Private notes about the account (warnings, contact, etc.)..."></textarea>
+            <div class="account-notes-actions">
+              <span id="account-notes-status" class="account-status-text" aria-live="polite"></span>
+              <button type="button" id="account-save-notes" class="btn btn-primary" data-i18n="Save Notes">Save Notes</button>
+            </div>
+          </section>
+        </div>
+
+        <div class="account-main">
+          <div class="account-tabs-scroll">
+            <div class="account-tabs" role="tablist" aria-label="Account sections" data-i18n-aria-label="Account sections">
+              <button type="button" role="tab" id="account-tab-characters" class="account-tab" aria-controls="account-panel-characters" aria-selected="true" tabindex="0" data-account-tab="characters">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M17 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2"/><circle cx="10" cy="7" r="4"/><path d="M21 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                <span data-i18n="Characters">Characters</span>
+              </button>
+              <button type="button" role="tab" id="account-tab-vault" class="account-tab" aria-controls="account-panel-vault" aria-selected="false" tabindex="-1" data-account-tab="vault">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M21 8l-9-5-9 5 9 5 9-5z"/><path d="M3 8v8l9 5 9-5V8"/><path d="M12 13v8"/></svg>
+                <span data-i18n="Vault">Vault</span>
+              </button>
+              <button type="button" role="tab" id="account-tab-security" class="account-tab" aria-controls="account-panel-security" aria-selected="false" tabindex="-1" data-account-tab="security">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                <span data-i18n="Security &amp; moderation">Security &amp; moderation</span>
+              </button>
+            </div>
+          </div>
+
+          <div role="tabpanel" id="account-panel-characters" class="account-panel" aria-labelledby="account-tab-characters" tabindex="0">
+            <h2 class="account-panel-title" data-i18n="Characters on the Account">Characters on the Account</h2>
+            <div id="account-characters"></div>
+            <div id="account-gm-slot"></div>
+          </div>
+
+          <div role="tabpanel" id="account-panel-vault" class="account-panel" aria-labelledby="account-tab-vault" tabindex="0" hidden>
+            <h2 class="account-panel-title" data-i18n="Account vault">Account vault</h2>
+            <div id="account-vault-content" class="vault-panel"></div>
+          </div>
+
+          <div role="tabpanel" id="account-panel-security" class="account-panel" aria-labelledby="account-tab-security" tabindex="0" hidden>
+            <h2 class="account-panel-title" data-i18n="Security &amp; moderation">Security &amp; moderation</h2>
+
+            <section class="account-card" aria-labelledby="account-password-title">
+              <h3 id="account-password-title" class="account-card-title" data-i18n="Password">Password</h3>
+              <p class="account-card-text" data-i18n="Changing the password revokes the active game sessions of the account.">Changing the password revokes the active game sessions of the account.</p>
+              <div class="account-card-actions">
+                <button type="button" id="account-btn-password" class="btn btn-secondary" data-i18n="Change password">Change password</button>
+              </div>
+            </section>
+
+            <section class="account-card" aria-labelledby="account-access-title">
+              <h3 id="account-access-title" class="account-card-title" data-i18n="Account access">Account access</h3>
+              <p id="account-access-text" class="account-card-text"></p>
+              <div class="account-card-actions">
+                <button type="button" id="account-btn-unban" class="btn btn-secondary" data-i18n="Remove suspension" hidden>Remove suspension</button>
+                <button type="button" id="account-btn-ban" class="btn btn-danger" data-i18n="Suspend account" hidden>Suspend account</button>
+              </div>
+            </section>
+
+            <section class="account-card" aria-labelledby="account-sessions-title">
+              <h3 id="account-sessions-title" class="account-card-title" data-i18n="Sessions">Sessions</h3>
+              <p id="account-sessions-text" class="account-card-text"></p>
+            </section>
+
+            <section id="account-danger-zone" class="account-danger-zone" aria-labelledby="account-danger-title">
+              <h3 id="account-danger-title" class="account-card-title" data-i18n="Danger zone">Danger zone</h3>
+              <p class="account-card-text" data-i18n="Deleting an account is permanent and cannot be undone. You will be asked to type the account name to confirm.">Deleting an account is permanent and cannot be undone. You will be asked to type the account name to confirm.</p>
+              <div class="account-card-actions">
+                <button type="button" id="account-btn-delete" class="btn btn-danger" data-i18n="Delete account">Delete account</button>
+              </div>
+            </section>
+          </div>
+        </div>
+      </div>
+    <!-- /account-screen -->
+    </section>
+
     <!-- View 2: Dashboard / metrics -->
     <section id="tab-view-dashboard" hidden>
       <div class="stats-grid">
@@ -654,52 +768,6 @@
   </main>
 
   <!-- ================= MODALS ================= -->
-
-  <!-- Modal 1: Account record and characters -->
-  <div id="modal-detail" class="modal-backdrop" hidden>
-    <div class="modal-dialog">
-      <div class="modal-header">
-        <div class="modal-title">
-          <span data-i18n="📋 Account Record:">📋 Account Record:</span>
-          <span id="detail-acc-name" style="color: var(--gold);">—</span>
-        </div>
-        <button class="modal-close" data-close-modal>&times;</button>
-      </div>
-
-      <div class="modal-body">
-        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; background: #0c1018; padding: 12px; border-radius: var(--radius-sm); margin-bottom: 16px; border: 1px solid var(--border-color); font-size: 12px;">
-          <div><strong style="color: var(--text-muted);" data-i18n="Registered:">Registered:</strong> <div id="detail-acc-created">—</div></div>
-          <div><strong style="color: var(--text-muted);" data-i18n="Status:">Status:</strong> <div id="detail-acc-status">—</div></div>
-          <div><strong style="color: var(--text-muted);" data-i18n="Sessions:">Sessions:</strong> <div id="detail-acc-tokens">—</div></div>
-        </div>
-
-        <h4 style="font-size: 13px; font-weight: 700; color: #fff; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.5px;" data-i18n="Characters on the Account">
-          Characters on the Account
-        </h4>
-        <div id="detail-chars-list"></div>
-
-        <div class="vault-section">
-          <div class="vault-header">
-            <h4 style="font-size: 13px; font-weight: 700; color: #fff; text-transform: uppercase; letter-spacing: 0.5px;" data-i18n="Account vault">Account vault</h4>
-            <button type="button" id="btn-view-vault" class="btn btn-secondary btn-sm" aria-expanded="false" aria-controls="detail-vault" title="View the shared account vault (read-only)" data-i18n-title="View the shared account vault (read-only)" data-i18n="Vault">Vault</button>
-          </div>
-          <div id="detail-vault" class="vault-panel" hidden></div>
-        </div>
-
-        <div style="margin-top: 16px;">
-          <label class="form-label" for="detail-acc-notes" data-i18n="GM Administrative Notes">GM Administrative Notes</label>
-          <textarea id="detail-acc-notes" class="form-textarea" rows="3" placeholder="Private notes about the account (warnings, contact, etc.)..." data-i18n-placeholder="Private notes about the account (warnings, contact, etc.)..."></textarea>
-          <div style="display: flex; justify-content: flex-end; margin-top: 6px;">
-            <button id="btn-save-notes" class="btn btn-secondary btn-sm" data-i18n="Save Notes">Save Notes</button>
-          </div>
-        </div>
-      </div>
-
-      <div class="modal-footer">
-        <button class="btn btn-secondary" data-close-modal data-i18n="Close">Close</button>
-      </div>
-    </div>
-  </div>
 
   <!-- Modal: Guild record (read-only) -->
   <div id="modal-guild" class="modal-backdrop" hidden>

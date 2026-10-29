@@ -6,7 +6,7 @@ If a table does not exist yet (the portal creates them the first time it runs a 
 
 ## Account vault
 
-In **Accounts**, open an account and use the **Vault** button. It shows:
+In **Accounts**, press **Manage** on an account and open its **Vault** tab. It shows:
 
 - the account's VIP status and where it comes from: **GM** (the account is in `admin_gm`, and a GM always has VIP), **VIP** (a row in `account_vip` that has not expired), **VIP (note)** (a `[VIP]` tag in the account notes) or **Not VIP**;
 - every item deposited in the shared vault, newest first: item (name when `item_names_file` is set), quantity, bag, locked, who deposited it and when.

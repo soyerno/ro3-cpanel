@@ -86,7 +86,7 @@ El dashboard muestra el tiempo activo de RO3Emu, conexiones, jugadores en el mun
 
 ### Correo de personajes (solo lectura)
 
-En la ficha de la cuenta, **Ver correo** en la tarjeta de un personaje muestra su buzón, 10 cartas por página.
+En la pantalla de la cuenta, **Ver correo** en la tarjeta de un personaje muestra su buzón, 10 cartas por página.
 El panel nunca lo modifica. El endpoint es `GET /api/admin/characters/<role_id>/mail?page=1&page_size=20`
 (requiere sesión de administrador; `page_size` va de 1 a 100, por defecto 20).
 
@@ -103,7 +103,7 @@ El panel nunca lo modifica. El endpoint es `GET /api/admin/characters/<role_id>/
 
 ### Herramientas GM
 
-La ficha de cuenta incluye un panel **Herramientas GM** (teletransporte y desatascar) que envía comandos al
+La pantalla de la cuenta incluye un panel **Herramientas GM** (teletransporte y desatascar) que envía comandos al
 endpoint GM local de RO3Emu (`POST /ro3emu/gm?account=<cuenta>`). RO3Emu solo atiende ese endpoint por
 loopback, así que **solo funciona si el panel corre en el mismo host que RO3Emu** (no desde otra máquina ni
 desde un contenedor Docker en red bridge). Solo se envían los comandos listados en `gm_allowed_commands`
@@ -126,7 +126,7 @@ trasladan: después de actualizar RO3Emu, vuelve a suspenderlas. Ver
 
 ## Inventario de Personajes
 
-Cada tarjeta de personaje en la ficha de la cuenta tiene un botón **Ver inventario** que lista los objetos del personaje agrupados por bolsa (`pack`: Objetos, Equipo, Cartas, Tótems, Emblemas, Monedas, Especial de clase). La vista es de solo lectura: el panel solo ejecuta consultas `SELECT` sobre la tabla `item`.
+Cada tarjeta de personaje en la pantalla de la cuenta tiene un botón **Ver inventario** que lista los objetos del personaje agrupados por bolsa (`pack`: Objetos, Equipo, Cartas, Tótems, Emblemas, Monedas, Especial de clase). La vista es de solo lectura: el panel solo ejecuta consultas `SELECT` sobre la tabla `item`.
 
 - API: `GET /api/admin/characters/<role_id>/items` (requiere sesión de administrador). Devuelve `{character, items, total, available}`; cada objeto incluye `guid`, `entry`, `name`, `stack`, `pack`, `pack_name`, `equipped`, `locked`, `bind_type`. `available` es `false` cuando la base todavía no tiene la tabla `item`.
 - Los nombres de los objetos no se guardan en SQLite (viven en las tablas de configuración del servidor). Para mostrarlos, apunta `item_names_file` en `config.json` a un objeto JSON que relacione el id de configuración del objeto (`entry`) con su nombre:
@@ -177,6 +177,7 @@ Solo se leen columnas relacionales, tal como las define `ro3emu-server` (`Accoun
 
 - [Guía de Alojamiento y Despliegue](docs/guide/hosting.md) (Tareas programadas de Windows, Linux systemd, Docker, Nginx, Cloudflare)
 - [Guía de Personalización de Marca Blanca](docs/guide/white-label.md) (Temas, textos, logotipo y rutas)
+- [Pantalla de cuenta](docs/guide/account-screen.md) (Gestionar una cuenta en su propia pantalla: personajes, bóveda, seguridad y moderación)
 - [Bóveda de cuenta y mercado web](docs/guide/vault-market.md) (Vistas de solo lectura de la bóveda y el mercado del portal web)
 - [Códigos de regalo](docs/guide/gift-codes.md) (Crear y administrar códigos canjeables desde el panel)
 - [Idioma](docs/guide/language.md) (inglés por defecto, traducción al español, cambio desde el panel)
