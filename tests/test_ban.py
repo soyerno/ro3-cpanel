@@ -14,7 +14,7 @@ import server
 
 
 class TestBanEndpoint(unittest.TestCase):
-    """The ban only lives in the panel; RO3Emu does not check it at login."""
+    """A ban is a row in RO3Emu's `account_ban` table, which RO3Emu reads at login."""
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -25,6 +25,8 @@ class TestBanEndpoint(unittest.TestCase):
                 CREATE TABLE account (name TEXT PRIMARY KEY, password_hash BLOB, salt BLOB, created_utc TEXT);
                 CREATE TABLE auth_token (token TEXT PRIMARY KEY, kind TEXT, account TEXT, expires_utc INTEGER);
                 CREATE TABLE role (id INTEGER PRIMARY KEY, account TEXT, deleted_time INTEGER DEFAULT 0);
+                CREATE TABLE account_ban (account TEXT NOT NULL PRIMARY KEY, reason TEXT NOT NULL DEFAULT '',
+                                          banned_utc INTEGER NOT NULL, until_utc INTEGER, banned_by TEXT);
                 INSERT INTO account VALUES ('player1', x'00', x'00', '2026-01-01');
                 INSERT INTO auth_token VALUES ('tok1', 'sdk', 'player1', 9999999999);
             """)
@@ -54,16 +56,19 @@ class TestBanEndpoint(unittest.TestCase):
         with urllib.request.urlopen(req, timeout=10) as resp:
             return json.loads(resp.read())
 
-    def test_ban_reports_it_is_not_enforced_and_still_revokes_tokens(self):
+    def test_ban_is_enforced_by_ro3emu_and_revokes_tokens(self):
         token = self._post("/api/admin/login", {"username": "boss", "password": "Pw-123456"})["token"]
         result = self._post("/api/admin/accounts/ban", {"username": "player1", "reason": "cheating"}, token)
 
         self.assertTrue(result["success"])
-        self.assertIs(result["enforced"], False)
+        self.assertIs(result["enforced"], True)
         self.assertIn("RO3Emu", result["message"])
         with closing(sqlite3.connect(self.db_path)) as con:
             self.assertEqual(con.execute("SELECT COUNT(*) FROM auth_token WHERE account='player1'").fetchone()[0], 0)
-            self.assertEqual(con.execute("SELECT is_banned FROM admin_account_meta WHERE name='player1'").fetchone()[0], 1)
+            self.assertEqual(
+                con.execute("SELECT reason, until_utc, banned_by FROM account_ban WHERE account='player1'").fetchall(),
+                [("cheating", None, "boss")],
+            )
 
 
 if __name__ == "__main__":

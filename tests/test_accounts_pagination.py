@@ -97,6 +97,11 @@ class AccountsPaginationTest(unittest.TestCase):
                     create_time INTEGER, currency TEXT, stats TEXT, scene_entry INTEGER,
                     pos_x REAL, pos_y REAL, pos_z REAL, deleted_time INTEGER DEFAULT 0)"""
             )
+            # RO3Emu's ban table; the status filter reads active bans from it.
+            con.execute(
+                "CREATE TABLE account_ban (account TEXT NOT NULL PRIMARY KEY, reason TEXT NOT NULL DEFAULT '',"
+                " banned_utc INTEGER NOT NULL, until_utc INTEGER, banned_by TEXT)"
+            )
             con.commit()
 
         server.DB_PATH = self.db_path
@@ -118,7 +123,7 @@ class AccountsPaginationTest(unittest.TestCase):
                         (name, role_name, 1700000000 + idx * 10 + k, deleted),
                     )
                 if banned:
-                    con.execute("INSERT INTO admin_account_meta (name, is_banned, ban_reason) VALUES (?, 1, 'test')", (name,))
+                    con.execute("INSERT INTO account_ban (account, reason, banned_utc) VALUES (?, 'test', 1700000000)", (name,))
             con.commit()
 
         patcher = mock.patch.object(server.CPanelRequestHandler, "log_message", lambda *a, **k: None)

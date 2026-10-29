@@ -167,10 +167,12 @@ ES_MESSAGES = {
     "An administrator account cannot be suspended.":
         "No se puede suspender una cuenta con rol de administrador.",
     "An administrator account cannot be deleted.": "No se puede eliminar una cuenta de administrador.",
-    "Account '{username}' marked as suspended in the panel and its active sessions were revoked. "
-    "RO3Emu does not check this suspension at login: the player can still sign in.":
-        "Cuenta '{username}' marcada como suspendida en el panel y sus sesiones activas fueron revocadas. "
-        "RO3Emu no consulta esta suspensión al iniciar sesión: el jugador puede volver a entrar.",
+    "Account '{username}' suspended and its active sessions were revoked. "
+    "RO3Emu refuses its sign-in until the suspension is removed.":
+        "Cuenta '{username}' suspendida y sus sesiones activas fueron revocadas. "
+        "RO3Emu rechaza su inicio de sesión hasta que se quite la suspensión.",
+    "Update RO3Emu: this server does not support account bans":
+        "Actualice RO3Emu: este servidor no admite suspensiones de cuentas",
     "Suspension of account '{username}' removed successfully.":
         "Suspensión de la cuenta '{username}' removida exitosamente.",
     "Account '{username}' and its data were deleted successfully.":
@@ -745,13 +747,17 @@ def delete_session(token):
     except sqlite3.Error as e:
         print(f"[Session Warning] Could not delete session: {e}", file=sys.stderr)
 
+def insert_audit(con, admin_user, action, target="", details="", ip_address=""):
+    """Writes an audit row on an open connection, inside the caller's transaction."""
+    con.execute(
+        "INSERT INTO admin_audit_log (admin_user, action, target, details, ip_address) VALUES (?, ?, ?, ?, ?)",
+        (admin_user, action, target, details, ip_address)
+    )
+
 def log_audit(admin_user, action, target="", details="", ip_address=""):
     try:
         with get_db() as con:
-            con.execute(
-                "INSERT INTO admin_audit_log (admin_user, action, target, details, ip_address) VALUES (?, ?, ?, ?, ?)",
-                (admin_user, action, target, details, ip_address)
-            )
+            insert_audit(con, admin_user, action, target, details, ip_address)
             con.commit()
     except Exception as e:
         print(f"[AuditLog Error] {e}", file=sys.stderr)
@@ -1379,6 +1385,51 @@ def table_columns(con, table):
     # PRAGMA cannot take a bound parameter; table always comes from AUCTION_VIEWS, never from the request.
     return {row[1] for row in con.execute(f"PRAGMA table_info({table})")}
 
+# --- Account bans ---
+# RO3Emu owns `account_ban` (account, reason, banned_utc, until_utc, banned_by) and reads it at login.
+# The panel is its only writer and never creates or alters it: an older RO3Emu has no such table and
+# cannot enforce a ban. A ban is active while its row exists and until_utc is NULL or still in the
+# future (unix seconds). `admin_account_meta.is_banned` is no longer read: those old panel-only bans
+# were never enforced and are not migrated.
+ACTIVE_BAN_SQL = "(b.until_utc IS NULL OR b.until_utc > ?)"
+
+def bans_supported(con):
+    return table_exists(con, "account_ban")
+
+def bans_unsupported_error():
+    return tr("Update RO3Emu: this server does not support account bans")
+
+def ban_time_label(banned_utc):
+    if banned_utc is None:
+        return ""
+    return datetime.fromtimestamp(int(banned_utc), tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+
+def active_ban(con, account, now):
+    """The account's active ban row (reason, banned_utc), or None; also None when bans are unsupported."""
+    if not bans_supported(con):
+        return None
+    return con.execute(
+        f"SELECT reason, banned_utc FROM account_ban b WHERE b.account = ? AND {ACTIVE_BAN_SQL}", (account, now)
+    ).fetchone()
+
+def count_active_bans(con, now):
+    if not bans_supported(con):
+        return 0
+    return con.execute(
+        f"SELECT COUNT(*) FROM account_ban b JOIN account a ON a.name = b.account WHERE {ACTIVE_BAN_SQL}", (now,)
+    ).fetchone()[0]
+
+def account_ban_sql(con, now):
+    """SQL pieces for the accounts list: (join, join args, ban columns, condition that means banned)."""
+    if not bans_supported(con):
+        return "", [], "0 AS is_banned, '' AS ban_reason, NULL AS banned_utc", "0"
+    return (
+        f" LEFT JOIN account_ban b ON b.account = a.name AND {ACTIVE_BAN_SQL}",
+        [now],
+        "b.account IS NOT NULL AS is_banned, COALESCE(b.reason, '') AS ban_reason, b.banned_utc AS banned_utc",
+        "b.account IS NOT NULL",
+    )
+
 def paging(total, page, page_size):
     return {"total": total, "page": page, "page_size": page_size, "pages": max(1, -(-total // page_size))}
 
@@ -1954,7 +2005,8 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
         with get_db() as con:
             total_accounts = con.execute("SELECT COUNT(*) FROM account").fetchone()[0]
             total_roles = con.execute("SELECT COUNT(*) FROM role WHERE deleted_time = 0").fetchone()[0]
-            banned_accounts = con.execute("SELECT COUNT(*) FROM admin_account_meta WHERE is_banned = 1").fetchone()[0]
+            bans_ok = bans_supported(con)
+            banned_accounts = count_active_bans(con, int(time.time()))
             
             db_size_mb = 0
             if os.path.exists(DB_PATH):
@@ -1983,7 +2035,8 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
                 "accounts": total_accounts,
                 "characters": total_roles,
                 "banned": banned_accounts
-            }
+            },
+            "bans_supported": bans_ok
         })
 
     # RO3Emu diagnostics are optional: any failure answers 200 {available: false, reason}.
@@ -2023,10 +2076,6 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
 
         where = []
         where_args = []
-        if status_filter == 'banned':
-            where.append("COALESCE(m.is_banned, 0) <> 0")
-        elif status_filter == 'active':
-            where.append("COALESCE(m.is_banned, 0) = 0")
         if q:
             # instr() is a literal substring test, so LIKE wildcards in q never apply.
             where.append("""(
@@ -2038,12 +2087,19 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
                 )
             )""")
             where_args.extend([q, q])
-        where_sql = ("WHERE " + " AND ".join(where)) if where else ""
         order_sql = ACCOUNT_SORT_SQL.get(sort_by, ACCOUNT_SORT_SQL['created_desc'])
-        from_sql = "FROM account a LEFT JOIN admin_account_meta m ON a.name = m.name"
 
         with get_db() as con:
             con.create_function("PY_LOWER", 1, sql_py_lower)
+            bans_ok = bans_supported(con)
+            ban_join, ban_args, ban_cols, banned_sql = account_ban_sql(con, int(time.time()))
+            if status_filter == 'banned':
+                where.insert(0, banned_sql)
+            elif status_filter == 'active':
+                where.insert(0, f"NOT ({banned_sql})")
+            where_sql = ("WHERE " + " AND ".join(where)) if where else ""
+            from_sql = "FROM account a LEFT JOIN admin_account_meta m ON a.name = m.name" + ban_join
+            where_args = ban_args + where_args
 
             total = con.execute(f"SELECT COUNT(*) {from_sql} {where_sql}", where_args).fetchone()[0]
             pages = max(1, -(-total // page_size))
@@ -2052,10 +2108,7 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
             accounts = []
             if offset < total:
                 accounts_query = f"""
-                    SELECT a.name, a.created_utc,
-                           COALESCE(m.is_banned, 0) as is_banned,
-                           COALESCE(m.ban_reason, '') as ban_reason,
-                           COALESCE(m.banned_at, '') as banned_at,
+                    SELECT a.name, a.created_utc, {ban_cols},
                            COALESCE(m.notes, '') as notes
                     {from_sql}
                     {where_sql}
@@ -2095,6 +2148,7 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
                 a["active_tokens"] = tokens_counts.get(name, 0)
                 a["is_admin"] = (name.lower() in admin_usernames)
                 a["is_banned"] = bool(a["is_banned"])
+                a["banned_at"] = ban_time_label(a.pop("banned_utc"))
 
                 latest_login = None
                 for cr in acc_roles:
@@ -2108,7 +2162,8 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
                 "total": total,
                 "page": page,
                 "page_size": page_size,
-                "pages": pages
+                "pages": pages,
+                "bans_supported": bans_ok
             })
 
     def handle_account_detail(self, account_name):
@@ -2118,7 +2173,8 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
             if not acc:
                 return self.send_json(404, {"error": tr("Account not found")})
 
-            meta = con.execute("SELECT is_banned, ban_reason, banned_at, notes FROM admin_account_meta WHERE name=?", (account_name,)).fetchone()
+            meta = con.execute("SELECT notes FROM admin_account_meta WHERE name=?", (account_name,)).fetchone()
+            ban = active_ban(con, account_name, int(time.time()))
             tokens = [dict(t) for t in con.execute("SELECT token, kind, expires_utc FROM auth_token WHERE account=?", (account_name,)).fetchall()]
             roles = [dict(r) for r in con.execute("SELECT * FROM role WHERE account=? AND deleted_time=0", (account_name,)).fetchall()]
 
@@ -2127,9 +2183,10 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
             data = {
                 "name": acc["name"],
                 "created_utc": acc["created_utc"],
-                "is_banned": bool(meta["is_banned"]) if meta else False,
-                "ban_reason": meta["ban_reason"] if meta else "",
-                "banned_at": meta["banned_at"] if meta else "",
+                "is_banned": ban is not None,
+                "ban_reason": ban["reason"] if ban else "",
+                "banned_at": ban_time_label(ban["banned_utc"]) if ban else "",
+                "bans_supported": bans_supported(con),
                 "notes": meta["notes"] if meta else "",
                 "tokens_count": len(tokens),
                 "is_admin": (acc["name"].lower() in admin_usernames),
@@ -2428,28 +2485,29 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
         if username.lower() in admin_usernames:
             return self.send_json(400, {"error": tr("An administrator account cannot be suspended.")})
 
-        now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
         with get_db() as con:
+            if not bans_supported(con):
+                return self.send_json(409, {"error": bans_unsupported_error()})
             existing = con.execute("SELECT name FROM account WHERE name=?", (username,)).fetchone()
             if not existing:
                 return self.send_json(404, {"error": tr("Account '{username}' does not exist", username=username)})
 
-            con.execute("""
-                INSERT INTO admin_account_meta (name, is_banned, ban_reason, banned_at, updated_utc)
-                VALUES (?, 1, ?, ?, CURRENT_TIMESTAMP)
-                ON CONFLICT(name) DO UPDATE SET is_banned=1, ban_reason=excluded.ban_reason, banned_at=excluded.banned_at, updated_utc=CURRENT_TIMESTAMP
-            """, (username, reason, now_str))
-
+            # One transaction: the ban row RO3Emu reads at login, the token revocation and the audit row.
+            con.execute(
+                "INSERT OR REPLACE INTO account_ban (account, reason, banned_utc, until_utc, banned_by)"
+                " VALUES (?, ?, ?, NULL, ?)",
+                (username, reason, int(time.time()), admin_user),
+            )
             con.execute("DELETE FROM auth_token WHERE account=?", (username,))
+            insert_audit(con, admin_user, "ban_account", username, f"Reason: {reason}", client_ip)
             con.commit()
 
-        log_audit(admin_user, "ban_account", username, f"Reason: {reason}", client_ip)
         return self.send_json(200, {
             "success": True,
-            "enforced": False,
+            "enforced": True,
             "message": tr(
-                "Account '{username}' marked as suspended in the panel and its active sessions were revoked. "
-                "RO3Emu does not check this suspension at login: the player can still sign in.",
+                "Account '{username}' suspended and its active sessions were revoked. "
+                "RO3Emu refuses its sign-in until the suspension is removed.",
                 username=username,
             )
         })
@@ -2464,14 +2522,12 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
             return self.send_json(400, {"error": tr("Username required")})
 
         with get_db() as con:
-            con.execute("""
-                UPDATE admin_account_meta
-                SET is_banned = 0, ban_reason = '', updated_utc = CURRENT_TIMESTAMP
-                WHERE name = ?
-            """, (username,))
+            if not bans_supported(con):
+                return self.send_json(409, {"error": bans_unsupported_error()})
+            con.execute("DELETE FROM account_ban WHERE account=?", (username,))
+            insert_audit(con, admin_user, "unban_account", username, "Suspension lifted by admin", client_ip)
             con.commit()
 
-        log_audit(admin_user, "unban_account", username, "Suspension lifted by admin", client_ip)
         return self.send_json(200, {
             "success": True,
             "message": tr("Suspension of account '{username}' removed successfully.", username=username)

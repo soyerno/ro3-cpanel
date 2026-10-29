@@ -110,6 +110,17 @@ desde un contenedor Docker en red bridge). Solo se envían los comandos listados
 (por defecto `["warp"]`), el panel arma cada línea `!` a partir de números validados y cada intento queda en
 el registro de auditoría. Ver [Arquitectura de Seguridad](docs/guide/security.md#5-gm-tools).
 
+### Suspensión de cuentas
+
+Suspender una cuenta requiere un RO3Emu con suspensiones de cuentas. El panel escribe la suspensión en la
+tabla `account_ban` de RO3Emu, y RO3Emu rechaza el inicio de sesión de esa cuenta hasta que se quite la
+suspensión. Las sesiones de juego de la cuenta se revocan en el acto. Con un RO3Emu anterior (sin la tabla
+`account_ban`) el panel no suspende y pide actualizar RO3Emu; nunca crea la tabla.
+
+Las cuentas suspendidas por una versión anterior del panel solo estaban marcadas en el panel y no se
+trasladan: después de actualizar RO3Emu, vuelve a suspenderlas. Ver
+[Arquitectura de Seguridad](docs/guide/security.md#account-bans).
+
 ---
 
 ## Inventario de Personajes
