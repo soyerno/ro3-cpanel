@@ -41,6 +41,9 @@
       pages: 1
     },
     guildQuery: '',
+    auditPage: 1,
+    auditPages: 1,
+    auditTotal: 0,
     guildsPage: 1,
     guildsPages: 1,
     guildsTotal: 0,
@@ -110,6 +113,10 @@
     tabViewAccounts: document.getElementById('tab-view-accounts'),
     tabViewAudit: document.getElementById('tab-view-audit'),
     auditTbody: document.getElementById('audit-tbody'),
+    auditPager: document.getElementById('audit-pager'),
+    auditPagerPrev: document.getElementById('audit-pager-prev'),
+    auditPagerNext: document.getElementById('audit-pager-next'),
+    auditPagerInfo: document.getElementById('audit-pager-info'),
     tabViewEconomy: document.getElementById('tab-view-economy'),
     economyForm: document.getElementById('economy-filter-form'),
     economyAccount: document.getElementById('economy-account'),
@@ -1257,10 +1264,19 @@
   }
 
   function loadAuditLog() {
-    apiFetch('/api/admin/audit-log')
+    return apiFetch('/api/admin/audit-log?page=' + encodeURIComponent(String(state.auditPage)))
       .then(function (data) {
         var logs = data.logs || [];
+        state.auditPages = data.pages || 1;
+        state.auditTotal = data.total || 0;
         if (!els.auditTbody) return;
+        // Records were removed since the last load: land on the last page instead of an empty one.
+        if (!logs.length && state.auditTotal > 0 && state.auditPage > state.auditPages) {
+          state.auditPage = state.auditPages;
+          return loadAuditLog();
+        }
+        renderPager(els.auditPager, els.auditPagerInfo, els.auditPagerPrev, els.auditPagerNext,
+          state.auditPage, state.auditPages, state.auditTotal, 'records');
         if (!logs.length) {
           els.auditTbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--text-muted); padding: 24px;">' + escapeHtml(t('No audit records yet.')) + '</td></tr>';
           return;
@@ -1290,6 +1306,12 @@
       .catch(function (err) {
         showToast(t('Error loading records: {message}', { message: err.message }), 'error');
       });
+  }
+
+  function goToAuditPage(page) {
+    if (page < 1 || page > state.auditPages || page === state.auditPage) return;
+    state.auditPage = page;
+    loadAuditLog();
   }
 
   // --- Economy Log (read-only) ---
@@ -1877,6 +1899,7 @@
 
   // --- Tabs Switching ---
   function switchTab(tabId) {
+    var previousTab = state.activeTab;
     state.activeTab = tabId;
     document.querySelectorAll('.tab-btn').forEach(function (b) {
       b.classList.toggle('active', b.getAttribute('data-tab') === tabId);
@@ -1892,6 +1915,8 @@
     if (els.tabViewGiftCodes) els.tabViewGiftCodes.hidden = (tabId !== 'giftcodes');
 
     if (tabId === 'audit') {
+      // Entering the tab starts on the newest page; a language reload of the open tab keeps its page.
+      if (previousTab !== 'audit') state.auditPage = 1;
       loadAuditLog();
     } else if (tabId === 'economy') {
       loadEconomy();
@@ -2007,6 +2032,18 @@
         state.guildQuery = this.value.trim().toLowerCase();
         state.guildsPage = 1;
         guildSearchTimeout = setTimeout(loadGuilds, 250);
+      });
+    }
+
+    if (els.auditPagerPrev) {
+      els.auditPagerPrev.addEventListener('click', function () {
+        goToAuditPage(state.auditPage - 1);
+      });
+    }
+
+    if (els.auditPagerNext) {
+      els.auditPagerNext.addEventListener('click', function () {
+        goToAuditPage(state.auditPage + 1);
       });
     }
 

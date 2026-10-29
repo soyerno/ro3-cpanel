@@ -1381,6 +1381,8 @@ def summarize_online(entries, show_ips):
 
 LIST_PAGE_SIZE_DEFAULT = 50
 LIST_PAGE_SIZE_MAX = 200
+AUDIT_PAGE_SIZE_DEFAULT = 50
+AUDIT_PAGE_SIZE_MAX = 100
 
 # Verified relational columns per auction view; columns added by later RO3Emu migrations read as NULL when absent.
 AUCTION_VIEWS = {
@@ -2774,16 +2776,24 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
         return self.send_json(status, {"error": message, "sent": line})
 
     def handle_audit_log(self, params):
-        limit = min(int(params.get('limit', [50])[0]), 100)
+        # `limit` is the original name of `page_size` and still works.
+        size_key = 'page_size' if 'page_size' in params else 'limit'
+        page_size = parse_int_param(params, size_key, AUDIT_PAGE_SIZE_DEFAULT, minimum=1, maximum=AUDIT_PAGE_SIZE_MAX)
+        page = parse_int_param(params, 'page', 1, minimum=1)
         with get_db() as con:
-            rows = con.execute(
-                "SELECT id, admin_user, action, target, details, ip_address, created_utc FROM admin_audit_log ORDER BY id DESC LIMIT ?",
-                (limit,)
-            ).fetchall()
-            logs = [dict(r) for r in rows]
+            total = con.execute("SELECT COUNT(*) FROM admin_audit_log").fetchone()[0]
+            offset = (page - 1) * page_size
+            logs = []
+            if offset < total:
+                rows = con.execute(
+                    "SELECT id, admin_user, action, target, details, ip_address, created_utc"
+                    " FROM admin_audit_log ORDER BY id DESC LIMIT ? OFFSET ?",
+                    (page_size, offset)
+                ).fetchall()
+                logs = [dict(r) for r in rows]
         for entry in logs:
             entry["details"] = localize_audit_details(entry.get("details"))
-        return self.send_json(200, {"logs": logs})
+        return self.send_json(200, {"logs": logs, **paging(total, page, page_size)})
 
     def handle_gift_codes_list(self):
         with get_db() as con:
