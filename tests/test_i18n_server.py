@@ -157,7 +157,8 @@ class TestDictionaryCompleteness(unittest.TestCase):
         stored = [
             "Invalid credentials", "Administrative sign-in", "Account created by admin",
             "Password changed by admin", "Suspension lifted by admin", "Account deleted by admin",
-            "Rule violation / Admin action",
+            "Rule violation / Admin action", "Gift code created", "Gift code disabled by admin",
+            "Gift code enabled by admin",
         ]
         self.assertEqual(sorted(k for k in labels + stored if k not in server.ES_MESSAGES), [])
 
