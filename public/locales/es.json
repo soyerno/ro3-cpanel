@@ -96,6 +96,7 @@
   "Delete Permanently": "Eliminar Definitivamente",
   "Restricted access:": "Acceso restringido:",
   "Exclusively for authorized administrators and Game Masters.": "Exclusivo para administradores y Game Masters autorizados.",
+  "Protected with client-side encryption (Zero-Plaintext PBKDF2).": "Protegido con cifrado en el navegador (Zero-Plaintext PBKDF2).",
   "Engine:": "Motor:",
   "Database:": "Base de Datos:",
   "Security:": "Seguridad:",
@@ -121,6 +122,7 @@
   "Search guild by name...": "Buscar gremio por nombre...",
   "Search guild by name": "Buscar gremio por nombre",
   "Guilds pagination": "Paginación de gremios",
+  "Audit log pagination": "Paginación del registro de auditoría",
   "Auction record type": "Tipo de registro de subasta",
   "Auctions pagination": "Paginación de subastas",
   "Exact account name": "Nombre exacto de cuenta",
@@ -331,5 +333,8 @@
   "Max uses must be 0 (unlimited) or a positive whole number.": "Los usos máximos deben ser 0 (ilimitados) o un número entero positivo.",
   "Uses per account must be a positive whole number.": "Los usos por cuenta deben ser un número entero positivo.",
   "Enter valid start and expiry dates.": "Ingresá fechas de inicio y vencimiento válidas.",
-  "The expiry must be later than the start.": "El vencimiento debe ser posterior al inicio."
+  "The expiry must be later than the start.": "El vencimiento debe ser posterior al inicio.",
+  "Username must not exceed 32 characters.": "El usuario no debe superar los 32 caracteres.",
+  "Password must not exceed 128 characters.": "La contraseña no debe superar los 128 caracteres.",
+  "Temporarily banned ({seconds}s)": "Bloqueo temporal ({seconds}s)"
 }

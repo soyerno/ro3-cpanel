@@ -354,6 +354,41 @@ class TestLoginEndpointThrottling(unittest.TestCase):
         status, _, _ = self.login("webadmin", "Correct!1")
         self.assertEqual(status, 200)
 
+    def test_username_exceeding_max_characters_returns_400(self):
+        long_user = "a" * 33
+        status, _, body = self.login(long_user, "ValidPass123!")
+        self.assertEqual(status, 400)
+        self.assertIn("error", body)
+
+    def test_password_exceeding_max_characters_returns_400(self):
+        long_pass = "p" * 129
+        status, _, body = self.login("webadmin", long_pass)
+        self.assertEqual(status, 400)
+        self.assertIn("error", body)
+
+    def test_failed_attempt_reports_remaining_attempts(self):
+        status, _, body = self.login("webadmin", "WrongPass")
+        self.assertEqual(status, 401)
+        self.assertEqual(body.get("remaining_attempts"), self.MAX_FAILURES - 1)
+        self.assertIn("attempt(s) remaining", body["error"])
+
+    def test_temporary_ban_response_includes_flag_and_retry_after(self):
+        self.fail_n_times(self.MAX_FAILURES)
+        status, headers, body = self.login("webadmin", "Correct!1")
+        self.assertEqual(status, 429)
+        self.assertTrue(body.get("temporary_ban"))
+        self.assertGreater(body.get("retry_after"), 0)
+        self.assertIn("Temporary ban active", body["error"])
+
+    def test_rapid_empty_requests_trigger_lockout(self):
+        for _ in range(self.MAX_FAILURES - 1):
+            status, _, _ = self.login("", "")
+            self.assertEqual(status, 400)
+        status, headers, body = self.login("", "")
+        self.assertEqual(status, 429)
+        self.assertTrue(body.get("temporary_ban"))
+        self.assertGreater(int(headers["Retry-After"]), 0)
+
 
 if __name__ == "__main__":
     unittest.main()

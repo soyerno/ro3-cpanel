@@ -22,17 +22,20 @@
 
       <div class="login-notice">
         <strong data-i18n="Restricted access:">Restricted access:</strong> <span data-i18n="Exclusively for authorized administrators and Game Masters.">Exclusively for authorized administrators and Game Masters.</span>
+        <div class="login-security-pill">
+          <span>🔒</span> <span data-i18n="Protected with client-side encryption (Zero-Plaintext PBKDF2).">Protected with client-side encryption (Zero-Plaintext PBKDF2).</span>
+        </div>
       </div>
 
       <form id="login-form">
         <div class="form-group" style="text-align: left;">
           <label class="form-label" for="login-user" data-i18n="Administrator Username">Administrator Username</label>
-          <input type="text" id="login-user" class="form-input" placeholder="GM username" data-i18n-placeholder="GM username" autocomplete="username" required autofocus>
+          <input type="text" id="login-user" class="form-input" placeholder="GM username" data-i18n-placeholder="GM username" autocomplete="username" maxlength="32" required autofocus>
         </div>
 
         <div class="form-group" style="text-align: left;">
           <label class="form-label" for="login-pass" data-i18n="Password">Password</label>
-          <input type="password" id="login-pass" class="form-input" placeholder="••••••••" autocomplete="current-password" required>
+          <input type="password" id="login-pass" class="form-input" placeholder="••••••••" autocomplete="current-password" maxlength="128" required>
         </div>
 
         <div id="login-error" style="color: var(--danger); font-size: 12px; margin-bottom: 16px; text-align: left;" hidden></div>
@@ -433,6 +436,12 @@
           </tbody>
         </table>
       </div>
+
+      <nav id="audit-pager" class="pager" aria-label="Audit log pagination" data-i18n-aria-label="Audit log pagination" hidden>
+        <button id="audit-pager-prev" type="button" class="btn btn-secondary btn-sm" data-i18n="← Previous">← Previous</button>
+        <span id="audit-pager-info" class="pager-info" aria-live="polite"></span>
+        <button id="audit-pager-next" type="button" class="btn btn-secondary btn-sm" data-i18n="Next →">Next →</button>
+      </nav>
     </section>
 
     <!-- View 7: Economy log (read-only) -->

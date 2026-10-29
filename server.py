@@ -142,10 +142,18 @@ ES_MESSAGES = {
     "Invalid request body": "Cuerpo de solicitud inválido",
     "Signed out successfully": "Sesión cerrada correctamente",
     "Enter a username and password": "Debe ingresar usuario y contraseña",
+    "The username must not exceed 32 characters": "El usuario no debe superar los 32 caracteres",
+    "The password must not exceed 128 characters": "La contraseña no debe superar los 128 caracteres",
     "Too many failed attempts. Try again in {seconds} seconds.":
         "Demasiados intentos fallidos. Intente nuevamente en {seconds} segundos.",
+    "Too many failed attempts. Temporary ban active. Try again in {seconds} seconds.":
+        "Demasiados intentos fallidos. Bloqueo temporal activo. Intente nuevamente en {seconds} segundos.",
     "Access denied: invalid administrator credentials.":
         "Acceso denegado: credenciales de administrador inválidas.",
+    "Access denied: invalid administrator credentials. {remaining} attempt(s) remaining before temporary ban.":
+        "Acceso denegado: credenciales de administrador inválidas. Quedan {remaining} intento(s) antes del bloqueo temporal.",
+    "Access denied: invalid administrator credentials. Maximum attempts reached.":
+        "Acceso denegado: credenciales de administrador inválidas. Límite de intentos alcanzado.",
     # Accounts, characters, guilds
     "Account not found": "Cuenta no encontrada",
     "Invalid character ID": "ID de personaje inválido",
@@ -1379,6 +1387,8 @@ def summarize_online(entries, show_ips):
 
 LIST_PAGE_SIZE_DEFAULT = 50
 LIST_PAGE_SIZE_MAX = 200
+AUDIT_PAGE_SIZE_DEFAULT = 50
+AUDIT_PAGE_SIZE_MAX = 100
 
 # Verified relational columns per auction view; columns added by later RO3Emu migrations read as NULL when absent.
 AUCTION_VIEWS = {
@@ -1516,25 +1526,39 @@ def verify_admin_password_hash(password, encoded):
     return hmac.compare_digest(derived, expected)
 
 
-def authenticate_admin(username, password):
+def authenticate_admin(username, password=None, password_hash=None):
     """
     Checks if username & password match any configured admin,
-    OR verifies against ro3emu.db account if user is in admin list.
+    OR verifies against ro3emu.db account if user is in admin list or admin_gm table.
 
     A config entry may hold `password_hash` (preferred, see make_admin_password_hash)
     or a plain `password`. When `password_hash` is present, `password` is ignored.
+    Also accepts client-side derived PBKDF2 `password_hash` matching account.password_hash.
     """
     clean_user = username.strip().lower()
     admin_list = CONFIG.get("admin_users", [])
+
+    is_admin = any(clean_user == a.get("username", "").strip().lower() for a in admin_list)
+    if not is_admin:
+        try:
+            with get_db() as con:
+                if con.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='admin_gm'").fetchone():
+                    if con.execute("SELECT 1 FROM admin_gm WHERE LOWER(account)=?", (clean_user,)).fetchone():
+                        is_admin = True
+        except Exception:
+            pass
+
+    if not is_admin:
+        return False, None
 
     for admin_entry in admin_list:
         entry_user = admin_entry.get("username", "").strip().lower()
         if clean_user == entry_user:
             # 1. Direct credential check in config
-            if admin_entry.get("password_hash"):
+            if admin_entry.get("password_hash") and password:
                 if verify_admin_password_hash(password, admin_entry["password_hash"]):
                     return True, admin_entry.get("username", username)
-            elif "password" in admin_entry and admin_entry["password"]:
+            elif "password" in admin_entry and admin_entry["password"] and password:
                 stored = admin_entry["password"]
                 if (
                     isinstance(password, str)
@@ -1543,14 +1567,24 @@ def authenticate_admin(username, password):
                 ):
                     return True, admin_entry.get("username", username)
 
-            # 2. Check in database account table using PBKDF2
-            try:
-                with get_db() as con:
-                    row = con.execute("SELECT name, password_hash, salt FROM account WHERE LOWER(name)=?", (clean_user,)).fetchone()
-                    if row and verify_ro3_password(password, row["password_hash"], row["salt"]):
+    # 2. Check in database account table using PBKDF2
+    try:
+        with get_db() as con:
+            row = con.execute("SELECT name, password_hash, salt FROM account WHERE LOWER(name)=?", (clean_user,)).fetchone()
+            if row:
+                expected_hash = row["password_hash"]
+                if password_hash:
+                    try:
+                        client_hash = bytes.fromhex(password_hash)
+                        if len(client_hash) == len(expected_hash) and secrets.compare_digest(client_hash, expected_hash):
+                            return True, row["name"]
+                    except ValueError:
+                        pass
+                if password:
+                    if verify_ro3_password(password, expected_hash, row["salt"]):
                         return True, row["name"]
-            except Exception:
-                pass
+    except Exception:
+        pass
 
     return False, None
 
@@ -1947,10 +1981,15 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
                 "server_title": CONFIG.get("server_title", "RO3 Control Panel"),
                 "server_subtitle": CONFIG.get("server_subtitle", "Ragnarok Online 3 Management"),
                 "logo_text": CONFIG.get("logo_text", "RO3"),
+                "logo_image_url": CONFIG.get("logo_image_url", ""),
                 "default_language": default_language()
             })
 
-        # 3. Session Verification
+        # 3. Public Auth Salt Endpoint (Zero-plaintext client PBKDF2)
+        if raw_path == '/api/admin/auth/salt':
+            return self.handle_auth_salt(params)
+
+        # 4. Session Verification
         if raw_path == '/api/admin/session':
             session = self.check_auth()
             if session:
@@ -2073,35 +2112,126 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
 
     # --- Handlers ---
 
+    def handle_auth_salt(self, params):
+        username = (params.get('username', [''])[0] or '').strip().lower()
+        salt_bytes = None
+        if username:
+            try:
+                with get_db() as con:
+                    row = con.execute("SELECT salt FROM account WHERE LOWER(name)=?", (username,)).fetchone()
+                    if row and row["salt"]:
+                        salt_bytes = row["salt"]
+            except Exception:
+                pass
+        if not salt_bytes:
+            # Deterministic dummy salt so nonexistent users don't reveal timing/existence differences
+            salt_bytes = hashlib.sha256(f"dummy_salt:{username}".encode('utf-8')).digest()[:16]
+        return self.send_json(200, {
+            "ok": True,
+            "salt": salt_bytes.hex(),
+            "iterations": 100000
+        })
+
     def handle_login(self, client_ip):
+        throttle_ip = "ip:" + client_ip
+        retry_after = LOGIN_THROTTLE.retry_after(throttle_ip)
+        if retry_after > 0:
+            log_audit("system", "login_throttled", "flood", f"Retry in {retry_after}s", client_ip)
+            return self.send_json(
+                429,
+                {
+                    "error": tr("Too many failed attempts. Temporary ban active. Try again in {seconds} seconds.", seconds=retry_after),
+                    "retry_after": retry_after,
+                    "temporary_ban": True
+                },
+                {"Retry-After": str(retry_after)}
+            )
+
         body = self.read_json_body()
         if not body:
+            LOGIN_THROTTLE.record_failure(throttle_ip)
             return self.send_json(400, {"error": tr("Invalid request body")})
 
         username = (body.get("username") or body.get("identity") or "").strip()
         password = body.get("password") or body.get("credential") or ""
+        password_hash = (body.get("password_hash") or "").strip()
 
-        if not username or not password:
+        if not username or (not password and not password_hash):
+            LOGIN_THROTTLE.record_failure(throttle_ip)
+            post_wait = LOGIN_THROTTLE.retry_after(throttle_ip)
+            if post_wait > 0:
+                return self.send_json(
+                    429,
+                    {
+                        "error": tr("Too many failed attempts. Temporary ban active. Try again in {seconds} seconds.", seconds=post_wait),
+                        "retry_after": post_wait,
+                        "temporary_ban": True
+                    },
+                    {"Retry-After": str(post_wait)}
+                )
             return self.send_json(400, {"error": tr("Enter a username and password")})
+
+        if len(username) > 32:
+            LOGIN_THROTTLE.record_failure(throttle_ip)
+            post_wait = LOGIN_THROTTLE.retry_after(throttle_ip)
+            if post_wait > 0:
+                return self.send_json(
+                    429,
+                    {
+                        "error": tr("Too many failed attempts. Temporary ban active. Try again in {seconds} seconds.", seconds=post_wait),
+                        "retry_after": post_wait,
+                        "temporary_ban": True
+                    },
+                    {"Retry-After": str(post_wait)}
+                )
+            return self.send_json(400, {"error": tr("The username must not exceed 32 characters")})
+
+        if len(password) > 128 or len(password_hash) > 128:
+            LOGIN_THROTTLE.record_failure(throttle_ip)
+            post_wait = LOGIN_THROTTLE.retry_after(throttle_ip)
+            if post_wait > 0:
+                return self.send_json(
+                    429,
+                    {
+                        "error": tr("Too many failed attempts. Temporary ban active. Try again in {seconds} seconds.", seconds=post_wait),
+                        "retry_after": post_wait,
+                        "temporary_ban": True
+                    },
+                    {"Retry-After": str(post_wait)}
+                )
+            return self.send_json(400, {"error": tr("The password must not exceed 128 characters")})
 
         # Failures are tracked per IP and per username. X-Forwarded-For can be spoofed to
         # rotate the IP key, so the username key is what stops a distributed guess on one
         # admin. Tradeoff (accepted): anyone can lock an admin out for the window.
-        throttle_keys = ("ip:" + client_ip, "user:" + username.lower())
+        throttle_keys = (throttle_ip, "user:" + username.lower())
         # reserve() counts this attempt as a failure up front; success resets it below.
         retry_after = LOGIN_THROTTLE.reserve(*throttle_keys)
         if retry_after > 0:
             log_audit("system", "login_throttled", username, f"Retry in {retry_after}s", client_ip)
             return self.send_json(
                 429,
-                {"error": tr("Too many failed attempts. Try again in {seconds} seconds.", seconds=retry_after)},
+                {
+                    "error": tr("Too many failed attempts. Temporary ban active. Try again in {seconds} seconds.", seconds=retry_after),
+                    "retry_after": retry_after,
+                    "temporary_ban": True
+                },
                 {"Retry-After": str(retry_after)}
             )
 
-        valid, resolved_user = authenticate_admin(username, password)
+        valid, resolved_user = authenticate_admin(username, password=password, password_hash=password_hash)
         if not valid:
             log_audit("system", "login_failed", username, "Invalid credentials", client_ip)
-            return self.send_json(401, {"error": tr("Access denied: invalid administrator credentials.")})
+            failures = max(
+                LOGIN_THROTTLE.failure_count("ip:" + client_ip),
+                LOGIN_THROTTLE.failure_count("user:" + username.lower())
+            )
+            remaining = max(0, LOGIN_THROTTLE.max_failures - failures)
+            if remaining > 0:
+                err_text = tr("Access denied: invalid administrator credentials. {remaining} attempt(s) remaining before temporary ban.", remaining=remaining)
+            else:
+                err_text = tr("Access denied: invalid administrator credentials. Maximum attempts reached.")
+            return self.send_json(401, {"error": err_text, "remaining_attempts": remaining})
 
         LOGIN_THROTTLE.reset(*throttle_keys)
 
@@ -2751,16 +2881,24 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
         return self.send_json(status, {"error": message, "sent": line})
 
     def handle_audit_log(self, params):
-        limit = min(int(params.get('limit', [50])[0]), 100)
+        # `limit` is the original name of `page_size` and still works.
+        size_key = 'page_size' if 'page_size' in params else 'limit'
+        page_size = parse_int_param(params, size_key, AUDIT_PAGE_SIZE_DEFAULT, minimum=1, maximum=AUDIT_PAGE_SIZE_MAX)
+        page = parse_int_param(params, 'page', 1, minimum=1)
         with get_db() as con:
-            rows = con.execute(
-                "SELECT id, admin_user, action, target, details, ip_address, created_utc FROM admin_audit_log ORDER BY id DESC LIMIT ?",
-                (limit,)
-            ).fetchall()
-            logs = [dict(r) for r in rows]
+            total = con.execute("SELECT COUNT(*) FROM admin_audit_log").fetchone()[0]
+            offset = (page - 1) * page_size
+            logs = []
+            if offset < total:
+                rows = con.execute(
+                    "SELECT id, admin_user, action, target, details, ip_address, created_utc"
+                    " FROM admin_audit_log ORDER BY id DESC LIMIT ? OFFSET ?",
+                    (page_size, offset)
+                ).fetchall()
+                logs = [dict(r) for r in rows]
         for entry in logs:
             entry["details"] = localize_audit_details(entry.get("details"))
-        return self.send_json(200, {"logs": logs})
+        return self.send_json(200, {"logs": logs, **paging(total, page, page_size)})
 
     def handle_gift_codes_list(self):
         with get_db() as con:

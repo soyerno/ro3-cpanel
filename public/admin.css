@@ -1,6 +1,10 @@
 /* RO3 Control Panel - Ragnarok Online White-Label Theme */
 
 :root {
+  /* Page content box: bars stay full width but pad their content into the same box as .main-content. */
+  --content-max: 1400px;
+  --page-gutter: 24px;
+  --bar-inline: max(var(--page-gutter), calc((100% - var(--content-max)) / 2 + var(--page-gutter)));
   --bg-dark: #0a0e17;
   --bg-card: #121824;
   --bg-card-hover: #172030;
@@ -24,6 +28,11 @@
   --radius-lg: 12px;
   --shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
   --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+[hidden],
+.login-screen-wrapper[hidden] {
+  display: none !important;
 }
 
 * {
@@ -51,7 +60,7 @@ body {
   background: rgba(18, 24, 36, 0.95);
   backdrop-filter: blur(10px);
   border-bottom: 1px solid var(--border-color);
-  padding: 0 24px;
+  padding: 0 var(--bar-inline);
   height: 64px;
   display: flex;
   align-items: center;
@@ -80,6 +89,20 @@ body {
   font-size: 18px;
   box-shadow: 0 0 15px var(--gold-glow);
   letter-spacing: -1px;
+}
+
+.brand-logo-img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  border-radius: inherit;
+  display: block;
+}
+
+.brand-logo:has(.brand-logo-img),
+.login-logo:has(.brand-logo-img) {
+  background: transparent;
+  box-shadow: none;
 }
 
 .brand-info h1 {
@@ -225,7 +248,7 @@ body {
 .subnav-tabs {
   background: #111722;
   border-bottom: 1px solid var(--border-color);
-  padding: 0 24px;
+  padding: 0 var(--bar-inline);
   display: flex;
   gap: 8px;
 }
@@ -264,8 +287,8 @@ body {
 /* Main Container */
 .main-content {
   flex: 1;
-  padding: 24px;
-  max-width: 1400px;
+  padding: var(--page-gutter);
+  max-width: var(--content-max);
   width: 100%;
   margin: 0 auto;
 }
@@ -492,6 +515,15 @@ body {
 
 .data-table tbody tr:hover {
   background-color: var(--bg-card-hover);
+}
+
+.audit-target {
+  display: inline-block;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: middle;
 }
 
 /* Badges */
@@ -953,6 +985,16 @@ body {
   color: var(--gold);
   margin-bottom: 20px;
   text-align: left;
+}
+.login-security-pill {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px dashed rgba(229, 192, 123, 0.2);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--green, #98c379);
+  font-size: 10px;
 }
 
 .login-footer {

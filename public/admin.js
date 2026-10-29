@@ -43,6 +43,9 @@
       pages: 1
     },
     guildQuery: '',
+    auditPage: 1,
+    auditPages: 1,
+    auditTotal: 0,
     guildsPage: 1,
     guildsPages: 1,
     guildsTotal: 0,
@@ -112,6 +115,10 @@
     tabViewAccounts: document.getElementById('tab-view-accounts'),
     tabViewAudit: document.getElementById('tab-view-audit'),
     auditTbody: document.getElementById('audit-tbody'),
+    auditPager: document.getElementById('audit-pager'),
+    auditPagerPrev: document.getElementById('audit-pager-prev'),
+    auditPagerNext: document.getElementById('audit-pager-next'),
+    auditPagerInfo: document.getElementById('audit-pager-info'),
     tabViewEconomy: document.getElementById('tab-view-economy'),
     economyForm: document.getElementById('economy-filter-form'),
     economyAccount: document.getElementById('economy-account'),
@@ -375,7 +382,12 @@
       el.textContent = state.branding.server_subtitle;
     });
     els.brandLogos.forEach(function (el) {
-      el.textContent = state.branding.logo_text;
+      if (state.branding.logo_image_url) {
+        var alt = state.branding.logo_text || 'Logo';
+        el.innerHTML = '<img src="' + escapeHtml(state.branding.logo_image_url) + '" alt="' + escapeHtml(alt) + '" class="brand-logo-img">';
+      } else {
+        el.textContent = state.branding.logo_text;
+      }
     });
   }
 
@@ -417,8 +429,65 @@
     if (els.loginError) els.loginError.hidden = true;
   }
 
+  var loginLockoutTimer = null;
+  var isLoginSubmitting = false;
+
+  function startLoginLockout(seconds) {
+    if (loginLockoutTimer) clearInterval(loginLockoutTimer);
+    var remaining = Math.max(1, Math.ceil(seconds));
+    if (els.loginSubmit) {
+      els.loginSubmit.disabled = true;
+      els.loginSubmit.textContent = t('Temporarily banned ({seconds}s)', { seconds: remaining });
+    }
+    loginLockoutTimer = setInterval(function () {
+      remaining--;
+      if (remaining <= 0) {
+        clearInterval(loginLockoutTimer);
+        loginLockoutTimer = null;
+        if (els.loginSubmit) {
+          els.loginSubmit.disabled = false;
+          els.loginSubmit.textContent = t('Access Panel');
+        }
+        if (els.loginError) {
+          els.loginError.hidden = true;
+        }
+      } else {
+        if (els.loginSubmit) {
+          els.loginSubmit.textContent = t('Temporarily banned ({seconds}s)', { seconds: remaining });
+        }
+      }
+    }, 1000);
+  }
+
+  function derivePbkdf2Hash(password, saltHex, iterations) {
+    if (!window.crypto || !window.crypto.subtle) return Promise.reject(new Error('WebCrypto unavailable'));
+    var enc = new TextEncoder();
+    return window.crypto.subtle.importKey(
+      'raw',
+      enc.encode(password),
+      { name: 'PBKDF2' },
+      false,
+      ['deriveBits']
+    ).then(function (keyMaterial) {
+      var saltBytes = new Uint8Array(saltHex.match(/.{1,2}/g).map(function (b) { return parseInt(b, 16); }));
+      return window.crypto.subtle.deriveBits(
+        {
+          name: 'PBKDF2',
+          salt: saltBytes,
+          iterations: iterations || 100000,
+          hash: 'SHA-256'
+        },
+        keyMaterial,
+        256
+      );
+    }).then(function (bits) {
+      return Array.from(new Uint8Array(bits)).map(function (b) { return b.toString(16).padStart(2, '0'); }).join('');
+    });
+  }
+
   function handleLogin(e) {
-    e.preventDefault();
+    if (e && e.preventDefault) e.preventDefault();
+    if (isLoginSubmitting || loginLockoutTimer) return;
     var user = (els.loginUser.value || '').trim();
     var pass = els.loginPass.value || '';
 
@@ -427,25 +496,66 @@
       return;
     }
 
+    if (user.length > 32) {
+      showLoginError(t('Username must not exceed 32 characters.'));
+      return;
+    }
+
+    if (pass.length > 128) {
+      showLoginError(t('Password must not exceed 128 characters.'));
+      return;
+    }
+
+    isLoginSubmitting = true;
     els.loginSubmit.disabled = true;
     els.loginSubmit.textContent = t('Verifying...');
     if (els.loginError) els.loginError.hidden = true;
 
-    apiFetch('/api/admin/login', {
-      method: 'POST',
-      body: { username: user, password: pass }
-    })
+    // Zero-plaintext authentication: derive PBKDF2 hash directly in browser with salt from server
+    apiFetch('/api/admin/auth/salt?username=' + encodeURIComponent(user))
+      .then(function (saltData) {
+        if (saltData && saltData.salt) {
+          return derivePbkdf2Hash(pass, saltData.salt, saltData.iterations)
+            .then(function (hashHex) {
+              return { username: user, password_hash: hashHex };
+            })
+            .catch(function () {
+              return { username: user, password: pass };
+            });
+        }
+        return { username: user, password: pass };
+      })
+      .catch(function () {
+        return { username: user, password: pass };
+      })
+      .then(function (payload) {
+        return apiFetch('/api/admin/login', {
+          method: 'POST',
+          body: payload
+        });
+      })
       .then(function (data) {
+        if (loginLockoutTimer) {
+          clearInterval(loginLockoutTimer);
+          loginLockoutTimer = null;
+        }
         showToast(t('Welcome, {user} (Administrator)', { user: data.user }), 'success');
         els.loginPass.value = '';
         setAuthenticated(data.user);
       })
       .catch(function (err) {
         showLoginError(err.message || t('Invalid credentials'));
+        if (err.status === 429 || (err.data && (err.data.temporary_ban || err.data.retry_after))) {
+          var wait = (err.data && err.data.retry_after) ? parseInt(err.data.retry_after, 10) : 60;
+          startLoginLockout(wait);
+        }
       })
       .finally(function () {
-        els.loginSubmit.disabled = false;
-        els.loginSubmit.textContent = t('Access Panel');
+        isLoginSubmitting = false;
+        if (!loginLockoutTimer) {
+          els.loginSubmit.disabled = false;
+          els.loginSubmit.textContent = t('Access Panel');
+        }
       });
   }
 
@@ -1207,21 +1317,40 @@
   }
 
   function loadAuditLog() {
-    apiFetch('/api/admin/audit-log')
+    return apiFetch('/api/admin/audit-log?page=' + encodeURIComponent(String(state.auditPage)))
       .then(function (data) {
         var logs = data.logs || [];
+        state.auditPages = data.pages || 1;
+        state.auditTotal = data.total || 0;
         if (!els.auditTbody) return;
+        // Records were removed since the last load: land on the last page instead of an empty one.
+        if (!logs.length && state.auditTotal > 0 && state.auditPage > state.auditPages) {
+          state.auditPage = state.auditPages;
+          return loadAuditLog();
+        }
+        renderPager(els.auditPager, els.auditPagerInfo, els.auditPagerPrev, els.auditPagerNext,
+          state.auditPage, state.auditPages, state.auditTotal, 'records');
         if (!logs.length) {
           els.auditTbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--text-muted); padding: 24px;">' + escapeHtml(t('No audit records yet.')) + '</td></tr>';
           return;
         }
         var html = '';
         logs.forEach(function (l) {
+          var targetRaw = l.target || '';
+          var targetDisplay = targetRaw;
+          var MAX_TARGET_CHARS = 20;
+          if (targetDisplay.length > MAX_TARGET_CHARS) {
+            targetDisplay = targetDisplay.substring(0, MAX_TARGET_CHARS) + '…';
+          }
+          var targetCell = targetRaw
+            ? '<strong class="audit-target" title="' + escapeHtml(targetRaw) + '" style="color: #fff;">' + escapeHtml(targetDisplay) + '</strong>'
+            : '—';
+
           html += '<tr>' +
             '<td style="color: var(--text-muted); font-size: 12px;">' + formatDate(l.created_utc) + '</td>' +
             '<td><strong style="color: var(--gold);">' + escapeHtml(l.admin_user) + '</strong></td>' +
             '<td><span class="badge badge-admin">' + escapeHtml(l.action) + '</span></td>' +
-            '<td>' + (l.target ? '<strong style="color: #fff;">' + escapeHtml(l.target) + '</strong>' : '—') + '</td>' +
+            '<td>' + targetCell + '</td>' +
             '<td style="color: var(--text-muted);">' + escapeHtml(l.details) + '</td>' +
           '</tr>';
         });
@@ -1230,6 +1359,12 @@
       .catch(function (err) {
         showToast(t('Error loading records: {message}', { message: err.message }), 'error');
       });
+  }
+
+  function goToAuditPage(page) {
+    if (page < 1 || page > state.auditPages || page === state.auditPage) return;
+    state.auditPage = page;
+    loadAuditLog();
   }
 
   // --- Economy Log (read-only) ---
@@ -1817,6 +1952,7 @@
 
   // --- Tabs Switching ---
   function switchTab(tabId) {
+    var previousTab = state.activeTab;
     state.activeTab = tabId;
     document.querySelectorAll('.tab-btn').forEach(function (b) {
       b.classList.toggle('active', b.getAttribute('data-tab') === tabId);
@@ -1832,6 +1968,8 @@
     if (els.tabViewGiftCodes) els.tabViewGiftCodes.hidden = (tabId !== 'giftcodes');
 
     if (tabId === 'audit') {
+      // Entering the tab starts on the newest page; a language reload of the open tab keeps its page.
+      if (previousTab !== 'audit') state.auditPage = 1;
       loadAuditLog();
     } else if (tabId === 'economy') {
       loadEconomy();
@@ -1854,7 +1992,17 @@
 
   // --- Event Listeners Setup ---
   function setupEventListeners() {
-    if (els.loginForm) els.loginForm.addEventListener('submit', handleLogin);
+    if (els.loginForm) {
+      els.loginForm.addEventListener('submit', handleLogin);
+      els.loginForm.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') {
+          if (e.repeat || isLoginSubmitting || loginLockoutTimer) {
+            e.preventDefault();
+            return false;
+          }
+        }
+      });
+    }
     if (els.btnLogout) els.btnLogout.addEventListener('click', handleLogout);
 
     document.querySelectorAll('.lang-btn').forEach(function (btn) {
@@ -1937,6 +2085,18 @@
         state.guildQuery = this.value.trim().toLowerCase();
         state.guildsPage = 1;
         guildSearchTimeout = setTimeout(loadGuilds, 250);
+      });
+    }
+
+    if (els.auditPagerPrev) {
+      els.auditPagerPrev.addEventListener('click', function () {
+        goToAuditPage(state.auditPage - 1);
+      });
+    }
+
+    if (els.auditPagerNext) {
+      els.auditPagerNext.addEventListener('click', function () {
+        goToAuditPage(state.auditPage + 1);
       });
     }
 
