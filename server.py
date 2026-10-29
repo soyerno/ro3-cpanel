@@ -372,6 +372,10 @@ LOGIN_WINDOW_SECONDS = _positive_int_config("login_window_minutes", 15) * 60
 LOGIN_THROTTLE = LoginThrottle(max_failures=LOGIN_MAX_FAILURES, window_seconds=LOGIN_WINDOW_SECONDS)
 
 # RO Class & Map Dictionaries
+# Only ids with an upstream source are verified: careers 1310, 1400, 2400, 4400 and 6100 (aethai/ro3emu-server
+# tests/Ro3Emu.Tests CareerSpecialTests.cs, CombatTableRulesTests.cs) and the scenes cited below. Every other entry
+# is UNVERIFIED: the names live in the game client's localization data, not in the server repository (issue #16).
+# Operators can correct or extend any of them with `names_file` (docs/guide/names.md).
 CAREER_MAP = {
     1000: 'Novice',
     1100: 'Swordman',
@@ -407,6 +411,7 @@ CAREER_MAP = {
 }
 
 SCENE_MAP = {
+    # Town and field scenes below (ids 10100-10800) are UNVERIFIED, except 10101 (see its source).
     10100: 'Prontera',
     10101: 'Izlude',         # tests/Ro3Emu.Tests/DungeonTests.Return.cs:534
     10102: 'Prontera West',

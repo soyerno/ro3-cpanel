@@ -17,6 +17,17 @@ The RO3Emu config tables (`data/config/JobConfig.json`, `data/config/MapConfig.j
 `_iName` fields are localization string ids, resolved by the client's localization data. The panel does not read the
 client data. Use `names_file` to add the names your server needs.
 
+## Verification status
+
+Not every built-in name has an upstream source, because the names live in the game client's localization data and not
+in the RO3Emu server repository.
+
+- **Verified** (cited in `server.py`): careers `1310` Paladin, `1400` Lord Knight, `2400` Warlock, `4400` High Priest
+  and `6100` Merchant (from RO3Emu's tests); scene `10101` Izlude; and the story/tutorial dungeon scenes listed in
+  `docs/systems/dungeon-inventory.md`.
+- **Unverified**: every other built-in career (for example `1410` Royal Guard) and the town/field scenes `10100` to
+  `10800`. They are best-effort names; correct them with `names_file` if your server shows something else.
+
 ## `names_file`
 
 Set `names_file` in `config.json` to the path of a JSON file. Its entries override and extend the built-in names when
