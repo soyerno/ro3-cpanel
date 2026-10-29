@@ -380,6 +380,15 @@ class TestLoginEndpointThrottling(unittest.TestCase):
         self.assertGreater(body.get("retry_after"), 0)
         self.assertIn("Temporary ban active", body["error"])
 
+    def test_rapid_empty_requests_trigger_lockout(self):
+        for _ in range(self.MAX_FAILURES - 1):
+            status, _, _ = self.login("", "")
+            self.assertEqual(status, 400)
+        status, headers, body = self.login("", "")
+        self.assertEqual(status, 429)
+        self.assertTrue(body.get("temporary_ban"))
+        self.assertGreater(int(headers["Retry-After"]), 0)
+
 
 if __name__ == "__main__":
     unittest.main()

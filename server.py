@@ -2032,26 +2032,77 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
     # --- Handlers ---
 
     def handle_login(self, client_ip):
+        throttle_ip = "ip:" + client_ip
+        retry_after = LOGIN_THROTTLE.retry_after(throttle_ip)
+        if retry_after > 0:
+            log_audit("system", "login_throttled", "flood", f"Retry in {retry_after}s", client_ip)
+            return self.send_json(
+                429,
+                {
+                    "error": tr("Too many failed attempts. Temporary ban active. Try again in {seconds} seconds.", seconds=retry_after),
+                    "retry_after": retry_after,
+                    "temporary_ban": True
+                },
+                {"Retry-After": str(retry_after)}
+            )
+
         body = self.read_json_body()
         if not body:
+            LOGIN_THROTTLE.record_failure(throttle_ip)
             return self.send_json(400, {"error": tr("Invalid request body")})
 
         username = (body.get("username") or body.get("identity") or "").strip()
         password = body.get("password") or body.get("credential") or ""
 
         if not username or not password:
+            LOGIN_THROTTLE.record_failure(throttle_ip)
+            post_wait = LOGIN_THROTTLE.retry_after(throttle_ip)
+            if post_wait > 0:
+                return self.send_json(
+                    429,
+                    {
+                        "error": tr("Too many failed attempts. Temporary ban active. Try again in {seconds} seconds.", seconds=post_wait),
+                        "retry_after": post_wait,
+                        "temporary_ban": True
+                    },
+                    {"Retry-After": str(post_wait)}
+                )
             return self.send_json(400, {"error": tr("Enter a username and password")})
 
         if len(username) > 32:
+            LOGIN_THROTTLE.record_failure(throttle_ip)
+            post_wait = LOGIN_THROTTLE.retry_after(throttle_ip)
+            if post_wait > 0:
+                return self.send_json(
+                    429,
+                    {
+                        "error": tr("Too many failed attempts. Temporary ban active. Try again in {seconds} seconds.", seconds=post_wait),
+                        "retry_after": post_wait,
+                        "temporary_ban": True
+                    },
+                    {"Retry-After": str(post_wait)}
+                )
             return self.send_json(400, {"error": tr("The username must not exceed 32 characters")})
 
         if len(password) > 128:
+            LOGIN_THROTTLE.record_failure(throttle_ip)
+            post_wait = LOGIN_THROTTLE.retry_after(throttle_ip)
+            if post_wait > 0:
+                return self.send_json(
+                    429,
+                    {
+                        "error": tr("Too many failed attempts. Temporary ban active. Try again in {seconds} seconds.", seconds=post_wait),
+                        "retry_after": post_wait,
+                        "temporary_ban": True
+                    },
+                    {"Retry-After": str(post_wait)}
+                )
             return self.send_json(400, {"error": tr("The password must not exceed 128 characters")})
 
         # Failures are tracked per IP and per username. X-Forwarded-For can be spoofed to
         # rotate the IP key, so the username key is what stops a distributed guess on one
         # admin. Tradeoff (accepted): anyone can lock an admin out for the window.
-        throttle_keys = ("ip:" + client_ip, "user:" + username.lower())
+        throttle_keys = (throttle_ip, "user:" + username.lower())
         # reserve() counts this attempt as a failure up front; success resets it below.
         retry_after = LOGIN_THROTTLE.reserve(*throttle_keys)
         if retry_after > 0:

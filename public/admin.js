@@ -421,6 +421,7 @@
   }
 
   var loginLockoutTimer = null;
+  var isLoginSubmitting = false;
 
   function startLoginLockout(seconds) {
     if (loginLockoutTimer) clearInterval(loginLockoutTimer);
@@ -450,8 +451,8 @@
   }
 
   function handleLogin(e) {
-    e.preventDefault();
-    if (loginLockoutTimer) return;
+    if (e && e.preventDefault) e.preventDefault();
+    if (isLoginSubmitting || loginLockoutTimer) return;
     var user = (els.loginUser.value || '').trim();
     var pass = els.loginPass.value || '';
 
@@ -470,6 +471,7 @@
       return;
     }
 
+    isLoginSubmitting = true;
     els.loginSubmit.disabled = true;
     els.loginSubmit.textContent = t('Verifying...');
     if (els.loginError) els.loginError.hidden = true;
@@ -495,6 +497,7 @@
         }
       })
       .finally(function () {
+        isLoginSubmitting = false;
         if (!loginLockoutTimer) {
           els.loginSubmit.disabled = false;
           els.loginSubmit.textContent = t('Access Panel');
@@ -1911,7 +1914,17 @@
 
   // --- Event Listeners Setup ---
   function setupEventListeners() {
-    if (els.loginForm) els.loginForm.addEventListener('submit', handleLogin);
+    if (els.loginForm) {
+      els.loginForm.addEventListener('submit', handleLogin);
+      els.loginForm.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') {
+          if (e.repeat || isLoginSubmitting || loginLockoutTimer) {
+            e.preventDefault();
+            return false;
+          }
+        }
+      });
+    }
     if (els.btnLogout) els.btnLogout.addEventListener('click', handleLogout);
 
     document.querySelectorAll('.lang-btn').forEach(function (btn) {
