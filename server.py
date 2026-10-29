@@ -231,6 +231,27 @@ ES_MESSAGES = {
     "Suspension lifted by admin": "Suspensión levantada por admin",
     "Account deleted by admin": "Cuenta eliminada por admin",
     "Rule violation / Admin action": "Violación de normas / Acción de administrador",
+    "Gift code created": "Código de regalo creado",
+    "Gift code disabled by admin": "Código de regalo desactivado por admin",
+    "Gift code enabled by admin": "Código de regalo activado por admin",
+    # Gift codes
+    "Update RO3Emu: this server does not support gift codes":
+        "Actualice RO3Emu: este servidor no admite códigos de regalo",
+    "The code must be between 1 and 64 characters": "El código debe tener entre 1 y 64 caracteres",
+    "Rewards must be a non-empty list of items with a positive item ID and count":
+        "Las recompensas deben ser una lista no vacía de ítems con ID y cantidad positivos",
+    "Max uses must be a whole number, 0 or more": "Los usos máximos deben ser un número entero, 0 o más",
+    "Uses per account must be a whole number, 1 or more": "Los usos por cuenta deben ser un número entero, 1 o más",
+    "Start and expiry must be unix timestamps in seconds":
+        "El inicio y el vencimiento deben ser marcas de tiempo unix en segundos",
+    "The expiry must be after the start": "El vencimiento debe ser posterior al inicio",
+    "The note must be text of up to 500 characters": "La nota debe ser texto de hasta 500 caracteres",
+    "The gift code '{code}' already exists": "El código de regalo '{code}' ya existe",
+    "The gift code '{code}' does not exist": "El código de regalo '{code}' no existe",
+    "Gift code required": "Código de regalo requerido",
+    "Gift code '{code}' created successfully.": "Código de regalo '{code}' creado exitosamente.",
+    "Gift code '{code}' disabled.": "Código de regalo '{code}' desactivado.",
+    "Gift code '{code}' enabled.": "Código de regalo '{code}' activado.",
 }
 
 
@@ -1665,6 +1686,106 @@ def _audit_text(value, limit=200):
     text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False, default=str)
     return "".join(c if c.isprintable() else repr(c)[1:-1] for c in text)[:limit]
 
+# --- Gift codes (RO3Emu gift_code table) ---
+# Contract: aethai/ro3emu-server docs/systems/gift-codes.md. The server creates gift_code and
+# gift_code_redemption; the panel only writes gift_code (never creates or alters either table) and
+# only reads the redemption table to count uses.
+GIFT_CODE_MAX_LEN = 64
+GIFT_NOTE_MAX_LEN = 500
+
+
+def gift_codes_unsupported():
+    return tr("Update RO3Emu: this server does not support gift codes")
+
+
+def _table_exists(con, name):
+    row = con.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (name,)).fetchone()
+    return row is not None
+
+
+def _is_whole_number(value):
+    # bool is an int subclass; values beyond SQLite's signed 64-bit INTEGER would raise OverflowError on insert.
+    return isinstance(value, int) and not isinstance(value, bool) and -(2 ** 63) <= value < 2 ** 63
+
+
+def _optional_int(value):
+    return value if _is_whole_number(value) else None
+
+
+def parse_gift_items(raw):
+    """Rewards of a stored code as [{"entry", "count", "name"}]; a malformed row yields no rewards."""
+    try:
+        pairs = json.loads(raw)
+    except (TypeError, ValueError):
+        return []
+    if not isinstance(pairs, list):
+        return []
+    names = load_item_names() or {}
+    items = []
+    for pair in pairs:
+        if isinstance(pair, list) and len(pair) == 2 and _is_whole_number(pair[0]) and _is_whole_number(pair[1]):
+            items.append({"entry": pair[0], "count": pair[1], "name": names.get(str(pair[0]))})
+    return items
+
+
+def gift_code_status(disabled, starts_utc, expires_utc, max_uses, uses, now):
+    if disabled:
+        return "disabled"
+    if expires_utc is not None and now >= expires_utc:
+        return "expired"
+    if starts_utc is not None and now < starts_utc:
+        return "scheduled"
+    if max_uses and max_uses > 0 and uses >= max_uses:
+        return "exhausted"
+    return "active"
+
+
+def validate_gift_code_body(body):
+    """Returns (fields, None) for a valid create request or (None, error message)."""
+    code = body.get("code")
+    if not isinstance(code, str) or not (1 <= len(code.strip()) <= GIFT_CODE_MAX_LEN) or not code.strip().isprintable():
+        return None, tr("The code must be between 1 and 64 characters")
+    code = code.strip()
+
+    raw_items = body.get("items")
+    items_error = tr("Rewards must be a non-empty list of items with a positive item ID and count")
+    if not isinstance(raw_items, list) or not raw_items:
+        return None, items_error
+    pairs = []
+    for item in raw_items:
+        if not isinstance(item, dict):
+            return None, items_error
+        entry, count = item.get("entry"), item.get("count")
+        if not _is_whole_number(entry) or not _is_whole_number(count) or entry < 1 or count < 1:
+            return None, items_error
+        pairs.append([entry, count])
+
+    max_uses = body.get("max_uses", 0)
+    if not _is_whole_number(max_uses) or max_uses < 0:
+        return None, tr("Max uses must be a whole number, 0 or more")
+    per_account = body.get("per_account", 1)
+    if not _is_whole_number(per_account) or per_account < 1:
+        return None, tr("Uses per account must be a whole number, 1 or more")
+
+    starts_utc, expires_utc = body.get("starts_utc"), body.get("expires_utc")
+    for stamp in (starts_utc, expires_utc):
+        if stamp is not None and (not _is_whole_number(stamp) or stamp < 0):
+            return None, tr("Start and expiry must be unix timestamps in seconds")
+    if starts_utc is not None and expires_utc is not None and expires_utc <= starts_utc:
+        return None, tr("The expiry must be after the start")
+
+    note = body.get("note")
+    if note is not None:
+        if not isinstance(note, str) or len(note.strip()) > GIFT_NOTE_MAX_LEN:
+            return None, tr("The note must be text of up to 500 characters")
+        note = note.strip() or None
+
+    return {
+        "code": code, "items": json.dumps(pairs, separators=(",", ":")), "max_uses": max_uses,
+        "per_account": per_account, "starts_utc": starts_utc, "expires_utc": expires_utc, "note": note,
+    }, None
+
+
 class CPanelRequestHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         # Concise server log
@@ -1826,6 +1947,10 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
         if raw_path == '/api/admin/economy':
             return self.handle_economy(params)
 
+        # 10b. Gift codes (RO3Emu's gift_code table; the panel creates and toggles codes)
+        if raw_path == '/api/admin/gift-codes':
+            return self.handle_gift_codes_list()
+
         # 11. Rankings (read-only)
         if raw_path == '/api/admin/rankings':
             return self.handle_rankings(params)
@@ -1886,6 +2011,12 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
             return self.handle_save_notes(session['user'], client_ip)
         if raw_path == '/api/admin/gm':
             return self.handle_gm(session['user'], client_ip)
+        if raw_path == '/api/admin/gift-codes':
+            return self.handle_gift_code_create(session['user'], client_ip)
+        if raw_path == '/api/admin/gift-codes/disable':
+            return self.handle_gift_code_toggle(session['user'], client_ip, disabled=True)
+        if raw_path == '/api/admin/gift-codes/enable':
+            return self.handle_gift_code_toggle(session['user'], client_ip, disabled=False)
 
         self.send_json(404, {"error": tr("Endpoint not found")})
 
@@ -2574,6 +2705,93 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
         for entry in logs:
             entry["details"] = localize_audit_details(entry.get("details"))
         return self.send_json(200, {"logs": logs})
+
+    def handle_gift_codes_list(self):
+        with get_db() as con:
+            if not _table_exists(con, "gift_code"):
+                return self.send_json(200, {"available": False, "reason": gift_codes_unsupported()})
+            rows = con.execute(
+                "SELECT code, items, max_uses, per_account, starts_utc, expires_utc, disabled, created_by,"
+                " created_utc, note FROM gift_code ORDER BY created_utc DESC, code"
+            ).fetchall()
+            uses = {}
+            if _table_exists(con, "gift_code_redemption"):
+                for r in con.execute("SELECT code, COUNT(*) AS n FROM gift_code_redemption GROUP BY code"):
+                    key = str(r["code"]).lower()
+                    uses[key] = uses.get(key, 0) + r["n"]
+        now = int(time.time())
+        codes = []
+        for r in rows:
+            used = uses.get(str(r["code"]).lower(), 0)
+            max_uses = _optional_int(r["max_uses"]) or 0
+            starts_utc, expires_utc = _optional_int(r["starts_utc"]), _optional_int(r["expires_utc"])
+            disabled = bool(r["disabled"])
+            codes.append({
+                "code": r["code"],
+                "items": parse_gift_items(r["items"]),
+                "max_uses": max_uses,
+                "per_account": _optional_int(r["per_account"]) or 1,
+                "starts_utc": starts_utc,
+                "expires_utc": expires_utc,
+                "disabled": disabled,
+                "status": gift_code_status(disabled, starts_utc, expires_utc, max_uses, used, now),
+                "uses": used,
+                "created_by": r["created_by"],
+                "created_utc": _optional_int(r["created_utc"]),
+                "note": r["note"],
+            })
+        return self.send_json(200, {"available": True, "codes": codes})
+
+    def handle_gift_code_create(self, admin_user, client_ip):
+        body = self.read_json_body()
+        if not body or not isinstance(body, dict):
+            return self.send_json(400, {"error": tr("Invalid request body")})
+        fields, error = validate_gift_code_body(body)
+        if error:
+            return self.send_json(400, {"error": error})
+        code = fields["code"]
+        with get_db() as con:
+            if not _table_exists(con, "gift_code"):
+                return self.send_json(503, {"error": gift_codes_unsupported()})
+            try:
+                con.execute(
+                    "INSERT INTO gift_code (code, items, max_uses, per_account, starts_utc, expires_utc, disabled,"
+                    " created_by, created_utc, note) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?)",
+                    (code, fields["items"], fields["max_uses"], fields["per_account"], fields["starts_utc"],
+                     fields["expires_utc"], admin_user, int(time.time()), fields["note"]),
+                )
+            except sqlite3.IntegrityError:
+                return self.send_json(409, {"error": tr("The gift code '{code}' already exists", code=code)})
+        log_audit(admin_user, "gift_code_create", code, "Gift code created", client_ip)
+        return self.send_json(200, {
+            "success": True,
+            "code": code,
+            "message": tr("Gift code '{code}' created successfully.", code=code),
+        })
+
+    def handle_gift_code_toggle(self, admin_user, client_ip, disabled):
+        body = self.read_json_body()
+        if not body or not isinstance(body, dict):
+            return self.send_json(400, {"error": tr("Invalid request body")})
+        code = body.get("code")
+        if not isinstance(code, str) or not code.strip():
+            return self.send_json(400, {"error": tr("Gift code required")})
+        code = code.strip()
+        with get_db() as con:
+            if not _table_exists(con, "gift_code"):
+                return self.send_json(503, {"error": gift_codes_unsupported()})
+            row = con.execute("SELECT code FROM gift_code WHERE code = ?", (code,)).fetchone()
+            if not row:
+                return self.send_json(404, {"error": tr("The gift code '{code}' does not exist", code=code)})
+            stored = row["code"]
+            con.execute("UPDATE gift_code SET disabled = ? WHERE code = ?", (1 if disabled else 0, stored))
+        if disabled:
+            log_audit(admin_user, "gift_code_disable", stored, "Gift code disabled by admin", client_ip)
+            message = tr("Gift code '{code}' disabled.", code=stored)
+        else:
+            log_audit(admin_user, "gift_code_enable", stored, "Gift code enabled by admin", client_ip)
+            message = tr("Gift code '{code}' enabled.", code=stored)
+        return self.send_json(200, {"success": True, "code": stored, "message": message})
 
     def handle_economy(self, params):
         account = params.get('account', [''])[0].strip()

@@ -149,6 +149,15 @@
     auctionsPagerNext: document.getElementById('auctions-pager-next'),
     auctionsPagerInfo: document.getElementById('auctions-pager-info'),
 
+    tabViewGiftCodes: document.getElementById('tab-view-giftcodes'),
+    giftCodesTbody: document.getElementById('giftcodes-tbody'),
+    giftCodesTableWrap: document.getElementById('giftcodes-table-wrap'),
+    giftCodesUnavailable: document.getElementById('giftcodes-unavailable'),
+    btnNewGiftCode: document.getElementById('btn-new-giftcode'),
+    modalGiftCode: document.getElementById('modal-giftcode'),
+    giftCodeItems: document.getElementById('giftcode-items'),
+    giftCodeError: document.getElementById('giftcode-error'),
+
     // Modals
     modalDetail: document.getElementById('modal-detail'),
     modalPassword: document.getElementById('modal-password'),
@@ -1572,6 +1581,232 @@
     loadAuctions();
   }
 
+  // --- Gift Codes ---
+  // Rewards are redeemed in the game client; the panel only creates, lists and enables/disables codes.
+  function giftCodeStatusBadge(status) {
+    switch (status) {
+      case 'active':
+        return '<span class="badge badge-active">' + escapeHtml(t('Active')) + '</span>';
+      case 'scheduled':
+        return '<span class="badge badge-admin">' + escapeHtml(t('Scheduled')) + '</span>';
+      case 'disabled':
+        return '<span class="badge badge-banned">' + escapeHtml(t('Disabled')) + '</span>';
+      case 'expired':
+        return '<span class="badge badge-banned">' + escapeHtml(t('Expired')) + '</span>';
+      case 'exhausted':
+        return '<span class="badge badge-banned">' + escapeHtml(t('Exhausted')) + '</span>';
+      default:
+        return '<span class="badge badge-admin">' + escapeHtml(String(status || '')) + '</span>';
+    }
+  }
+
+  function giftCodeRewardsHtml(items) {
+    if (!items || !items.length) return '—';
+    return items.map(function (item) {
+      var label = item.name ? escapeHtml(item.name) : escapeHtml(String(item.entry));
+      return label + ' x' + escapeHtml(String(item.count));
+    }).join(', ');
+  }
+
+  // Unix seconds from the API, shown in the active locale; "—" when unset.
+  function giftCodeDate(seconds) {
+    if (seconds === null || seconds === undefined) return '—';
+    return escapeHtml(formatDate(seconds * 1000));
+  }
+
+  function renderGiftCodesTable(codes) {
+    if (!els.giftCodesTbody) return;
+    if (!codes.length) {
+      els.giftCodesTbody.innerHTML = emptyRow(10, t('No gift codes yet.'));
+      return;
+    }
+    var html = '';
+    codes.forEach(function (c) {
+      var limit = c.max_uses > 0 ? formatNumber(c.max_uses) : t('unlimited');
+      var isDisabled = c.status === 'disabled' || c.disabled === true;
+      var toggleLabel = isDisabled ? t('Enable') : t('Disable');
+      var toggleClass = isDisabled ? 'btn-secondary' : 'btn-danger';
+      html += '<tr>' +
+        '<td><span class="giftcode-code">' + escapeHtml(c.code) + '</span></td>' +
+        '<td class="giftcode-rewards">' + giftCodeRewardsHtml(c.items) + '</td>' +
+        '<td>' + escapeHtml(formatNumber(c.uses) + ' / ' + limit) + '</td>' +
+        '<td>' + cellValue(c.per_account) + '</td>' +
+        '<td>' + giftCodeDate(c.starts_utc) + '</td>' +
+        '<td>' + giftCodeDate(c.expires_utc) + '</td>' +
+        '<td>' + giftCodeStatusBadge(c.status) + '</td>' +
+        '<td>' + (c.created_by ? escapeHtml(c.created_by) : '—') + '</td>' +
+        '<td>' + (c.note ? escapeHtml(c.note) : '—') + '</td>' +
+        '<td><button type="button" class="btn ' + toggleClass + ' btn-sm btn-giftcode-toggle" data-code="' + escapeHtml(c.code) + '" data-action="' + (isDisabled ? 'enable' : 'disable') + '">' + escapeHtml(toggleLabel) + '</button></td>' +
+      '</tr>';
+    });
+    els.giftCodesTbody.innerHTML = html;
+  }
+
+  function loadGiftCodes() {
+    apiFetch('/api/admin/gift-codes')
+      .then(function (data) {
+        var unavailable = data.available === false;
+        if (els.giftCodesUnavailable) {
+          els.giftCodesUnavailable.hidden = !unavailable;
+          els.giftCodesUnavailable.textContent = unavailable ? (data.reason || '') : '';
+        }
+        if (els.giftCodesTableWrap) els.giftCodesTableWrap.hidden = unavailable;
+        if (els.btnNewGiftCode) els.btnNewGiftCode.hidden = unavailable;
+        if (unavailable) return;
+        renderGiftCodesTable(data.codes || []);
+      })
+      .catch(function (err) {
+        if (els.giftCodesTbody) els.giftCodesTbody.innerHTML = emptyRow(10, t('Error loading gift codes: {message}', { message: err.message }));
+        showToast(t('Error loading gift codes: {message}', { message: err.message }), 'error');
+      });
+  }
+
+  function handleGiftCodeToggle(code, action) {
+    var path = action === 'enable' ? '/enable' : '/disable';
+    apiFetch('/api/admin/gift-codes' + path, {
+      method: 'POST',
+      body: { code: code }
+    })
+      .then(function (data) {
+        showToast(data.message, 'success');
+        loadGiftCodes();
+      })
+      .catch(function (err) {
+        showToast(err.message, 'error');
+        loadGiftCodes();
+      });
+  }
+
+  function setGiftCodeError(message) {
+    if (!els.giftCodeError) return;
+    els.giftCodeError.hidden = !message;
+    els.giftCodeError.textContent = message || '';
+  }
+
+  function updateGiftCodeRemoveButtons() {
+    if (!els.giftCodeItems) return;
+    var rows = els.giftCodeItems.querySelectorAll('.giftcode-item-row');
+    rows.forEach(function (row) {
+      row.querySelector('.btn-giftcode-remove-item').disabled = rows.length <= 1;
+    });
+  }
+
+  function addGiftCodeItemRow() {
+    if (!els.giftCodeItems) return;
+    var row = document.createElement('div');
+    row.className = 'giftcode-item-row';
+    row.innerHTML =
+      '<input type="number" class="form-input giftcode-item-entry" min="1" step="1" inputmode="numeric" placeholder="Item ID" data-i18n-placeholder="Item ID" aria-label="Item ID" data-i18n-aria-label="Item ID">' +
+      '<input type="number" class="form-input giftcode-item-count" min="1" step="1" value="1" inputmode="numeric" placeholder="Quantity" data-i18n-placeholder="Quantity" aria-label="Quantity" data-i18n-aria-label="Quantity">' +
+      '<button type="button" class="btn btn-secondary btn-sm btn-giftcode-remove-item" title="Remove reward" data-i18n-title="Remove reward" aria-label="Remove reward" data-i18n-aria-label="Remove reward">&times;</button>';
+    els.giftCodeItems.appendChild(row);
+    applyI18n(row);
+    updateGiftCodeRemoveButtons();
+  }
+
+  function showCreateGiftCode() {
+    document.getElementById('giftcode-code').value = '';
+    document.getElementById('giftcode-max-uses').value = '0';
+    document.getElementById('giftcode-per-account').value = '1';
+    document.getElementById('giftcode-starts').value = '';
+    document.getElementById('giftcode-expires').value = '';
+    document.getElementById('giftcode-note').value = '';
+    els.giftCodeItems.innerHTML = '';
+    addGiftCodeItemRow();
+    setGiftCodeError('');
+    openModal(els.modalGiftCode);
+  }
+
+  // Whole non-negative integer from a form field, or null when it is not one.
+  function parseWholeNumber(value) {
+    var text = String(value === null || value === undefined ? '' : value).trim();
+    return /^\d{1,15}$/.test(text) ? Number(text) : null;
+  }
+
+  // datetime-local gives local time without a zone; the API wants unix seconds. Empty means no limit.
+  function datetimeLocalToUnix(value) {
+    if (!value) return null;
+    var date = new Date(value);
+    return isNaN(date.getTime()) ? NaN : Math.floor(date.getTime() / 1000);
+  }
+
+  function handleCreateGiftCode(e) {
+    e.preventDefault();
+    var code = (document.getElementById('giftcode-code').value || '').trim();
+    if (code.length < 1 || code.length > 64) {
+      setGiftCodeError(t('The code must be between 1 and 64 characters.'));
+      return;
+    }
+
+    var items = [];
+    var itemsValid = true;
+    els.giftCodeItems.querySelectorAll('.giftcode-item-row').forEach(function (row) {
+      var entry = parseWholeNumber(row.querySelector('.giftcode-item-entry').value);
+      var count = parseWholeNumber(row.querySelector('.giftcode-item-count').value);
+      if (!entry || !count) {
+        itemsValid = false;
+        return;
+      }
+      items.push({ entry: entry, count: count });
+    });
+    if (!itemsValid || !items.length) {
+      setGiftCodeError(t('Every reward needs a positive item ID and a positive quantity.'));
+      return;
+    }
+
+    var maxUses = parseWholeNumber(document.getElementById('giftcode-max-uses').value);
+    if (maxUses === null) {
+      setGiftCodeError(t('Max uses must be 0 (unlimited) or a positive whole number.'));
+      return;
+    }
+    var perAccount = parseWholeNumber(document.getElementById('giftcode-per-account').value);
+    if (!perAccount) {
+      setGiftCodeError(t('Uses per account must be a positive whole number.'));
+      return;
+    }
+
+    var starts = datetimeLocalToUnix(document.getElementById('giftcode-starts').value);
+    var expires = datetimeLocalToUnix(document.getElementById('giftcode-expires').value);
+    if (Number.isNaN(starts) || Number.isNaN(expires)) {
+      setGiftCodeError(t('Enter valid start and expiry dates.'));
+      return;
+    }
+    if (starts !== null && expires !== null && expires <= starts) {
+      setGiftCodeError(t('The expiry must be later than the start.'));
+      return;
+    }
+
+    var note = (document.getElementById('giftcode-note').value || '').trim();
+    setGiftCodeError('');
+
+    var submit = document.getElementById('btn-giftcode-submit');
+    if (submit) submit.disabled = true;
+    apiFetch('/api/admin/gift-codes', {
+      method: 'POST',
+      body: {
+        code: code,
+        items: items,
+        max_uses: maxUses,
+        per_account: perAccount,
+        starts_utc: starts,
+        expires_utc: expires,
+        note: note || null
+      }
+    })
+      .then(function (data) {
+        showToast(data.message, 'success');
+        closeModal(els.modalGiftCode);
+        loadGiftCodes();
+      })
+      .catch(function (err) {
+        setGiftCodeError(err.message);
+        showToast(err.message, 'error');
+      })
+      .then(function () {
+        if (submit) submit.disabled = false;
+      });
+  }
+
   // --- Tabs Switching ---
   function switchTab(tabId) {
     state.activeTab = tabId;
@@ -1586,6 +1821,7 @@
     if (els.tabViewRankings) els.tabViewRankings.hidden = (tabId !== 'rankings');
     if (els.tabViewGuilds) els.tabViewGuilds.hidden = (tabId !== 'guilds');
     if (els.tabViewAuctions) els.tabViewAuctions.hidden = (tabId !== 'auctions');
+    if (els.tabViewGiftCodes) els.tabViewGiftCodes.hidden = (tabId !== 'giftcodes');
 
     if (tabId === 'audit') {
       loadAuditLog();
@@ -1597,6 +1833,8 @@
       loadGuilds();
     } else if (tabId === 'auctions') {
       loadAuctions();
+    } else if (tabId === 'giftcodes') {
+      loadGiftCodes();
     } else if (tabId === 'dashboard') {
       loadStats();
       loadServerMetrics();
@@ -1732,6 +1970,41 @@
     if (els.auctionsPagerNext) {
       els.auctionsPagerNext.addEventListener('click', function () {
         goToAuctionsPage(state.auctionsPage + 1);
+      });
+    }
+
+    var btnGiftCodesRefresh = document.getElementById('btn-giftcodes-refresh');
+    if (btnGiftCodesRefresh) {
+      btnGiftCodesRefresh.addEventListener('click', function () {
+        loadGiftCodes();
+        showToast(t('Data refreshed'), 'info');
+      });
+    }
+    if (els.btnNewGiftCode) els.btnNewGiftCode.addEventListener('click', showCreateGiftCode);
+    var btnGiftCodeAddItem = document.getElementById('btn-giftcode-add-item');
+    if (btnGiftCodeAddItem) btnGiftCodeAddItem.addEventListener('click', addGiftCodeItemRow);
+    if (els.giftCodeItems) {
+      els.giftCodeItems.addEventListener('click', function (e) {
+        var target = e.target.closest('button.btn-giftcode-remove-item');
+        if (!target) return;
+        var row = target.closest('.giftcode-item-row');
+        if (row && els.giftCodeItems.querySelectorAll('.giftcode-item-row').length > 1) {
+          row.remove();
+          updateGiftCodeRemoveButtons();
+        }
+      });
+    }
+    var formGiftCode = document.getElementById('form-giftcode');
+    if (formGiftCode) formGiftCode.addEventListener('submit', handleCreateGiftCode);
+    if (els.giftCodesTbody) {
+      els.giftCodesTbody.addEventListener('click', function (e) {
+        var target = e.target.closest('button.btn-giftcode-toggle');
+        if (!target) return;
+        var code = target.getAttribute('data-code');
+        var action = target.getAttribute('data-action');
+        if (!code || !action) return;
+        target.disabled = true;
+        handleGiftCodeToggle(code, action);
       });
     }
 
