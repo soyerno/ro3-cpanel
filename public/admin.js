@@ -61,13 +61,30 @@
       total: 0,
       request: 0
     },
-    // Shared account vault shown in the account detail modal (read-only).
+    // Account management screen (hash route #/accounts/<name>[/<tab>]).
+    accountScreen: {
+      open: false,
+      name: '',
+      tab: 'characters',
+      data: null,
+      status: 'idle',
+      request: 0,
+      notesBaseline: '',
+      listScroll: 0,
+      saving: false
+    },
+    // Shared account vault shown in the account screen's Vault tab (read-only).
     vault: {
       account: '',
       page: 1,
       pages: 1,
       loaded: false,
-      request: 0
+      request: 0,
+      status: 'idle',
+      requestedPage: 1,
+      data: null,
+      vip: null,
+      message: ''
     }
   };
 
@@ -196,11 +213,33 @@
     marketPagerNext: document.getElementById('market-pager-next'),
     marketPagerInfo: document.getElementById('market-pager-info'),
 
-    btnViewVault: document.getElementById('btn-view-vault'),
-    detailVault: document.getElementById('detail-vault'),
+    // Account management screen
+    accountScreen: document.getElementById('account-screen'),
+    accountTitle: document.getElementById('account-title'),
+    accountBreadcrumbCurrent: document.getElementById('account-breadcrumb-current'),
+    accountBadges: document.getElementById('account-badges'),
+    accountRegistered: document.getElementById('account-registered'),
+    accountSessions: document.getElementById('account-sessions'),
+    accountStatusText: document.getElementById('account-status-text'),
+    accountState: document.getElementById('account-state'),
+    accountBody: document.getElementById('account-body'),
+    accountSummary: document.getElementById('account-summary'),
+    accountNotes: document.getElementById('account-notes'),
+    accountNotesStatus: document.getElementById('account-notes-status'),
+    accountSaveNotes: document.getElementById('account-save-notes'),
+    accountTabButtons: document.querySelectorAll('.account-tab'),
+    accountCharacters: document.getElementById('account-characters'),
+    accountGmSlot: document.getElementById('account-gm-slot'),
+    accountVault: document.getElementById('account-vault-content'),
+    accountAccessText: document.getElementById('account-access-text'),
+    accountSessionsText: document.getElementById('account-sessions-text'),
+    accountBtnPassword: document.getElementById('account-btn-password'),
+    accountBtnBan: document.getElementById('account-btn-ban'),
+    accountBtnUnban: document.getElementById('account-btn-unban'),
+    accountBtnDelete: document.getElementById('account-btn-delete'),
+    accountDangerZone: document.getElementById('account-danger-zone'),
 
     // Modals
-    modalDetail: document.getElementById('modal-detail'),
     modalPassword: document.getElementById('modal-password'),
     modalCreate: document.getElementById('modal-create'),
     modalBan: document.getElementById('modal-ban'),
@@ -278,6 +317,8 @@
     if (state.authenticated) {
       updateStatsUI();
       switchTab(state.activeTab);
+      // The open account follows the language too (server labels are localized); notes in progress are kept.
+      if (isAccountScreenOpen()) loadAccountScreen(state.accountScreen.name, true);
     }
   }
 
@@ -449,11 +490,15 @@
 
     loadStats();
     loadAccounts();
+    // A deep link (#/accounts/<name>) opens its account once the session is known.
+    handleRouteChange();
   }
 
   function setUnauthenticated() {
     state.authenticated = false;
     state.adminUser = null;
+    resetAccountScreen(true);
+    renderAccountsViews();
     if (els.loginScreen) els.loginScreen.hidden = false;
     if (els.appHeader) els.appHeader.hidden = true;
     if (els.subnav) els.subnav.hidden = true;
@@ -857,7 +902,7 @@
         '<td style="color: var(--text-muted); font-size: 12px;">' + formatDate(acc.last_login) + '</td>' +
         '<td>' +
           '<div style="display: flex; gap: 6px;">' +
-            '<button class="btn btn-secondary btn-sm btn-view-detail" data-account="' + escapeHtml(acc.name) + '" title="' + escapeHtml(t('View details and characters')) + '">' + escapeHtml(t('Record')) + '</button>' +
+            '<button class="btn btn-secondary btn-sm btn-view-detail" data-account="' + escapeHtml(acc.name) + '" title="' + escapeHtml(t('Manage account, characters and security')) + '" aria-label="' + escapeHtml(t('Manage account {name}', { name: acc.name })) + '">' + escapeHtml(t('Manage')) + '</button>' +
             '<button class="btn btn-secondary btn-sm btn-change-pw" data-account="' + escapeHtml(acc.name) + '" title="' + escapeHtml(t('Change password')) + '">' + escapeHtml(t('Pass')) + '</button>' +
             (acc.is_admin ? '' : (acc.is_banned ?
               '<button class="btn btn-secondary btn-sm btn-unban" data-account="' + escapeHtml(acc.name) + '" title="' + escapeHtml(t('Remove suspension')) + '">' + escapeHtml(t('Unban')) + '</button>' :
@@ -873,81 +918,459 @@
   }
 
   // --- Modals ---
+  var modalReturnFocus = new WeakMap();
+
   function openModal(modalEl) {
     if (!modalEl) return;
+    modalReturnFocus.set(modalEl, document.activeElement);
     modalEl.hidden = false;
+    var field = modalEl.querySelector('input:not([type="hidden"]), select, textarea');
+    if (field) field.focus();
   }
 
   function closeModal(modalEl) {
     if (!modalEl) return;
     modalEl.hidden = true;
+    // Hand focus back to the control that opened the modal (a hidden control ignores the call).
+    var opener = modalReturnFocus.get(modalEl);
+    modalReturnFocus.delete(modalEl);
+    if (opener && opener.isConnected && typeof opener.focus === 'function') opener.focus();
   }
 
-  function showAccountDetail(name) {
-    apiFetch('/api/admin/accounts/' + encodeURIComponent(name))
+  // --- Account management screen (route #/accounts/<name>[/<tab>]) ---
+  var ACCOUNT_TABS = ['characters', 'vault', 'security'];
+
+  function parseAccountRoute(hash) {
+    var none = { name: null, tab: 'characters' };
+    var match = /^#\/accounts\/([^/]+)(?:\/([^/]+))?\/?$/.exec(hash || '');
+    if (!match) return none;
+    var name;
+    try {
+      name = decodeURIComponent(match[1]);
+    } catch (e) {
+      return none;
+    }
+    return { name: name, tab: ACCOUNT_TABS.indexOf(match[2]) === -1 ? 'characters' : match[2] };
+  }
+
+  function accountRouteHash(name, tab) {
+    return '#/accounts/' + encodeURIComponent(name) + (tab && tab !== 'characters' ? '/' + tab : '');
+  }
+
+  function isAccountScreenOpen() {
+    return state.accountScreen.open;
+  }
+
+  function navigateToAccount(name) {
+    var target = accountRouteHash(name);
+    if (globalThis.location.hash === target) {
+      handleRouteChange();
+      return;
+    }
+    globalThis.location.hash = accountRouteHash(name);
+  }
+
+  function goToAccountList() {
+    if (globalThis.location.hash === '#/accounts') {
+      handleRouteChange();
+      return;
+    }
+    globalThis.location.hash = '#/accounts';
+  }
+
+  function accountNotesDirty() {
+    return state.accountScreen.open && els.accountNotes.value !== state.accountScreen.notesBaseline;
+  }
+
+  function confirmDiscardNotes() {
+    if (!accountNotesDirty()) return true;
+    return confirm(t('You have unsaved notes. Leave without saving?'));
+  }
+
+  // Put the URL back when the admin keeps the account after a leave-without-saving warning.
+  function restoreAccountHash() {
+    var screen = state.accountScreen;
+    globalThis.history.replaceState(null, '', accountRouteHash(screen.name, screen.tab));
+  }
+
+  function handleRouteChange() {
+    if (!state.authenticated) return;
+    var screen = state.accountScreen;
+    var route = parseAccountRoute(globalThis.location.hash);
+    if (route.name === null) {
+      if (!screen.open) return;
+      if (!confirmDiscardNotes()) {
+        restoreAccountHash();
+        return;
+      }
+      closeAccountScreen();
+      return;
+    }
+    if (screen.open && screen.name === route.name) {
+      if (route.tab !== screen.tab) setAccountTab(route.tab, { updateUrl: false });
+      return;
+    }
+    if (screen.open && !confirmDiscardNotes()) {
+      restoreAccountHash();
+      return;
+    }
+    openAccountScreen(route.name, route.tab);
+  }
+
+  // The list and the screen share the Accounts tab: only one of them is visible at a time.
+  function renderAccountsViews() {
+    var onAccounts = state.activeTab === 'accounts';
+    var open = onAccounts && state.accountScreen.open;
+    if (els.tabViewAccounts) els.tabViewAccounts.hidden = !onAccounts || open;
+    if (els.accountScreen) els.accountScreen.hidden = !open;
+  }
+
+  function openAccountScreen(name, tab) {
+    var screen = state.accountScreen;
+    if (!screen.open) screen.listScroll = globalThis.scrollY || 0;
+    screen.open = true;
+    screen.name = name;
+    screen.data = null;
+    screen.status = 'loading';
+    screen.notesBaseline = '';
+    els.accountNotes.value = '';
+    setNotesStatus('', '');
+    resetAccountVault(name);
+    resetGmPanel();
+    renderAccountHeader(null, name);
+    if (state.activeTab === 'accounts') {
+      renderAccountsViews();
+    } else {
+      switchTab('accounts');
+    }
+    setAccountTab(tab, { updateUrl: false });
+    globalThis.scrollTo(0, 0);
+    els.accountTitle.focus({ preventScroll: true });
+    loadAccountScreen(name, false);
+  }
+
+  // Back to the list: nothing is refetched, so the filters, page and scroll position of the list survive.
+  function closeAccountScreen() {
+    var screen = state.accountScreen;
+    var name = screen.name;
+    screen.open = false;
+    screen.request += 1;
+    screen.status = 'idle';
+    screen.data = null;
+    resetAccountVault('');
+    renderAccountsViews();
+    globalThis.scrollTo(0, screen.listScroll);
+    focusAccountOpener(name);
+  }
+
+  // Leaving through another top tab or a logout: drop the screen state (and, when asked, the account URL).
+  function resetAccountScreen(keepUrl) {
+    var screen = state.accountScreen;
+    screen.open = false;
+    screen.request += 1;
+    screen.status = 'idle';
+    screen.data = null;
+    resetAccountVault('');
+    if (!keepUrl && parseAccountRoute(globalThis.location.hash).name !== null) {
+      globalThis.history.replaceState(null, '', globalThis.location.pathname + globalThis.location.search);
+    }
+  }
+
+  function focusAccountOpener(name) {
+    var target = null;
+    if (els.accountsTbody) {
+      els.accountsTbody.querySelectorAll('.btn-view-detail').forEach(function (btn) {
+        if (btn.getAttribute('data-account') === name) target = btn;
+      });
+    }
+    if (!target) target = els.searchInput;
+    if (target && typeof target.focus === 'function') target.focus({ preventScroll: true });
+  }
+
+  function handleAccountEscape(e) {
+    if (e.key !== 'Escape' || e.defaultPrevented || !state.accountScreen.open) return;
+    var active = document.activeElement;
+    var tag = active && active.tagName ? active.tagName.toUpperCase() : '';
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (active && active.isContentEditable)) return;
+    if (document.querySelector('.modal-backdrop:not([hidden])')) return;
+    goToAccountList();
+  }
+
+  function setAccountTab(tab, opts) {
+    opts = opts || {};
+    var screen = state.accountScreen;
+    if (ACCOUNT_TABS.indexOf(tab) === -1) tab = 'characters';
+    screen.tab = tab;
+    els.accountTabButtons.forEach(function (button) {
+      var active = button.getAttribute('data-account-tab') === tab;
+      button.setAttribute('aria-selected', active ? 'true' : 'false');
+      button.setAttribute('tabindex', active ? '0' : '-1');
+      var panel = document.getElementById(button.getAttribute('aria-controls'));
+      if (panel) panel.hidden = !active;
+      if (active && opts.focus) button.focus();
+    });
+    if (screen.open && opts.updateUrl !== false) {
+      globalThis.history.replaceState(null, '', accountRouteHash(screen.name, tab));
+    }
+    // The vault starts loading once its account is known; opening the tab only has to render or retry it.
+    if (tab === 'vault' && screen.data && state.vault.status === 'idle') loadAccountVault(1);
+  }
+
+  function handleAccountTabKeydown(e) {
+    var tabs = Array.prototype.slice.call(els.accountTabButtons);
+    var index = tabs.indexOf(e.target.closest('[role="tab"]'));
+    if (index === -1) return;
+    var next;
+    if (e.key === 'ArrowRight') {
+      next = (index + 1) % tabs.length;
+    } else if (e.key === 'ArrowLeft') {
+      next = (index - 1 + tabs.length) % tabs.length;
+    } else if (e.key === 'Home') {
+      next = 0;
+    } else if (e.key === 'End') {
+      next = tabs.length - 1;
+    } else {
+      return;
+    }
+    e.preventDefault();
+    setAccountTab(tabs[next].getAttribute('data-account-tab'), { focus: true });
+  }
+
+  function skeletonHtml(lines) {
+    var html = '<div class="skeleton-group" aria-busy="true"><span class="sr-only" role="status">' + escapeHtml(t('Loading...')) + '</span>';
+    for (var i = 0; i < lines; i++) html += '<div class="skeleton skeleton-line" aria-hidden="true"></div>';
+    return html + '</div>';
+  }
+
+  function retryStateHtml(message, kind) {
+    return '<div class="account-inline-error" role="alert"><p>' + escapeHtml(message) + '</p>' +
+      '<button type="button" class="btn btn-secondary" data-retry="' + escapeHtml(kind) + '">' + escapeHtml(t('Retry')) + '</button></div>';
+  }
+
+  function loadAccountScreen(name, preserveNotes) {
+    var screen = state.accountScreen;
+    var requestId = screen.request + 1;
+    screen.request = requestId;
+    screen.status = 'loading';
+    renderAccountLoading();
+    return apiFetch('/api/admin/accounts/' + encodeURIComponent(name))
       .then(function (acc) {
+        if (requestId !== screen.request) return;
+        screen.status = 'ready';
+        screen.data = acc;
         state.selectedAccount = acc;
-        document.getElementById('detail-acc-name').textContent = acc.name;
-        document.getElementById('detail-acc-created').textContent = formatDate(acc.created_utc);
-        document.getElementById('detail-acc-status').innerHTML = acc.is_banned ?
-          '<span class="badge badge-banned">' + escapeHtml(acc.banned_until ?
-            t('Banned until {until} ({reason})', { until: acc.banned_until, reason: acc.ban_reason }) :
-            t('Banned ({reason})', { reason: acc.ban_reason })) + '</span>' :
-          '<span class="badge badge-active">' + escapeHtml(t('Active')) + '</span>';
-        document.getElementById('detail-acc-tokens').textContent = t('{count} sessions', { count: acc.tokens_count });
-
-        var notesField = document.getElementById('detail-acc-notes');
-        if (notesField) notesField.value = acc.notes || '';
-        resetGmPanel();
-        resetAccountVault(acc.name);
-
-        var charsContainer = document.getElementById('detail-chars-list');
-        if (charsContainer) {
-          if (!acc.characters || !acc.characters.length) {
-            charsContainer.innerHTML = '<p style="color: var(--text-muted); padding: 12px;">' + escapeHtml(t('This account has no characters yet.')) + '</p>';
-          } else {
-            var charsHtml = '';
-            acc.characters.forEach(function (c) {
-              charsHtml += '<div class="char-card-detail">' +
-                '<div class="char-card-header">' +
-                  '<div>' +
-                    '<span class="char-title">' + escapeHtml(c.name) + '</span> ' +
-                    '<span class="badge badge-admin" style="margin-left: 6px;">' + escapeHtml(c.career_name) + '</span>' +
-                  '</div>' +
-                  '<div style="font-size: 12px; color: var(--gold); font-weight: 700;">' +
-                    escapeHtml(t('Level {level} / Job {job}', { level: c.level, job: c.job_level })) +
-                  '</div>' +
-                '</div>' +
-                '<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 12px; margin-bottom: 8px;">' +
-                  '<div><strong>Zeny:</strong> <span style="color: var(--success);">' + formatNumber(c.currency.zeny) + ' Z</span></div>' +
-                  '<div><strong>' + escapeHtml(t('Other currencies:')) + '</strong> <span style="color: var(--info);">' + formatOtherCurrencies(c.currency.others) + '</span></div>' +
-                  '<div><strong>' + escapeHtml(t('Location:')) + '</strong> ' + escapeHtml(c.scene_name) + ' (' + c.pos.x + ', ' + c.pos.z + ')</div>' +
-                  '<div><strong>' + escapeHtml(t('Last login:')) + '</strong> ' + formatDate(c.last_login) + '</div>' +
-                '</div>' +
-                '<div class="stats-grid-mini">' +
-                  '<div><div class="stat-box-lbl">STR</div><div class="stat-box-val">' + c.stats.str + '</div></div>' +
-                  '<div><div class="stat-box-lbl">AGI</div><div class="stat-box-val">' + c.stats.agi + '</div></div>' +
-                  '<div><div class="stat-box-lbl">VIT</div><div class="stat-box-val">' + c.stats.vit + '</div></div>' +
-                  '<div><div class="stat-box-lbl">INT</div><div class="stat-box-val">' + c.stats.int + '</div></div>' +
-                  '<div><div class="stat-box-lbl">DEX</div><div class="stat-box-val">' + c.stats.dex + '</div></div>' +
-                  '<div><div class="stat-box-lbl">LUK</div><div class="stat-box-val">' + c.stats.luk + '</div></div>' +
-                '</div>' +
-                '<div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px;">' +
-                  '<button class="btn btn-secondary btn-sm btn-view-inventory" data-role-id="' + escapeHtml(String(c.id)) + '" title="' + escapeHtml(t('View character items')) + '">' + escapeHtml(t('View inventory')) + '</button>' +
-                  '<button type="button" class="btn btn-secondary btn-sm btn-view-mail" data-role-id="' + escapeHtml(String(c.id)) + '" title="' + escapeHtml(t('View character mail (read-only)')) + '">' + escapeHtml(t('View mail')) + '</button>' +
-                '</div>' +
-                '<div class="char-inventory" hidden></div>' +
-                '<div class="char-mail-panel" id="char-mail-' + escapeHtml(String(c.id)) + '" hidden></div>' +
-              '</div>';
-            });
-            charsContainer.innerHTML = charsHtml;
-          }
-        }
-
-        openModal(els.modalDetail);
+        state.bansSupported = acc.bans_supported !== false;
+        renderAccountScreen(acc, preserveNotes);
+        loadAccountVault(state.vault.loaded ? state.vault.page : 1);
       })
       .catch(function (err) {
-        showToast(t('Error loading record: {message}', { message: err.message }), 'error');
+        if (requestId !== screen.request) return;
+        screen.status = 'error';
+        if (err.status === 404) {
+          renderAccountNotFound(name);
+        } else {
+          renderAccountError(t('Error loading account: {message}', { message: err.message }));
+        }
+      });
+  }
+
+  function renderAccountLoading() {
+    els.accountState.hidden = true;
+    els.accountBody.hidden = false;
+    els.accountBadges.innerHTML = '<span class="skeleton skeleton-badge" aria-hidden="true"></span>';
+    els.accountRegistered.textContent = '—';
+    els.accountSessions.textContent = '—';
+    els.accountStatusText.textContent = '—';
+    els.accountSummary.innerHTML = skeletonHtml(3);
+    els.accountCharacters.innerHTML = skeletonHtml(5);
+    els.accountNotes.disabled = true;
+    els.accountSaveNotes.disabled = true;
+  }
+
+  function renderAccountNotFound(name) {
+    els.accountBody.hidden = true;
+    els.accountBadges.innerHTML = '';
+    els.accountState.innerHTML = '<p>' + escapeHtml(t('Account "{name}" was not found.', { name: name })) + '</p>' +
+      '<a class="btn btn-secondary" href="#/accounts">' + escapeHtml(t('Back to accounts')) + '</a>';
+    els.accountState.hidden = false;
+  }
+
+  function renderAccountError(message) {
+    els.accountBody.hidden = true;
+    els.accountBadges.innerHTML = '';
+    els.accountState.innerHTML = retryStateHtml(message, 'account');
+    els.accountState.hidden = false;
+  }
+
+  function accountStatusLabel(acc) {
+    if (!acc.is_banned) return t('Active');
+    var info = { reason: acc.ban_reason || '—', until: formatDate(acc.banned_until) };
+    return acc.banned_until ? t('Banned until {until} ({reason})', info) : t('Banned ({reason})', info);
+  }
+
+  function renderAccountHeader(acc, routeName) {
+    var name = acc ? acc.name : routeName;
+    els.accountTitle.textContent = name;
+    els.accountBreadcrumbCurrent.textContent = name;
+    els.accountRegistered.textContent = acc ? formatDate(acc.created_utc) : '—';
+    els.accountSessions.textContent = acc ? t('{count} sessions', { count: acc.tokens_count }) : '—';
+    els.accountStatusText.textContent = acc ? accountStatusLabel(acc) : '—';
+    renderAccountBadges();
+  }
+
+  // Every badge carries text, so state never depends on colour alone.
+  function renderAccountBadges() {
+    var acc = state.accountScreen.data;
+    if (!acc) return;
+    var html = '<span class="badge ' + (acc.is_banned ? 'badge-banned' : 'badge-active') + '">' + escapeHtml(accountStatusLabel(acc)) + '</span>';
+    if (acc.is_admin) html += ' <span class="badge badge-admin">' + escapeHtml(t('Administrator')) + '</span>';
+    var vip = state.vault.vip;
+    if (vip && (vip.source === 'gm' || vip.source === 'vip' || vip.source === 'note')) html += ' ' + vaultVipBadge(vip);
+    els.accountBadges.innerHTML = html;
+  }
+
+  function renderAccountSummary(acc) {
+    var chars = acc.characters || [];
+    var highest = 0;
+    var zeny = 0;
+    chars.forEach(function (c) {
+      highest = Math.max(highest, Number(c.level) || 0);
+      zeny += Number(c.currency && c.currency.zeny) || 0;
+    });
+    var rows = [
+      [t('Characters'), formatNumber(chars.length)],
+      [t('Highest level'), chars.length ? formatNumber(highest) : '—'],
+      [t('Total Zeny'), formatNumber(zeny)]
+    ];
+    els.accountSummary.innerHTML = rows.map(function (row) {
+      return '<div class="account-summary-row"><dt>' + escapeHtml(row[0]) + '</dt><dd>' + row[1] + '</dd></div>';
+    }).join('');
+  }
+
+  function renderCharacterCard(c) {
+    var roleId = escapeHtml(String(c.id));
+    var stats = ['str', 'agi', 'vit', 'int', 'dex', 'luk'].map(function (key) {
+      return '<div><div class="stat-box-lbl">' + key.toUpperCase() + '</div><div class="stat-box-val">' + cellValue(c.stats[key]) + '</div></div>';
+    }).join('');
+    return '<article class="char-card-detail">' +
+      '<div class="char-card-header">' +
+        '<div class="char-card-name">' +
+          '<h3 class="char-title">' + escapeHtml(c.name) + '</h3> ' +
+          '<span class="badge badge-admin">' + escapeHtml(c.career_name) + '</span>' +
+        '</div>' +
+        '<div class="char-card-level">' + escapeHtml(t('Level {level} / Job {job}', { level: c.level, job: c.job_level })) + '</div>' +
+      '</div>' +
+      '<dl class="char-facts">' +
+        '<div><dt>' + escapeHtml(t('Zeny')) + ':</dt><dd class="char-fact-zeny">' + formatNumber(c.currency.zeny) + ' Z</dd></div>' +
+        '<div><dt>' + escapeHtml(t('Other currencies:')) + '</dt><dd class="char-fact-other">' + formatOtherCurrencies(c.currency.others) + '</dd></div>' +
+        '<div><dt>' + escapeHtml(t('Location:')) + '</dt><dd>' + escapeHtml(c.scene_name) + ' (' + cellValue(c.pos.x) + ', ' + cellValue(c.pos.z) + ')</dd></div>' +
+        '<div><dt>' + escapeHtml(t('Last login:')) + '</dt><dd>' + formatDate(c.last_login) + '</dd></div>' +
+      '</dl>' +
+      '<div class="stats-grid-mini">' + stats + '</div>' +
+      '<div class="char-card-actions">' +
+        '<button type="button" class="btn btn-secondary btn-sm btn-view-inventory" data-role-id="' + roleId + '" aria-expanded="false" aria-controls="char-inventory-' + roleId + '" title="' + escapeHtml(t('View character items')) + '">' + escapeHtml(t('View inventory')) + '</button>' +
+        '<button type="button" class="btn btn-secondary btn-sm btn-view-mail" data-role-id="' + roleId + '" aria-expanded="false" aria-controls="char-mail-' + roleId + '" title="' + escapeHtml(t('View character mail (read-only)')) + '">' + escapeHtml(t('View mail')) + '</button>' +
+      '</div>' +
+      '<div class="char-inventory" id="char-inventory-' + roleId + '" hidden></div>' +
+      '<div class="char-mail-panel" id="char-mail-' + roleId + '" hidden></div>' +
+    '</article>';
+  }
+
+  function renderAccountCharacters(acc) {
+    var chars = acc.characters || [];
+    if (!chars.length) {
+      els.accountCharacters.innerHTML = '<p class="account-empty">' + escapeHtml(t('This account has no characters yet.')) + '</p>';
+      return;
+    }
+    els.accountCharacters.innerHTML = chars.map(renderCharacterCard).join('');
+  }
+
+  // Ban, unban and delete are hidden for administrator accounts, exactly as in the list.
+  function renderAccountSecurity(acc) {
+    var admin = !!acc.is_admin;
+    var banned = !!acc.is_banned;
+    var text;
+    if (admin) {
+      text = t('Suspend and delete actions are not available for administrator accounts.');
+    } else if (banned) {
+      text = accountStatusLabel(acc);
+      if (acc.banned_at) text += ' · ' + t('Suspended on {date}', { date: formatDate(acc.banned_at) });
+    } else if (acc.bans_supported === false) {
+      text = t('Update RO3Emu: this server does not support account bans');
+    } else {
+      text = t('This account can sign in.');
+    }
+    els.accountAccessText.textContent = text;
+    els.accountSessionsText.textContent = t('{count} sessions', { count: acc.tokens_count });
+    els.accountBtnBan.hidden = admin || banned;
+    els.accountBtnUnban.hidden = admin || !banned;
+    els.accountDangerZone.hidden = admin;
+  }
+
+  function renderAccountScreen(acc, preserveNotes) {
+    els.accountState.hidden = true;
+    els.accountBody.hidden = false;
+    renderAccountHeader(acc, acc.name);
+    renderAccountSummary(acc);
+    renderAccountCharacters(acc);
+    renderAccountSecurity(acc);
+    if (!preserveNotes) els.accountNotes.value = acc.notes || '';
+    state.accountScreen.notesBaseline = String(acc.notes || '').replace(/\r\n?/g, '\n');
+    els.accountNotes.disabled = false;
+    els.accountSaveNotes.disabled = state.accountScreen.saving;
+    handleNotesInput();
+  }
+
+  // After a change made through a modal: reload the open account so every panel shows the new state.
+  function refreshOpenAccount(name) {
+    var screen = state.accountScreen;
+    var open = screen.open && (screen.name === name || (screen.data && screen.data.name === name));
+    if (open) loadAccountScreen(screen.name, true);
+  }
+
+  function setNotesStatus(message, kind) {
+    els.accountNotesStatus.textContent = message;
+    els.accountNotesStatus.className = 'account-status-text' + (kind ? ' ' + kind : '');
+  }
+
+  function handleNotesInput() {
+    var dirty = accountNotesDirty();
+    setNotesStatus(dirty ? t('You have unsaved changes') : '', dirty ? 'warning' : '');
+  }
+
+  function handleSaveNotes() {
+    var screen = state.accountScreen;
+    if (!screen.data || screen.saving) return;
+    var accountName = screen.data.name;
+    var notes = (els.accountNotes.value || '').trim();
+    var btn = els.accountSaveNotes;
+    screen.saving = true;
+    btn.disabled = true;
+    btn.classList.add('is-loading');
+    btn.textContent = t('Saving…');
+    setNotesStatus(t('Saving…'), '');
+    apiFetch('/api/admin/accounts/save-notes', {
+      method: 'POST',
+      body: { username: accountName, notes: notes }
+    })
+      .then(function () {
+        showToast(t('Notes updated successfully'), 'success');
+        if (!screen.data || screen.data.name !== accountName) return;
+        screen.data.notes = notes;
+        screen.notesBaseline = notes;
+        if ((els.accountNotes.value || '').trim() === notes) els.accountNotes.value = notes;
+        setNotesStatus(t('Notes updated successfully'), 'success');
+      })
+      .catch(function (err) {
+        var message = t('Error saving notes: {message}', { message: err.message });
+        showToast(message, 'error');
+        setNotesStatus(message, 'error');
+      })
+      .finally(function () {
+        screen.saving = false;
+        btn.disabled = !screen.data;
+        btn.classList.remove('is-loading');
+        btn.textContent = t('Save Notes');
       });
   }
 
@@ -1025,6 +1448,7 @@
     if (!container.hidden) {
       container.hidden = true;
       btn.textContent = t('View inventory');
+      btn.setAttribute('aria-expanded', 'false');
       return;
     }
 
@@ -1035,6 +1459,7 @@
         container.innerHTML = renderInventory(data);
         container.hidden = false;
         btn.textContent = t('Hide inventory');
+        btn.setAttribute('aria-expanded', 'true');
       })
       .catch(function (err) {
         btn.textContent = t('View inventory');
@@ -1097,33 +1522,23 @@
   var VAULT_PAGE_SIZE = 20;
 
   function resetAccountVault(account) {
-    state.vault.account = account;
-    state.vault.page = 1;
-    state.vault.pages = 1;
-    state.vault.loaded = false;
+    var vault = state.vault;
+    vault.account = account;
+    vault.page = 1;
+    vault.pages = 1;
+    vault.loaded = false;
+    vault.status = 'idle';
+    vault.requestedPage = 1;
+    vault.data = null;
+    vault.vip = null;
+    vault.message = '';
     // Invalidates any response still in flight for the previous account.
-    state.vault.request += 1;
-    if (els.detailVault) {
-      els.detailVault.hidden = true;
-      els.detailVault.innerHTML = '';
+    vault.request += 1;
+    if (els.accountVault) {
+      els.accountVault.innerHTML = '';
+      els.accountVault.removeAttribute('aria-busy');
+      els.accountVault.classList.remove('is-busy');
     }
-    if (els.btnViewVault) {
-      els.btnViewVault.disabled = false;
-      els.btnViewVault.textContent = t('Vault');
-      els.btnViewVault.setAttribute('aria-expanded', 'false');
-    }
-  }
-
-  function toggleAccountVault() {
-    if (!els.detailVault || !els.btnViewVault || !state.vault.account) return;
-    if (!els.detailVault.hidden) {
-      els.detailVault.hidden = true;
-      els.btnViewVault.textContent = t('Vault');
-      els.btnViewVault.setAttribute('aria-expanded', 'false');
-      return;
-    }
-    // First open loads page 1; reopening reloads the page the admin was on.
-    loadAccountVault(state.vault.loaded ? state.vault.page : 1);
   }
 
   function goToVaultPage(page) {
@@ -1133,12 +1548,12 @@
 
   function loadAccountVault(page) {
     var account = state.vault.account;
-    if (!account || !els.detailVault || !els.btnViewVault) return;
+    if (!account || !els.accountVault) return;
     var requestId = state.vault.request + 1;
     state.vault.request = requestId;
-
-    els.btnViewVault.disabled = true;
-    els.btnViewVault.textContent = t('Loading...');
+    state.vault.status = 'loading';
+    state.vault.requestedPage = page;
+    renderVaultPanel();
     apiFetch('/api/admin/accounts/' + encodeURIComponent(account) + '/vault?page=' + encodeURIComponent(String(page)) +
       '&page_size=' + VAULT_PAGE_SIZE)
       .then(function (data) {
@@ -1146,26 +1561,40 @@
         state.vault.page = data.page || 1;
         state.vault.pages = data.pages || 1;
         state.vault.loaded = true;
-        els.detailVault.innerHTML = renderAccountVault(data);
-        els.detailVault.hidden = false;
-        els.btnViewVault.textContent = t('Hide vault');
-        els.btnViewVault.setAttribute('aria-expanded', 'true');
+        state.vault.status = 'ready';
+        state.vault.data = data;
+        state.vault.vip = data.vip || null;
+        renderVaultPanel();
+        renderAccountBadges();
       })
       .catch(function (err) {
         if (requestId !== state.vault.request) return;
-        var message = t('Error loading vault: {message}', { message: err.message });
-        if (state.vault.loaded) {
-          els.detailVault.innerHTML = '<p class="vault-empty">' + escapeHtml(message) + '</p>';
-          els.detailVault.hidden = false;
-          els.btnViewVault.textContent = t('Hide vault');
-        } else {
-          els.btnViewVault.textContent = t('Vault');
-        }
-        showToast(message, 'error');
-      })
-      .finally(function () {
-        if (requestId === state.vault.request) els.btnViewVault.disabled = false;
+        state.vault.status = 'error';
+        state.vault.message = t('Error loading vault: {message}', { message: err.message });
+        renderVaultPanel();
+        if (state.accountScreen.tab === 'vault') showToast(state.vault.message, 'error');
       });
+  }
+
+  // Skeleton while the first page loads, a retry state on failure, otherwise the table (dimmed while paging).
+  function renderVaultPanel() {
+    var vault = state.vault;
+    var el = els.accountVault;
+    if (!el) return;
+    if (vault.status === 'error') {
+      el.innerHTML = retryStateHtml(vault.message, 'vault');
+      el.setAttribute('aria-busy', 'false');
+      el.classList.remove('is-busy');
+      return;
+    }
+    if (!vault.loaded) {
+      el.innerHTML = skeletonHtml(5);
+      el.setAttribute('aria-busy', 'true');
+      return;
+    }
+    el.innerHTML = renderAccountVault(vault.data);
+    el.setAttribute('aria-busy', vault.status === 'loading' ? 'true' : 'false');
+    el.classList.toggle('is-busy', vault.status === 'loading');
   }
 
   function vaultVipBadge(vip) {
@@ -1239,30 +1668,15 @@
     return html;
   }
 
-  function handleSaveNotes() {
-    if (!state.selectedAccount) return;
-    var notes = (document.getElementById('detail-acc-notes').value || '').trim();
-    apiFetch('/api/admin/accounts/save-notes', {
-      method: 'POST',
-      body: { username: state.selectedAccount.name, notes: notes }
-    })
-      .then(function () {
-        showToast(t('Notes updated successfully'), 'success');
-      })
-      .catch(function (err) {
-        showToast(t('Error saving notes: {message}', { message: err.message }), 'error');
-      });
-  }
-
   // --- GM Tools (POST /api/admin/gm, relayed to RO3Emu's loopback GM endpoint) ---
   function buildGmPanel() {
-    var body = document.querySelector('#modal-detail .modal-body');
+    var body = els.accountGmSlot;
     if (!body || document.getElementById('gm-tools')) return;
     var panel = document.createElement('div');
     panel.id = 'gm-tools';
     panel.className = 'gm-tools';
     panel.innerHTML =
-      '<h4 class="gm-tools-title" data-i18n="GM Tools">GM Tools</h4>' +
+      '<h3 class="gm-tools-title" data-i18n="GM Tools">GM Tools</h3>' +
       '<p class="gm-tools-note" data-i18n="Only works if the panel runs on the same host as RO3Emu (local GM endpoint) and the account has a connected character. The result appears in the player game chat.">Only works if the panel runs on the same host as RO3Emu (local GM endpoint) and the account has a connected character. The result appears in the player game chat.</p>' +
       '<form id="gm-warp-form" class="gm-warp-form" novalidate>' +
         '<div><label class="form-label" for="gm-warp-scene" data-i18n="Scene">Scene</label>' +
@@ -1330,11 +1744,12 @@
   }
 
   function sendGmCommand(command, args) {
-    if (!state.selectedAccount) return;
+    var account = state.accountScreen.data;
+    if (!account) return;
     setGmResult(t('Sending…'), '');
     apiFetch('/api/admin/gm', {
       method: 'POST',
-      body: { account: state.selectedAccount.name, command: command, args: args }
+      body: { account: account.name, command: command, args: args }
     })
       .then(function (data) {
         setGmResult(data.sent + ': ' + data.message, 'success');
@@ -1372,13 +1787,15 @@
       return;
     }
 
+    var accountName = state.selectedAccount.name;
     apiFetch('/api/admin/accounts/update-password', {
       method: 'POST',
-      body: { username: state.selectedAccount.name, new_password: newPass }
+      body: { username: accountName, new_password: newPass }
     })
       .then(function (data) {
         showToast(data.message, 'success');
         closeModal(els.modalPassword);
+        refreshOpenAccount(accountName);
       })
       .catch(function (err) {
         showToast(t('Error: {message}', { message: err.message }), 'error');
@@ -1436,7 +1853,8 @@
     e.preventDefault();
     if (!state.selectedAccount) return;
     var reason = (document.getElementById('ban-reason').value || '').trim() || t('Administrative suspension');
-    var body = { username: state.selectedAccount.name, reason: reason };
+    var accountName = state.selectedAccount.name;
+    var body = { username: accountName, reason: reason };
     // Empty: a permanent ban. Otherwise RO3Emu lifts it by itself after that many days.
     var days = parseInt(document.getElementById('ban-days').value, 10);
     if (days > 0) body.days = days;
@@ -1450,6 +1868,7 @@
         closeModal(els.modalBan);
         loadAccounts();
         loadStats();
+        refreshOpenAccount(accountName);
       })
       .catch(function (err) {
         showToast(t('Error suspending account: {message}', { message: err.message }), 'error');
@@ -1466,6 +1885,7 @@
         showToast(data.message, 'success');
         loadAccounts();
         loadStats();
+        refreshOpenAccount(name);
       })
       .catch(function (err) {
         showToast(t('Error removing suspension: {message}', { message: err.message }), 'error');
@@ -1488,15 +1908,21 @@
       return;
     }
 
+    var accountName = state.selectedAccount.name;
     apiFetch('/api/admin/accounts/delete', {
       method: 'POST',
-      body: { username: state.selectedAccount.name }
+      body: { username: accountName }
     })
       .then(function (data) {
         showToast(data.message, 'success');
         closeModal(els.modalDelete);
         loadAccounts();
         loadStats();
+        if (state.accountScreen.open) {
+          // The account is gone: leave its screen for the list without a leave-without-saving warning.
+          state.accountScreen.notesBaseline = els.accountNotes.value;
+          goToAccountList();
+        }
       })
       .catch(function (err) {
         showToast(t('Error deleting account: {message}', { message: err.message }), 'error');
@@ -2274,7 +2700,8 @@
     });
 
     if (els.tabViewDashboard) els.tabViewDashboard.hidden = (tabId !== 'dashboard');
-    if (els.tabViewAccounts) els.tabViewAccounts.hidden = (tabId !== 'accounts');
+    if (tabId !== 'accounts' && state.accountScreen.open) resetAccountScreen();
+    renderAccountsViews();
     if (els.tabViewAudit) els.tabViewAudit.hidden = (tabId !== 'audit');
     if (els.tabViewEconomy) els.tabViewEconomy.hidden = (tabId !== 'economy');
     if (els.tabViewRankings) els.tabViewRankings.hidden = (tabId !== 'rankings');
@@ -2308,6 +2735,82 @@
     }
   }
 
+  function setupAccountScreenListeners() {
+    globalThis.addEventListener('hashchange', handleRouteChange);
+    document.addEventListener('keydown', handleAccountEscape);
+    globalThis.addEventListener('beforeunload', function (e) {
+      if (!accountNotesDirty()) return;
+      e.preventDefault();
+      e.returnValue = '';
+    });
+
+    var tablist = document.querySelector('.account-tabs');
+    if (tablist) {
+      tablist.addEventListener('keydown', handleAccountTabKeydown);
+      tablist.addEventListener('click', function (e) {
+        var tabButton = e.target.closest('[role="tab"]');
+        if (tabButton) setAccountTab(tabButton.getAttribute('data-account-tab'));
+      });
+    }
+
+    if (els.accountScreen) {
+      // Retry buttons rendered by the error states (account load, vault load).
+      els.accountScreen.addEventListener('click', function (e) {
+        var retry = e.target.closest('[data-retry]');
+        if (!retry) return;
+        if (retry.getAttribute('data-retry') === 'vault') {
+          loadAccountVault(state.vault.requestedPage || 1);
+        } else if (state.accountScreen.open) {
+          loadAccountScreen(state.accountScreen.name, false);
+        }
+      });
+    }
+
+    if (els.accountNotes) els.accountNotes.addEventListener('input', handleNotesInput);
+    if (els.accountSaveNotes) els.accountSaveNotes.addEventListener('click', handleSaveNotes);
+
+    if (els.accountVault) {
+      els.accountVault.addEventListener('click', function (e) {
+        var target = e.target.closest('button.btn-vault-page');
+        if (!target || target.disabled) return;
+        goToVaultPage(parseInt(target.getAttribute('data-page'), 10) || 1);
+      });
+    }
+
+    if (els.accountCharacters) {
+      els.accountCharacters.addEventListener('click', function (e) {
+        var target = e.target.closest('button');
+        if (!target) return;
+        var roleId = target.getAttribute('data-role-id');
+        if (!roleId) return;
+
+        if (target.classList.contains('btn-view-inventory')) {
+          toggleCharacterInventory(target);
+        } else if (target.classList.contains('btn-view-mail')) {
+          var panel = document.getElementById('char-mail-' + roleId);
+          if (panel && !panel.hidden) {
+            panel.hidden = true;
+            target.setAttribute('aria-expanded', 'false');
+            return;
+          }
+          target.setAttribute('aria-expanded', 'true');
+          loadCharacterMail(roleId, 1);
+        } else if (target.classList.contains('btn-mail-page')) {
+          loadCharacterMail(roleId, parseInt(target.getAttribute('data-page'), 10) || 1);
+        }
+      });
+    }
+
+    // The confirmation and form modals stay modals; they just start from the screen's buttons now.
+    var screenName = function () {
+      return state.accountScreen.data ? state.accountScreen.data.name : state.accountScreen.name;
+    };
+    if (els.accountBtnPassword) els.accountBtnPassword.addEventListener('click', function () { showChangePassword(screenName()); });
+    if (els.accountBtnBan) els.accountBtnBan.addEventListener('click', function () { showBanAccount(screenName()); });
+    if (els.accountBtnUnban) els.accountBtnUnban.addEventListener('click', function () { handleUnbanAccount(screenName()); });
+    if (els.accountBtnDelete) els.accountBtnDelete.addEventListener('click', function () { showDeleteAccount(screenName()); });
+  }
+
   // --- Event Listeners Setup ---
   function setupEventListeners() {
     if (els.loginForm) {
@@ -2330,7 +2833,14 @@
     document.querySelectorAll('.tab-btn').forEach(function (btn) {
       btn.addEventListener('click', function () {
         var tab = this.getAttribute('data-tab');
-        if (tab) switchTab(tab);
+        if (!tab) return;
+        // The Accounts tab stays highlighted while an account is open; clicking it goes back to the list.
+        if (tab === 'accounts' && isAccountScreenOpen()) {
+          goToAccountList();
+          return;
+        }
+        if (tab !== 'accounts' && !confirmDiscardNotes()) return;
+        switchTab(tab);
       });
     });
 
@@ -2532,7 +3042,7 @@
         if (!acc) return;
 
         if (target.classList.contains('btn-view-detail')) {
-          showAccountDetail(acc);
+          navigateToAccount(acc);
         } else if (target.classList.contains('btn-change-pw')) {
           showChangePassword(acc);
         } else if (target.classList.contains('btn-ban')) {
@@ -2564,46 +3074,7 @@
     var formDel = document.getElementById('form-delete');
     if (formDel) formDel.addEventListener('submit', handleDeleteAccount);
 
-    var detailCharsList = document.getElementById('detail-chars-list');
-    if (detailCharsList) {
-      detailCharsList.addEventListener('click', function (e) {
-        var btn = e.target.closest('.btn-view-inventory');
-        if (btn) toggleCharacterInventory(btn);
-      });
-    }
-
-    if (els.btnViewVault) els.btnViewVault.addEventListener('click', toggleAccountVault);
-    if (els.detailVault) {
-      els.detailVault.addEventListener('click', function (e) {
-        var target = e.target.closest('button.btn-vault-page');
-        if (!target || target.disabled) return;
-        goToVaultPage(parseInt(target.getAttribute('data-page'), 10) || 1);
-      });
-    }
-
-    var btnSaveNotes = document.getElementById('btn-save-notes');
-    if (btnSaveNotes) btnSaveNotes.addEventListener('click', handleSaveNotes);
-
-    var detailChars = document.getElementById('detail-chars-list');
-    if (detailChars) {
-      detailChars.addEventListener('click', function (e) {
-        var target = e.target.closest('button');
-        if (!target) return;
-        var roleId = target.getAttribute('data-role-id');
-        if (!roleId) return;
-
-        if (target.classList.contains('btn-view-mail')) {
-          var panel = document.getElementById('char-mail-' + roleId);
-          if (panel && !panel.hidden) {
-            panel.hidden = true;
-            return;
-          }
-          loadCharacterMail(roleId, 1);
-        } else if (target.classList.contains('btn-mail-page')) {
-          loadCharacterMail(roleId, parseInt(target.getAttribute('data-page'), 10) || 1);
-        }
-      });
-    }
+    setupAccountScreenListeners();
 
     if (els.economyForm) els.economyForm.addEventListener('submit', applyEconomyFilters);
     var btnEconomyReset = document.getElementById('economy-reset');
