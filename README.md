@@ -175,6 +175,13 @@ Only relational columns are read, as defined in `ro3emu-server` (`Accounts/Persi
 
 ---
 
+## Companion Projects
+
+- **[ro3emu-server](https://github.com/aethai/ro3emu-server)** — Open-source server emulator for Ragnarok Online 3.
+- **[ro3-emu-launcher](https://github.com/soyerno/ro3-emu-launcher)** — Desktop game launcher and auto-patcher for RO3Emu servers.
+
+---
+
 ## Contributing
 
 Contributions are welcome! Please read [AGENTS.md](AGENTS.md) and [CONTRIBUTING.md](CONTRIBUTING.md) for code conventions, zero-dependency requirements, and pull request guidelines.
