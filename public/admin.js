@@ -457,6 +457,32 @@
     }, 1000);
   }
 
+  function derivePbkdf2Hash(password, saltHex, iterations) {
+    if (!window.crypto || !window.crypto.subtle) return Promise.reject(new Error('WebCrypto unavailable'));
+    var enc = new TextEncoder();
+    return window.crypto.subtle.importKey(
+      'raw',
+      enc.encode(password),
+      { name: 'PBKDF2' },
+      false,
+      ['deriveBits']
+    ).then(function (keyMaterial) {
+      var saltBytes = new Uint8Array(saltHex.match(/.{1,2}/g).map(function (b) { return parseInt(b, 16); }));
+      return window.crypto.subtle.deriveBits(
+        {
+          name: 'PBKDF2',
+          salt: saltBytes,
+          iterations: iterations || 100000,
+          hash: 'SHA-256'
+        },
+        keyMaterial,
+        256
+      );
+    }).then(function (bits) {
+      return Array.from(new Uint8Array(bits)).map(function (b) { return b.toString(16).padStart(2, '0'); }).join('');
+    });
+  }
+
   function handleLogin(e) {
     if (e && e.preventDefault) e.preventDefault();
     if (isLoginSubmitting || loginLockoutTimer) return;
@@ -483,10 +509,29 @@
     els.loginSubmit.textContent = t('Verifying...');
     if (els.loginError) els.loginError.hidden = true;
 
-    apiFetch('/api/admin/login', {
-      method: 'POST',
-      body: { username: user, password: pass }
-    })
+    // Zero-plaintext authentication: derive PBKDF2 hash directly in browser with salt from server
+    apiFetch('/api/admin/auth/salt?username=' + encodeURIComponent(user))
+      .then(function (saltData) {
+        if (saltData && saltData.salt) {
+          return derivePbkdf2Hash(pass, saltData.salt, saltData.iterations)
+            .then(function (hashHex) {
+              return { username: user, password_hash: hashHex };
+            })
+            .catch(function () {
+              return { username: user, password: pass };
+            });
+        }
+        return { username: user, password: pass };
+      })
+      .catch(function () {
+        return { username: user, password: pass };
+      })
+      .then(function (payload) {
+        return apiFetch('/api/admin/login', {
+          method: 'POST',
+          body: payload
+        });
+      })
       .then(function (data) {
         if (loginLockoutTimer) {
           clearInterval(loginLockoutTimer);

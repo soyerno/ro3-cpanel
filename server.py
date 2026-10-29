@@ -1475,25 +1475,39 @@ def verify_admin_password_hash(password, encoded):
     return hmac.compare_digest(derived, expected)
 
 
-def authenticate_admin(username, password):
+def authenticate_admin(username, password=None, password_hash=None):
     """
     Checks if username & password match any configured admin,
-    OR verifies against ro3emu.db account if user is in admin list.
+    OR verifies against ro3emu.db account if user is in admin list or admin_gm table.
 
     A config entry may hold `password_hash` (preferred, see make_admin_password_hash)
     or a plain `password`. When `password_hash` is present, `password` is ignored.
+    Also accepts client-side derived PBKDF2 `password_hash` matching account.password_hash.
     """
     clean_user = username.strip().lower()
     admin_list = CONFIG.get("admin_users", [])
+
+    is_admin = any(clean_user == a.get("username", "").strip().lower() for a in admin_list)
+    if not is_admin:
+        try:
+            with get_db() as con:
+                if con.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='admin_gm'").fetchone():
+                    if con.execute("SELECT 1 FROM admin_gm WHERE LOWER(account)=?", (clean_user,)).fetchone():
+                        is_admin = True
+        except Exception:
+            pass
+
+    if not is_admin:
+        return False, None
 
     for admin_entry in admin_list:
         entry_user = admin_entry.get("username", "").strip().lower()
         if clean_user == entry_user:
             # 1. Direct credential check in config
-            if admin_entry.get("password_hash"):
+            if admin_entry.get("password_hash") and password:
                 if verify_admin_password_hash(password, admin_entry["password_hash"]):
                     return True, admin_entry.get("username", username)
-            elif "password" in admin_entry and admin_entry["password"]:
+            elif "password" in admin_entry and admin_entry["password"] and password:
                 stored = admin_entry["password"]
                 if (
                     isinstance(password, str)
@@ -1502,14 +1516,24 @@ def authenticate_admin(username, password):
                 ):
                     return True, admin_entry.get("username", username)
 
-            # 2. Check in database account table using PBKDF2
-            try:
-                with get_db() as con:
-                    row = con.execute("SELECT name, password_hash, salt FROM account WHERE LOWER(name)=?", (clean_user,)).fetchone()
-                    if row and verify_ro3_password(password, row["password_hash"], row["salt"]):
+    # 2. Check in database account table using PBKDF2
+    try:
+        with get_db() as con:
+            row = con.execute("SELECT name, password_hash, salt FROM account WHERE LOWER(name)=?", (clean_user,)).fetchone()
+            if row:
+                expected_hash = row["password_hash"]
+                if password_hash:
+                    try:
+                        client_hash = bytes.fromhex(password_hash)
+                        if len(client_hash) == len(expected_hash) and secrets.compare_digest(client_hash, expected_hash):
+                            return True, row["name"]
+                    except ValueError:
+                        pass
+                if password:
+                    if verify_ro3_password(password, expected_hash, row["salt"]):
                         return True, row["name"]
-            except Exception:
-                pass
+    except Exception:
+        pass
 
     return False, None
 
@@ -1910,7 +1934,11 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
                 "default_language": default_language()
             })
 
-        # 3. Session Verification
+        # 3. Public Auth Salt Endpoint (Zero-plaintext client PBKDF2)
+        if raw_path == '/api/admin/auth/salt':
+            return self.handle_auth_salt(params)
+
+        # 4. Session Verification
         if raw_path == '/api/admin/session':
             session = self.check_auth()
             if session:
@@ -2033,6 +2061,26 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
 
     # --- Handlers ---
 
+    def handle_auth_salt(self, params):
+        username = (params.get('username', [''])[0] or '').strip().lower()
+        salt_bytes = None
+        if username:
+            try:
+                with get_db() as con:
+                    row = con.execute("SELECT salt FROM account WHERE LOWER(name)=?", (username,)).fetchone()
+                    if row and row["salt"]:
+                        salt_bytes = row["salt"]
+            except Exception:
+                pass
+        if not salt_bytes:
+            # Deterministic dummy salt so nonexistent users don't reveal timing/existence differences
+            salt_bytes = hashlib.sha256(f"dummy_salt:{username}".encode('utf-8')).digest()[:16]
+        return self.send_json(200, {
+            "ok": True,
+            "salt": salt_bytes.hex(),
+            "iterations": 100000
+        })
+
     def handle_login(self, client_ip):
         throttle_ip = "ip:" + client_ip
         retry_after = LOGIN_THROTTLE.retry_after(throttle_ip)
@@ -2055,8 +2103,9 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
 
         username = (body.get("username") or body.get("identity") or "").strip()
         password = body.get("password") or body.get("credential") or ""
+        password_hash = (body.get("password_hash") or "").strip()
 
-        if not username or not password:
+        if not username or (not password and not password_hash):
             LOGIN_THROTTLE.record_failure(throttle_ip)
             post_wait = LOGIN_THROTTLE.retry_after(throttle_ip)
             if post_wait > 0:
@@ -2086,7 +2135,7 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
                 )
             return self.send_json(400, {"error": tr("The username must not exceed 32 characters")})
 
-        if len(password) > 128:
+        if len(password) > 128 or len(password_hash) > 128:
             LOGIN_THROTTLE.record_failure(throttle_ip)
             post_wait = LOGIN_THROTTLE.retry_after(throttle_ip)
             if post_wait > 0:
@@ -2119,7 +2168,7 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
                 {"Retry-After": str(retry_after)}
             )
 
-        valid, resolved_user = authenticate_admin(username, password)
+        valid, resolved_user = authenticate_admin(username, password=password, password_hash=password_hash)
         if not valid:
             log_audit("system", "login_failed", username, "Invalid credentials", client_ip)
             failures = max(
