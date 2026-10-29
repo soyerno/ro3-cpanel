@@ -96,6 +96,7 @@
   "Delete Permanently": "Eliminar Definitivamente",
   "Restricted access:": "Acceso restringido:",
   "Exclusively for authorized administrators and Game Masters.": "Exclusivo para administradores y Game Masters autorizados.",
+  "Protected with client-side encryption (Zero-Plaintext PBKDF2).": "Protegido con cifrado en el navegador (Zero-Plaintext PBKDF2).",
   "Engine:": "Motor:",
   "Database:": "Base de Datos:",
   "Security:": "Seguridad:",

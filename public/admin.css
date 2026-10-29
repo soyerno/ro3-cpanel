@@ -986,6 +986,16 @@ body {
   margin-bottom: 20px;
   text-align: left;
 }
+.login-security-pill {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px dashed rgba(229, 192, 123, 0.2);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--green, #98c379);
+  font-size: 10px;
+}
 
 .login-footer {
   margin-top: 24px;
