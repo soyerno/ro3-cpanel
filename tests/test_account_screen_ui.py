@@ -372,7 +372,10 @@ class TestStyles(unittest.TestCase):
     def test_touch_targets_and_focus_rings(self):
         self.assertIn("min-height: 44px", self.block)
         self.assertRegex(self.block, r"\.account-tab:focus-visible")
-        self.assertRegex(self.block, r"\.account-screen \.btn:focus-visible")
+        # Buttons, links and fields of the screen get the one global 2px ring (pinned in
+        # tests/test_admin_polish_ui.py); no rule may take it away from them.
+        self.assertRegex(self.css, r"(?m)^:focus-visible\s*\{[^}]*outline:\s*2px solid var\(--border-focus\)")
+        self.assertNotRegex(self.css, r"outline:\s*(none|0)\b")
         self.assertRegex(self.block, r'\.account-tab\[aria-selected="true"\]')
 
     def test_screen_uses_the_shared_page_width_tokens(self):

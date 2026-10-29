@@ -235,7 +235,7 @@ class TestMarketAndVaultStyles(unittest.TestCase):
 
 class TestMarketAndVaultLocale(unittest.TestCase):
     EXPECTED_KEYS = (
-        "🏪 Market",
+        "Market",
         "Web Market",
         "Vault",
         "Account vault",

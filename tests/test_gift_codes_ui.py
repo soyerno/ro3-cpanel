@@ -132,7 +132,7 @@ class TestGiftCodesLocale(unittest.TestCase):
     def test_new_strings_have_spanish_translations(self):
         with open(os.path.join(PUBLIC, "locales", "es.json"), encoding="utf-8") as f:
             es = json.load(f)
-        for key in ("🎁 Gift Codes", "Create Gift Code", "Rewards", "Scheduled", "Exhausted", "unlimited"):
+        for key in ("Gift Codes", "Create Gift Code", "Rewards", "Scheduled", "Exhausted", "unlimited"):
             with self.subTest(key=key):
                 self.assertIn(key, es)
 

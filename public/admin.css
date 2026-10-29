@@ -16,7 +16,10 @@
   --gold-dark: #a88732;
   --text-main: #e6edf3;
   --text-muted: #8b949e;
-  --text-dim: #5a6575;
+  --text-dim: #808a98;
+  --text-strong: #ffffff;
+  --bg-inset: #0c1018;
+  --border-input: #66738a;
   --danger: #e06c75;
   --danger-bg: rgba(224, 108, 117, 0.15);
   --success: #98c379;
@@ -39,6 +42,12 @@
   box-sizing: border-box;
   margin: 0;
   padding: 0;
+}
+
+/* One focus ring for every interactive element; no rule may remove it without a replacement. */
+:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
 }
 
 body {
@@ -118,7 +127,7 @@ body {
 }
 
 .brand-badge {
-  font-size: 10px;
+  font-size: 12px;
   text-transform: uppercase;
   background: rgba(229, 192, 123, 0.15);
   color: var(--gold);
@@ -129,7 +138,7 @@ body {
 }
 
 .brand-subtitle {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-muted);
 }
 
@@ -219,7 +228,7 @@ body {
   border: 0;
   color: var(--text-muted);
   padding: 4px 9px;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.5px;
   cursor: pointer;
@@ -239,8 +248,9 @@ body {
   color: var(--gold);
 }
 
-.lang-btn:focus-visible {
-  outline: 2px solid var(--border-focus);
+.lang-btn:focus-visible,
+.tab-btn:focus-visible {
+  /* Inside scrolling or clipping parents an outer ring would be cut off. */
   outline-offset: -2px;
 }
 
@@ -292,7 +302,7 @@ body {
   background: rgba(255, 255, 255, 0.08);
   padding: 2px 7px;
   border-radius: 10px;
-  font-size: 11px;
+  font-size: 12px;
 }
 
 /* Main Container */
@@ -374,7 +384,7 @@ body {
   align-items: center;
   gap: 8px;
   background: var(--bg-dark);
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--border-input);
   border-radius: var(--radius-sm);
   padding: 6px 12px;
   flex: 1;
@@ -390,25 +400,24 @@ body {
   background: transparent;
   border: none;
   color: var(--text-main);
-  outline: none;
   font-size: 13px;
   width: 100%;
 }
 
 .filter-group {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 12px;
 }
 
 .select-filter {
   background: var(--bg-dark);
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--border-input);
   color: var(--text-main);
   padding: 7px 12px;
   border-radius: var(--radius-sm);
   font-size: 13px;
-  outline: none;
   cursor: pointer;
 }
 
@@ -461,7 +470,7 @@ body {
 
 .btn-danger:hover {
   background: var(--danger);
-  color: #fff;
+  color: var(--bg-dark);
 }
 
 .btn-sm {
@@ -544,7 +553,7 @@ body {
   gap: 4px;
   padding: 3px 8px;
   border-radius: var(--radius-sm);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
 }
 
@@ -564,7 +573,7 @@ body {
   border: 1px solid var(--border-color);
   padding: 3px 8px;
   border-radius: var(--radius-sm);
-  font-size: 11px;
+  font-size: 12px;
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -679,19 +688,17 @@ body {
 .form-input, .form-textarea {
   width: 100%;
   background: var(--bg-dark);
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--border-input);
   color: var(--text-main);
   padding: 9px 12px;
   border-radius: var(--radius-sm);
   font-size: 14px;
-  outline: none;
   font-family: inherit;
   transition: border-color 0.2s;
 }
 
 .form-input:focus, .form-textarea:focus {
   border-color: var(--border-focus);
-  box-shadow: 0 0 0 2px var(--gold-glow);
 }
 
 /* GM Tools in Details Modal */
@@ -779,7 +786,7 @@ body {
 }
 
 .stat-box-lbl {
-  font-size: 10px;
+  font-size: 12px;
   color: var(--text-muted);
   font-weight: 600;
 }
@@ -890,7 +897,7 @@ body {
 }
 
 .diag-lbl {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-muted);
   font-weight: 600;
 }
@@ -924,9 +931,21 @@ body {
   to { opacity: 1; transform: translateY(0); }
 }
 
-.toast.success { border-left: 4px solid var(--success); }
-.toast.error { border-left: 4px solid var(--danger); }
-.toast.info { border-left: 4px solid var(--info); }
+/* The type shows in the whole border and a tint, never in a coloured side stripe. */
+.toast.success {
+  border-color: var(--success);
+  background-image: linear-gradient(var(--success-bg), var(--success-bg));
+}
+
+.toast.error {
+  border-color: var(--danger);
+  background-image: linear-gradient(var(--danger-bg), var(--danger-bg));
+}
+
+.toast.info {
+  border-color: var(--info);
+  background-image: linear-gradient(var(--info-bg), var(--info-bg));
+}
 
 /* Login Box */
 .login-screen-wrapper {
@@ -992,7 +1011,7 @@ body {
   border: 1px solid rgba(229, 192, 123, 0.25);
   border-radius: var(--radius-sm);
   padding: 8px 12px;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--gold);
   margin-bottom: 20px;
   text-align: left;
@@ -1004,13 +1023,13 @@ body {
   display: flex;
   align-items: center;
   gap: 6px;
-  color: var(--green, #98c379);
-  font-size: 10px;
+  color: var(--success);
+  font-size: 12px;
 }
 
 .login-footer {
   margin-top: 24px;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-dim);
 }
 
@@ -1045,7 +1064,7 @@ body {
 }
 
 .economy-sub {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-muted);
   margin-top: 2px;
   max-width: 180px;
@@ -1237,14 +1256,9 @@ body {
   min-width: 0;
 }
 
-.account-screen a:focus-visible,
-.account-screen .btn:focus-visible,
-.account-screen .form-textarea:focus-visible,
-.account-title:focus-visible,
-.account-panel:focus-visible,
 .account-tab:focus-visible {
-  outline: 2px solid var(--border-focus);
-  outline-offset: 2px;
+  /* The tab strip scrolls, which would clip an outer ring. */
+  outline-offset: -2px;
 }
 
 .account-topbar {
@@ -1721,10 +1735,276 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .account-screen *,
-  .account-screen *::before,
-  .account-screen *::after {
+  *,
+  *::before,
+  *::after {
     animation: none !important;
     transition: none !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Panel polish: classes that replace inline styles (a strict style-src policy drops style attributes), plus accessibility and responsive rules. Colours come from tokens only. */
+
+/* Text and spacing utilities */
+.text-gold { color: var(--gold); }
+.text-muted { color: var(--text-muted); }
+.text-dim { color: var(--text-dim); }
+.text-strong { color: var(--text-strong); }
+.mb-4 { margin-bottom: 4px; }
+.mb-12 { margin-bottom: 12px; }
+
+.muted-note {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.card-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-strong);
+}
+
+.card-note {
+  margin-bottom: 16px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.toolbar-card-block {
+  display: block;
+}
+
+.button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.info-list {
+  list-style: none;
+  font-size: 12px;
+  line-height: 2;
+  color: var(--text-muted);
+}
+
+.dash-grid {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 20px;
+}
+
+.pill-sep {
+  color: var(--text-dim);
+}
+
+.search-icon {
+  color: var(--text-muted);
+}
+
+/* Column widths for table headers */
+.w-8 { width: 8%; }
+.w-10 { width: 10%; }
+.w-11 { width: 11%; }
+.w-12 { width: 12%; }
+.w-14 { width: 14%; }
+.w-15 { width: 15%; }
+.w-16 { width: 16%; }
+.w-17 { width: 17%; }
+.w-18 { width: 18%; }
+.w-20 { width: 20%; }
+.w-22 { width: 22%; }
+
+/* Login */
+.login-card .form-group {
+  text-align: left;
+}
+
+.login-error {
+  margin-bottom: 16px;
+  font-size: 12px;
+  color: var(--danger);
+  text-align: left;
+}
+
+.btn-block {
+  width: 100%;
+  padding: 12px;
+}
+
+/* Modals */
+.modal-dialog-sm { max-width: 440px; }
+.modal-dialog-md { max-width: 460px; }
+.modal-dialog-lg { max-width: 560px; }
+
+.modal-intro {
+  margin-bottom: 16px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.modal-title-danger {
+  color: var(--danger);
+}
+
+.modal-subtitle {
+  margin-bottom: 10px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--text-strong);
+}
+
+/* Table cells and states built by the script */
+/* td.table-state outranks the generic .data-table td padding */
+td.table-state {
+  padding: 32px;
+  text-align: center;
+  color: var(--text-muted);
+}
+
+.table-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  color: var(--danger);
+}
+
+.account-name {
+  font-size: 14px;
+  color: var(--text-strong);
+}
+
+.cell-meta {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.cell-none {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.tab-btn svg {
+  flex-shrink: 0;
+}
+
+/* Character inventory (inside a character card) */
+.inventory-box {
+  margin-top: 8px;
+  padding: 10px;
+  background: var(--bg-inset);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  color: var(--text-main);
+}
+
+.inventory-box.is-empty {
+  color: var(--text-muted);
+}
+
+.inventory-total {
+  margin-bottom: 8px;
+  color: var(--text-muted);
+}
+
+.inventory-group {
+  margin-bottom: 10px;
+}
+
+.inventory-group .data-table {
+  margin-top: 6px;
+}
+
+/* Toast fade-out (replaces inline transition styles) */
+.toast.is-leaving {
+  opacity: 0;
+  transform: translateY(10px);
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+
+/* Narrow screens: the dashboard grid stacks and the accounts table turns into one card per account. */
+@media (max-width: 640px) {
+  .dash-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .data-table--stack thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+  }
+
+  .data-table--stack,
+  .data-table--stack tbody,
+  .data-table--stack tr {
+    display: block;
+    width: 100%;
+  }
+
+  .data-table--stack tr {
+    padding: 8px 14px;
+    border-bottom: 1px solid var(--border-color);
+  }
+
+  .data-table--stack td {
+    display: grid;
+    grid-template-columns: minmax(96px, 120px) minmax(0, 1fr);
+    align-items: start;
+    gap: 8px;
+    padding: 6px 0;
+    border-bottom: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .data-table--stack td::before {
+    content: attr(data-label);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    color: var(--text-muted);
+  }
+
+  .data-table--stack td.table-state {
+    display: block;
+    padding: 24px 8px;
+  }
+
+  .data-table--stack td.table-state::before {
+    content: none;
+  }
+}
+
+/* Touch screens: every control gets a 44px target. */
+@media (pointer: coarse) {
+  .btn,
+  .btn-sm,
+  .btn-logout,
+  .tab-btn,
+  .lang-btn,
+  .modal-close,
+  .select-filter,
+  .form-input,
+  .search-box input {
+    min-height: 44px;
+  }
+
+  .btn-sm,
+  .btn-logout,
+  .lang-btn,
+  .modal-close {
+    min-width: 44px;
   }
 }

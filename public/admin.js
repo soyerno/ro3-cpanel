@@ -352,19 +352,79 @@
     setLanguage(lang, true);
   }
 
+  // --- UI helpers (accessibility, loading and error states) ---
+  // The pure helpers sit between the markers below; tests/test_admin_polish_ui.py runs them with node.
+  // ui-helpers:begin
+  // Row buttons are named "<visible text>: <account>" so a screen reader list is not ten identical "Manage".
+  function actionLabel(text, account) {
+    return account ? text + ': ' + account : text;
+  }
+
+  // Only errors interrupt a screen reader; every other toast waits for its turn.
+  function toastRole(type) {
+    return type === 'error' ? 'alert' : 'status';
+  }
+
+  // Tab / Shift+Tab inside a dialog: the control to focus, or null when the browser may decide.
+  function focusTrapTarget(focusables, active, backwards) {
+    if (!focusables.length) return null;
+    var first = focusables[0];
+    var last = focusables[focusables.length - 1];
+    if (focusables.indexOf(active) === -1) return backwards ? last : first;
+    if (backwards && active === first) return last;
+    if (!backwards && active === last) return first;
+    return null;
+  }
+  // ui-helpers:end
+
+  // aria-busy follows the requests that fill a region; overlapping requests keep it busy until the last one ends.
+  var busyCounts = new WeakMap();
+
+  function trackBusy(el, promise) {
+    if (!el) return promise;
+    busyCounts.set(el, (busyCounts.get(el) || 0) + 1);
+    el.setAttribute('aria-busy', 'true');
+    var done = function () {
+      var left = Math.max(0, (busyCounts.get(el) || 1) - 1);
+      busyCounts.set(el, left);
+      if (!left) el.setAttribute('aria-busy', 'false');
+    };
+    promise.then(done, done);
+    return promise;
+  }
+
+  // A button that sends a request is locked (and shows a spinner) until the request ends.
+  function setSubmitting(btn, busy) {
+    if (!btn) return;
+    btn.disabled = busy;
+    btn.classList.toggle('is-loading', busy);
+    btn.setAttribute('aria-busy', busy ? 'true' : 'false');
+  }
+
+  function submitButtonOf(e) {
+    var form = e && e.target && e.target.closest ? e.target.closest('form') : null;
+    return form ? form.querySelector('button[type="submit"]') : null;
+  }
+
+  // A failed load never leaves "Loading..." behind: the row says what happened and offers a retry.
+  function errorRowHtml(colspan, message, retryKey) {
+    return '<tr><td colspan="' + colspan + '" class="table-state"><div class="table-error" role="alert"><p>' + escapeHtml(message) + '</p>' +
+      '<button type="button" class="btn btn-secondary btn-sm" data-retry="' + escapeHtml(retryKey) + '">' + escapeHtml(t('Retry')) + '</button></div></td></tr>';
+  }
+
   // --- Toast Notifications ---
   function showToast(message, type) {
     type = type || 'info';
     var toast = document.createElement('div');
     toast.className = 'toast ' + type;
+    toast.setAttribute('role', toastRole(type));
     toast.innerHTML = '<span>' + escapeHtml(message) + '</span>';
     els.toasts.appendChild(toast);
+    // Errors stay longer so they can be read.
     setTimeout(function () {
-      toast.style.opacity = '0';
-      toast.style.transform = 'translateY(10px)';
-      toast.style.transition = 'all 0.3s';
+      toast.classList.add('is-leaving');
       setTimeout(function () { toast.remove(); }, 300);
-    }, 4000);
+    }, type === 'error' ? 8000 : 4000);
   }
 
   function escapeHtml(str) {
@@ -790,7 +850,7 @@
     if (els.onlineCountLabel) els.onlineCountLabel.textContent = t('{count} sessions', { count: players.length });
 
     if (players.length === 0) {
-      els.onlineTbody.innerHTML = '<tr><td colspan="' + cols + '" style="text-align: center; color: var(--text-muted); padding: 24px;">' + escapeHtml(t('No players connected.')) + '</td></tr>';
+      els.onlineTbody.innerHTML = emptyRow(cols, t('No players connected.'));
       return;
     }
 
@@ -798,7 +858,7 @@
       var pos = (isNum(p.x) && isNum(p.z)) ? String(p.x) + ', ' + String(p.z) : '—';
       var row = '<tr>' +
         '<td>' + escapeHtml(p.account) + '</td>' +
-        '<td>' + (p.character ? escapeHtml(p.character) : '<span style="color: var(--text-muted);">' + escapeHtml(t('No character')) + '</span>') + '</td>' +
+        '<td>' + (p.character ? escapeHtml(p.character) : '<span class="text-muted">' + escapeHtml(t('No character')) + '</span>') + '</td>' +
         '<td>' + (p.scene_name ? escapeHtml(p.scene_name) : '—') + '</td>' +
         '<td>' + escapeHtml(pos) + '</td>';
       if (showIps) row += '<td>' + (p.remote ? escapeHtml(p.remote) : '—') + '</td>';
@@ -813,7 +873,9 @@
     if (state.sortBy) params.set('sort', state.sortBy);
     params.set('page', String(state.accountsPage));
 
-    apiFetch('/api/admin/accounts?' + params.toString())
+    var request = apiFetch('/api/admin/accounts?' + params.toString());
+    trackBusy(els.accountsTbody, request);
+    request
       .then(function (data) {
         var pages = data.pages || 1;
         // The current page can disappear (e.g. after deleting its last account): jump to the last one.
@@ -830,7 +892,9 @@
         renderAccountsPager();
       })
       .catch(function (err) {
-        showToast(t('Error loading accounts: {message}', { message: err.message }), 'error');
+        var message = t('Error loading accounts: {message}', { message: err.message });
+        if (els.accountsTbody) els.accountsTbody.innerHTML = errorRowHtml(6, message, 'accounts');
+        showToast(message, 'error');
       });
   }
 
@@ -863,7 +927,7 @@
     var list = state.accounts;
 
     if (!list.length) {
-      els.accountsTbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--text-muted); padding: 32px;">' + escapeHtml(t('No accounts found matching the search criteria.')) + '</td></tr>';
+      els.accountsTbody.innerHTML = emptyRow(6, t('No accounts found matching the search criteria.'));
       return;
     }
 
@@ -891,24 +955,25 @@
         });
         charsHtml += '</div>';
       } else {
-        charsHtml = '<span style="color: var(--text-dim); font-size: 11px;">' + escapeHtml(t('No characters')) + '</span>';
+        charsHtml = '<span class="cell-none">' + escapeHtml(t('No characters')) + '</span>';
       }
 
+      // data-label feeds the stacked card layout of narrow screens; the aria-labels name each button after its account.
       html += '<tr data-account="' + escapeHtml(acc.name) + '">' +
-        '<td><strong style="color: #fff; font-size: 14px;">' + escapeHtml(acc.name) + '</strong></td>' +
-        '<td>' + badgeHtml + '</td>' +
-        '<td>' + charsHtml + '</td>' +
-        '<td style="color: var(--text-muted); font-size: 12px;">' + formatDate(acc.created_utc) + '</td>' +
-        '<td style="color: var(--text-muted); font-size: 12px;">' + formatDate(acc.last_login) + '</td>' +
-        '<td>' +
-          '<div style="display: flex; gap: 6px;">' +
-            '<button class="btn btn-secondary btn-sm btn-view-detail" data-account="' + escapeHtml(acc.name) + '" title="' + escapeHtml(t('Manage account, characters and security')) + '" aria-label="' + escapeHtml(t('Manage account {name}', { name: acc.name })) + '">' + escapeHtml(t('Manage')) + '</button>' +
-            '<button class="btn btn-secondary btn-sm btn-change-pw" data-account="' + escapeHtml(acc.name) + '" title="' + escapeHtml(t('Change password')) + '">' + escapeHtml(t('Pass')) + '</button>' +
+        '<td data-label="' + escapeHtml(t('Account')) + '"><strong class="account-name">' + escapeHtml(acc.name) + '</strong></td>' +
+        '<td data-label="' + escapeHtml(t('Status')) + '">' + badgeHtml + '</td>' +
+        '<td data-label="' + escapeHtml(t('Associated Characters')) + '">' + charsHtml + '</td>' +
+        '<td class="cell-meta" data-label="' + escapeHtml(t('Registration Date')) + '">' + formatDate(acc.created_utc) + '</td>' +
+        '<td class="cell-meta" data-label="' + escapeHtml(t('Last Login')) + '">' + formatDate(acc.last_login) + '</td>' +
+        '<td data-label="' + escapeHtml(t('Actions')) + '">' +
+          '<div class="row-actions">' +
+            '<button class="btn btn-secondary btn-sm btn-view-detail" data-account="' + escapeHtml(acc.name) + '" title="' + escapeHtml(t('Manage account, characters and security')) + '" aria-label="' + escapeHtml(actionLabel(t('Manage'), acc.name)) + '">' + escapeHtml(t('Manage')) + '</button>' +
+            '<button class="btn btn-secondary btn-sm btn-change-pw" data-account="' + escapeHtml(acc.name) + '" title="' + escapeHtml(t('Change password')) + '" aria-label="' + escapeHtml(actionLabel(t('Pass'), acc.name)) + '">' + escapeHtml(t('Pass')) + '</button>' +
             (acc.is_admin ? '' : (acc.is_banned ?
-              '<button class="btn btn-secondary btn-sm btn-unban" data-account="' + escapeHtml(acc.name) + '" title="' + escapeHtml(t('Remove suspension')) + '">' + escapeHtml(t('Unban')) + '</button>' :
-              '<button class="btn btn-danger btn-sm btn-ban" data-account="' + escapeHtml(acc.name) + '" title="' + escapeHtml(t('Suspend account')) + '">' + escapeHtml(t('Ban')) + '</button>'
+              '<button class="btn btn-secondary btn-sm btn-unban" data-account="' + escapeHtml(acc.name) + '" title="' + escapeHtml(t('Remove suspension')) + '" aria-label="' + escapeHtml(actionLabel(t('Unban'), acc.name)) + '">' + escapeHtml(t('Unban')) + '</button>' :
+              '<button class="btn btn-danger btn-sm btn-ban" data-account="' + escapeHtml(acc.name) + '" title="' + escapeHtml(t('Suspend account')) + '" aria-label="' + escapeHtml(actionLabel(t('Ban'), acc.name)) + '">' + escapeHtml(t('Ban')) + '</button>'
             )) +
-            (acc.is_admin ? '' : '<button class="btn btn-danger btn-sm btn-delete" data-account="' + escapeHtml(acc.name) + '" title="' + escapeHtml(t('Delete account')) + '">✕</button>') +
+            (acc.is_admin ? '' : '<button class="btn btn-danger btn-sm btn-delete" data-account="' + escapeHtml(acc.name) + '" title="' + escapeHtml(t('Delete account')) + '" aria-label="' + escapeHtml(actionLabel(t('Delete account'), acc.name)) + '">✕</button>') +
           '</div>' +
         '</td>' +
       '</tr>';
@@ -919,22 +984,68 @@
 
   // --- Modals ---
   var modalReturnFocus = new WeakMap();
+  // Open modals, the last one is on top: it owns the keyboard (Tab stays inside it, Escape closes it).
+  var modalStack = [];
+  var FOCUSABLE_SELECTOR = 'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+  function modalFocusables(modalEl) {
+    return Array.prototype.filter.call(modalEl.querySelectorAll(FOCUSABLE_SELECTOR), function (el) {
+      return !el.hidden && el.getClientRects().length > 0;
+    });
+  }
+
+  // While a modal is open the page behind it cannot be reached by Tab, click or screen reader.
+  // Toasts stay live so a result is still announced.
+  function setBackgroundInert(inert) {
+    Array.prototype.forEach.call(document.body.children, function (el) {
+      if (el.classList.contains('modal-backdrop') || el.id === 'toast-container' || el.tagName === 'SCRIPT') return;
+      el.inert = inert;
+    });
+  }
 
   function openModal(modalEl) {
     if (!modalEl) return;
     modalReturnFocus.set(modalEl, document.activeElement);
     modalEl.hidden = false;
+    if (modalStack.indexOf(modalEl) === -1) modalStack.push(modalEl);
+    setBackgroundInert(true);
+    // First field when there is one, otherwise the dialog itself so a screen reader starts at its title.
     var field = modalEl.querySelector('input:not([type="hidden"]), select, textarea');
-    if (field) field.focus();
+    var target = field || modalEl.querySelector('.modal-dialog');
+    if (target) target.focus();
   }
 
   function closeModal(modalEl) {
     if (!modalEl) return;
     modalEl.hidden = true;
+    var open = modalStack.indexOf(modalEl);
+    if (open !== -1) modalStack.splice(open, 1);
+    if (!modalStack.length) setBackgroundInert(false);
     // Hand focus back to the control that opened the modal (a hidden control ignores the call).
     var opener = modalReturnFocus.get(modalEl);
     modalReturnFocus.delete(modalEl);
     if (opener && opener.isConnected && typeof opener.focus === 'function') opener.focus();
+  }
+
+  function handleModalKeydown(e) {
+    var top = modalStack[modalStack.length - 1];
+    if (!top || top.hidden) return;
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      closeModal(modalStack[modalStack.length - 1]);
+      return;
+    }
+    if (e.key !== 'Tab') return;
+    var focusables = modalFocusables(top);
+    var target = focusTrapTarget(focusables, document.activeElement, e.shiftKey);
+    if (target) {
+      e.preventDefault();
+      target.focus();
+    } else if (!focusables.length) {
+      e.preventDefault();
+      var dialog = top.querySelector('.modal-dialog');
+      if (dialog) dialog.focus();
+    }
   }
 
   // --- Account management screen (route #/accounts/<name>[/<tab>]) ---
@@ -1434,7 +1545,8 @@
         renderCharacterMail(panel, roleId, data);
       })
       .catch(function (err) {
-        panel.innerHTML = '<p class="char-mail-empty">' + escapeHtml(t('Error loading mail: {message}', { message: err.message })) + '</p>';
+        panel.innerHTML = '<p class="char-mail-empty">' + escapeHtml(t('Error loading mail: {message}', { message: err.message })) + '</p>' +
+          '<button type="button" class="btn btn-secondary btn-sm btn-mail-page" data-role-id="' + escapeHtml(String(roleId)) + '" data-page="' + escapeHtml(String(page)) + '">' + escapeHtml(t('Retry')) + '</button>';
       });
   }
 
@@ -1471,13 +1583,12 @@
   }
 
   function renderInventory(data) {
-    var boxStyle = 'margin-top: 8px; padding: 10px; background: #0c1018; border: 1px solid var(--border-color); border-radius: var(--radius-sm); font-size: 12px;';
     if (!data || data.available === false) {
-      return '<div style="' + boxStyle + ' color: var(--text-muted);">' + escapeHtml(t('The inventory is not available in this database.')) + '</div>';
+      return '<div class="inventory-box is-empty">' + escapeHtml(t('The inventory is not available in this database.')) + '</div>';
     }
     var items = data.items || [];
     if (!items.length) {
-      return '<div style="' + boxStyle + ' color: var(--text-muted);">' + escapeHtml(t('This character has no items.')) + '</div>';
+      return '<div class="inventory-box is-empty">' + escapeHtml(t('This character has no items.')) + '</div>';
     }
 
     // Group by pack, keeping the server order (pack, sort, guid).
@@ -1492,13 +1603,13 @@
       byPack[key].items.push(item);
     });
 
-    var html = '<div style="' + boxStyle + '">' +
-      '<div style="color: var(--text-muted); margin-bottom: 8px;">' + escapeHtml(t('Total items:')) + ' <strong style="color: #fff;">' + formatNumber(data.total) + '</strong></div>';
+    var html = '<div class="inventory-box">' +
+      '<div class="inventory-total">' + escapeHtml(t('Total items:')) + ' <strong class="text-strong">' + formatNumber(data.total) + '</strong></div>';
     groups.forEach(function (g) {
       var label = g.packName || t('Bag {pack}', { pack: g.pack });
-      html += '<div style="margin-bottom: 10px;">' +
+      html += '<div class="inventory-group">' +
         '<span class="badge badge-admin">' + escapeHtml(label) + ' (' + g.items.length + ')</span>' +
-        '<table class="data-table" style="margin-top: 6px;">' +
+        '<table class="data-table">' +
           '<thead><tr><th>' + escapeHtml(t('Inventory item')) + '</th><th>' + escapeHtml(t('Quantity')) + '</th><th>' + escapeHtml(t('Status')) + '</th></tr></thead><tbody>';
       g.items.forEach(function (item) {
         var name = item.name ? escapeHtml(item.name) : '#' + escapeHtml(String(item.entry));
@@ -1507,7 +1618,7 @@
         if (item.locked) flags.push('<span class="badge badge-banned">' + escapeHtml(t('Locked')) + '</span>');
         if (item.bind_type) flags.push('<span class="badge badge-admin">' + escapeHtml(t('Bound')) + '</span>');
         html += '<tr>' +
-          '<td><strong style="color: #fff;">' + name + '</strong> <span style="color: var(--text-dim);">#' + escapeHtml(String(item.entry)) + '</span></td>' +
+          '<td><strong class="text-strong">' + name + '</strong> <span class="text-dim">#' + escapeHtml(String(item.entry)) + '</span></td>' +
           '<td>' + formatNumber(item.stack) + '</td>' +
           '<td>' + (flags.length ? flags.join(' ') : '—') + '</td>' +
         '</tr>';
@@ -1747,6 +1858,8 @@
     var account = state.accountScreen.data;
     if (!account) return;
     setGmResult(t('Sending…'), '');
+    var gmButtons = Array.prototype.slice.call(document.querySelectorAll('#gm-tools button'));
+    gmButtons.forEach(function (button) { setSubmitting(button, true); });
     apiFetch('/api/admin/gm', {
       method: 'POST',
       body: { account: account.name, command: command, args: args }
@@ -1758,6 +1871,9 @@
       .catch(function (err) {
         setGmResult(err.message, 'error');
         showToast(t('GM error: {message}', { message: err.message }), 'error');
+      })
+      .finally(function () {
+        gmButtons.forEach(function (button) { setSubmitting(button, false); });
       });
   }
 
@@ -1780,7 +1896,8 @@
 
   function handleUpdatePassword(e) {
     e.preventDefault();
-    if (!state.selectedAccount) return;
+    var submit = submitButtonOf(e);
+    if (!state.selectedAccount || (submit && submit.disabled)) return;
     var newPass = document.getElementById('pw-new-pass').value || '';
     if (!newPass || newPass.length < 6) {
       showToast(t('The new password must be at least 6 characters.'), 'error');
@@ -1788,6 +1905,7 @@
     }
 
     var accountName = state.selectedAccount.name;
+    setSubmitting(submit, true);
     apiFetch('/api/admin/accounts/update-password', {
       method: 'POST',
       body: { username: accountName, new_password: newPass }
@@ -1799,6 +1917,9 @@
       })
       .catch(function (err) {
         showToast(t('Error: {message}', { message: err.message }), 'error');
+      })
+      .finally(function () {
+        setSubmitting(submit, false);
       });
   }
 
@@ -1811,6 +1932,8 @@
 
   function handleCreateAccount(e) {
     e.preventDefault();
+    var submit = submitButtonOf(e);
+    if (submit && submit.disabled) return;
     var user = (document.getElementById('create-username').value || '').trim();
     var pass = (document.getElementById('create-password').value || '').trim();
     var notes = (document.getElementById('create-notes').value || '').trim();
@@ -1824,6 +1947,7 @@
       return;
     }
 
+    setSubmitting(submit, true);
     apiFetch('/api/admin/accounts/create', {
       method: 'POST',
       body: { username: user, password: pass, notes: notes }
@@ -1836,6 +1960,9 @@
       })
       .catch(function (err) {
         showToast(t('Error creating account: {message}', { message: err.message }), 'error');
+      })
+      .finally(function () {
+        setSubmitting(submit, false);
       });
   }
 
@@ -1851,7 +1978,8 @@
 
   function handleBanAccount(e) {
     e.preventDefault();
-    if (!state.selectedAccount) return;
+    var submit = submitButtonOf(e);
+    if (!state.selectedAccount || (submit && submit.disabled)) return;
     var reason = (document.getElementById('ban-reason').value || '').trim() || t('Administrative suspension');
     var accountName = state.selectedAccount.name;
     var body = { username: accountName, reason: reason };
@@ -1859,6 +1987,7 @@
     var days = parseInt(document.getElementById('ban-days').value, 10);
     if (days > 0) body.days = days;
 
+    setSubmitting(submit, true);
     apiFetch('/api/admin/accounts/ban', {
       method: 'POST',
       body: body
@@ -1872,11 +2001,15 @@
       })
       .catch(function (err) {
         showToast(t('Error suspending account: {message}', { message: err.message }), 'error');
+      })
+      .finally(function () {
+        setSubmitting(submit, false);
       });
   }
 
-  function handleUnbanAccount(name) {
+  function handleUnbanAccount(name, btn) {
     if (!confirm(t('Do you want to reset and remove the suspension of account "{name}"?', { name: name }))) return;
+    setSubmitting(btn, true);
     apiFetch('/api/admin/accounts/unban', {
       method: 'POST',
       body: { username: name }
@@ -1889,6 +2022,9 @@
       })
       .catch(function (err) {
         showToast(t('Error removing suspension: {message}', { message: err.message }), 'error');
+      })
+      .finally(function () {
+        setSubmitting(btn, false);
       });
   }
 
@@ -1901,7 +2037,8 @@
 
   function handleDeleteAccount(e) {
     e.preventDefault();
-    if (!state.selectedAccount) return;
+    var submit = submitButtonOf(e);
+    if (!state.selectedAccount || (submit && submit.disabled)) return;
     var typedName = (document.getElementById('del-confirm-name').value || '').trim();
     if (typedName !== state.selectedAccount.name) {
       showToast(t('You must type the account name exactly to confirm.'), 'error');
@@ -1909,6 +2046,7 @@
     }
 
     var accountName = state.selectedAccount.name;
+    setSubmitting(submit, true);
     apiFetch('/api/admin/accounts/delete', {
       method: 'POST',
       body: { username: accountName }
@@ -1926,11 +2064,16 @@
       })
       .catch(function (err) {
         showToast(t('Error deleting account: {message}', { message: err.message }), 'error');
+      })
+      .finally(function () {
+        setSubmitting(submit, false);
       });
   }
 
   function loadAuditLog() {
-    return apiFetch('/api/admin/audit-log?page=' + encodeURIComponent(String(state.auditPage)))
+    var request = apiFetch('/api/admin/audit-log?page=' + encodeURIComponent(String(state.auditPage)));
+    trackBusy(els.auditTbody, request);
+    return request
       .then(function (data) {
         var logs = data.logs || [];
         state.auditPages = data.pages || 1;
@@ -1944,7 +2087,7 @@
         renderPager(els.auditPager, els.auditPagerInfo, els.auditPagerPrev, els.auditPagerNext,
           state.auditPage, state.auditPages, state.auditTotal, 'records');
         if (!logs.length) {
-          els.auditTbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--text-muted); padding: 24px;">' + escapeHtml(t('No audit records yet.')) + '</td></tr>';
+          els.auditTbody.innerHTML = emptyRow(5, t('No audit records yet.'));
           return;
         }
         var html = '';
@@ -1956,21 +2099,23 @@
             targetDisplay = targetDisplay.substring(0, MAX_TARGET_CHARS) + '…';
           }
           var targetCell = targetRaw
-            ? '<strong class="audit-target" title="' + escapeHtml(targetRaw) + '" style="color: #fff;">' + escapeHtml(targetDisplay) + '</strong>'
+            ? '<strong class="audit-target text-strong" title="' + escapeHtml(targetRaw) + '">' + escapeHtml(targetDisplay) + '</strong>'
             : '—';
 
           html += '<tr>' +
-            '<td style="color: var(--text-muted); font-size: 12px;">' + formatDate(l.created_utc) + '</td>' +
-            '<td><strong style="color: var(--gold);">' + escapeHtml(l.admin_user) + '</strong></td>' +
+            '<td class="cell-meta">' + formatDate(l.created_utc) + '</td>' +
+            '<td><strong class="text-gold">' + escapeHtml(l.admin_user) + '</strong></td>' +
             '<td><span class="badge badge-admin">' + escapeHtml(l.action) + '</span></td>' +
             '<td>' + targetCell + '</td>' +
-            '<td style="color: var(--text-muted);">' + escapeHtml(l.details) + '</td>' +
+            '<td class="text-muted">' + escapeHtml(l.details) + '</td>' +
           '</tr>';
         });
         els.auditTbody.innerHTML = html;
       })
       .catch(function (err) {
-        showToast(t('Error loading records: {message}', { message: err.message }), 'error');
+        var message = t('Error loading records: {message}', { message: err.message });
+        if (els.auditTbody) els.auditTbody.innerHTML = errorRowHtml(5, message, 'audit');
+        showToast(message, 'error');
       });
   }
 
@@ -1991,7 +2136,9 @@
     params.set('page', String(eco.page));
     params.set('page_size', String(eco.pageSize));
 
-    apiFetch('/api/admin/economy?' + params.toString())
+    var request = apiFetch('/api/admin/economy?' + params.toString());
+    trackBusy(els.economyTbody, request);
+    request
       .then(function (data) {
         eco.page = data.page || 1;
         eco.pages = data.pages || 1;
@@ -2000,7 +2147,9 @@
         renderEconomyPager(data.total || 0);
       })
       .catch(function (err) {
-        showToast(t('Error loading economy: {message}', { message: err.message }), 'error');
+        var message = t('Error loading economy: {message}', { message: err.message });
+        if (els.economyTbody) els.economyTbody.innerHTML = errorRowHtml(7, message, 'economy');
+        showToast(message, 'error');
       });
   }
 
@@ -2012,8 +2161,7 @@
   function renderEconomyTable(entries, available) {
     if (!els.economyTbody) return;
     if (!entries.length) {
-      var msg = escapeHtml(available ? t('No movements for the selected filters.') : t('Economy log not available in this database.'));
-      els.economyTbody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: var(--text-muted); padding: 24px;">' + msg + '</td></tr>';
+      els.economyTbody.innerHTML = emptyRow(7, available ? t('No movements for the selected filters.') : t('Economy log not available in this database.'));
       return;
     }
     var html = '';
@@ -2022,15 +2170,15 @@
       var deltaText = (e.delta > 0 ? '+' : '') + formatNumber(e.delta);
       var actorRole = e.actor_role_name ? escapeHtml(e.actor_role_name) : ('#' + escapeHtml(String(e.actor_role)));
       html += '<tr>' +
-        '<td style="color: var(--text-muted); font-size: 12px;">' + formatDate(e.recorded_utc) + '</td>' +
+        '<td class="cell-meta">' + formatDate(e.recorded_utc) + '</td>' +
         '<td><span class="badge badge-admin">' + escapeHtml(e.command_kind) + '</span>' +
           '<div class="economy-sub" title="' + escapeHtml(e.operation_id) + '">' + escapeHtml(e.operation_id) + '</div></td>' +
-        '<td><strong style="color: #fff;">' + escapeHtml(e.actor_account) + '</strong>' +
+        '<td><strong class="text-strong">' + escapeHtml(e.actor_account) + '</strong>' +
           '<div class="economy-sub">' + actorRole + '</div></td>' +
         '<td>' + describeEconomyOwner(e) + '</td>' +
         '<td>' + escapeHtml(e.asset_label) + '</td>' +
         '<td class="' + deltaClass + '">' + escapeHtml(deltaText) + '</td>' +
-        '<td style="color: var(--text-muted);">' + escapeHtml(String(e.reason_code)) + '</td>' +
+        '<td class="text-muted">' + escapeHtml(String(e.reason_code)) + '</td>' +
       '</tr>';
     });
     els.economyTbody.innerHTML = html;
@@ -2084,20 +2232,20 @@
     if (!els.rankingsThead) return;
     if (type === 'guilds') {
       els.rankingsThead.innerHTML = '<tr>' +
-        '<th style="width: 10%;">#</th>' +
+        '<th class="w-10">#</th>' +
         '<th>' + escapeHtml(t('Clan')) + '</th>' +
-        '<th style="width: 22%;">' + escapeHtml(t('Active Members')) + '</th>' +
-        '<th style="width: 22%;">' + escapeHtml(t('Total Level')) + '</th>' +
+        '<th class="w-22">' + escapeHtml(t('Active Members')) + '</th>' +
+        '<th class="w-22">' + escapeHtml(t('Total Level')) + '</th>' +
       '</tr>';
       return;
     }
     els.rankingsThead.innerHTML = '<tr>' +
-      '<th style="width: 8%;">#</th>' +
+      '<th class="w-8">#</th>' +
       '<th>' + escapeHtml(t('Character')) + '</th>' +
-      '<th style="width: 18%;">' + escapeHtml(t('Account')) + '</th>' +
-      '<th style="width: 18%;">' + escapeHtml(t('Class')) + '</th>' +
-      '<th style="width: 14%;">' + escapeHtml(t('Level / Job')) + '</th>' +
-      '<th style="width: 16%;">' + escapeHtml(rankingMetricLabel(type)) + '</th>' +
+      '<th class="w-18">' + escapeHtml(t('Account')) + '</th>' +
+      '<th class="w-18">' + escapeHtml(t('Class')) + '</th>' +
+      '<th class="w-14">' + escapeHtml(t('Level / Job')) + '</th>' +
+      '<th class="w-16">' + escapeHtml(rankingMetricLabel(type)) + '</th>' +
     '</tr>';
   }
 
@@ -2119,7 +2267,9 @@
     var url = '/api/admin/rankings?type=' + encodeURIComponent(type) +
       '&limit=' + state.rankingLimit + '&page=' + state.rankingPage;
     renderRankingsHead(type);
-    apiFetch(url)
+    var request = apiFetch(url);
+    trackBusy(els.rankingsTbody, request);
+    request
       .then(function (data) {
         if (!els.rankingsTbody) return;
         var rows = data.rankings || [];
@@ -2128,11 +2278,11 @@
         renderRankingsPager();
 
         if (data.available === false) {
-          els.rankingsTbody.innerHTML = '<tr><td colspan="' + colspan + '" style="text-align: center; color: var(--text-muted); padding: 24px;">' + escapeHtml(t('The database has no clan tables yet.')) + '</td></tr>';
+          els.rankingsTbody.innerHTML = emptyRow(colspan, t('The database has no clan tables yet.'));
           return;
         }
         if (!rows.length) {
-          els.rankingsTbody.innerHTML = '<tr><td colspan="' + colspan + '" style="text-align: center; color: var(--text-muted); padding: 24px;">' + escapeHtml(t('No data for this ranking.')) + '</td></tr>';
+          els.rankingsTbody.innerHTML = emptyRow(colspan, t('No data for this ranking.'));
           return;
         }
 
@@ -2140,17 +2290,17 @@
         rows.forEach(function (r) {
           if (type === 'guilds') {
             html += '<tr>' +
-              '<td><strong style="color: var(--gold);">' + r.rank + '</strong></td>' +
-              '<td><strong style="color: #fff;">' + escapeHtml(r.name) + '</strong></td>' +
+              '<td><strong class="text-gold">' + r.rank + '</strong></td>' +
+              '<td><strong class="text-strong">' + escapeHtml(r.name) + '</strong></td>' +
               '<td>' + formatNumber(r.member_count) + '</td>' +
               '<td>' + formatNumber(r.total_level) + '</td>' +
             '</tr>';
             return;
           }
           html += '<tr>' +
-            '<td><strong style="color: var(--gold);">' + r.rank + '</strong></td>' +
-            '<td><strong style="color: #fff;">' + escapeHtml(r.name) + '</strong></td>' +
-            '<td style="color: var(--text-muted);">' + escapeHtml(r.account) + '</td>' +
+            '<td><strong class="text-gold">' + r.rank + '</strong></td>' +
+            '<td><strong class="text-strong">' + escapeHtml(r.name) + '</strong></td>' +
+            '<td class="text-muted">' + escapeHtml(r.account) + '</td>' +
             '<td>' + escapeHtml(r.career_name) + '</td>' +
             '<td>' + formatNumber(r.level) + ' / ' + formatNumber(r.job_level) + '</td>' +
             '<td><strong>' + formatNumber(r.value) + '</strong></td>' +
@@ -2159,7 +2309,9 @@
         els.rankingsTbody.innerHTML = html;
       })
       .catch(function (err) {
-        showToast(t('Error loading rankings: {message}', { message: err.message }), 'error');
+        var message = t('Error loading rankings: {message}', { message: err.message });
+        if (els.rankingsTbody) els.rankingsTbody.innerHTML = errorRowHtml(type === 'guilds' ? 4 : 6, message, 'rankings');
+        showToast(message, 'error');
       });
   }
 
@@ -2171,8 +2323,7 @@
   }
 
   function emptyRow(colspan, text) {
-    return '<tr><td colspan="' + colspan + '" style="text-align: center; color: var(--text-muted); padding: 32px;">' +
-      escapeHtml(text) + '</td></tr>';
+    return '<tr><td colspan="' + colspan + '" class="table-state">' + escapeHtml(text) + '</td></tr>';
   }
 
   // kind selects a whole-sentence label ('guilds' or 'records') so word order can differ per language.
@@ -2194,7 +2345,9 @@
     if (state.guildQuery) params.set('q', state.guildQuery);
     params.set('page', String(state.guildsPage));
 
-    apiFetch('/api/admin/guilds?' + params.toString())
+    var request = apiFetch('/api/admin/guilds?' + params.toString());
+    trackBusy(els.guildsTbody, request);
+    request
       .then(function (data) {
         state.guildsPages = data.pages || 1;
         state.guildsTotal = data.total || 0;
@@ -2204,7 +2357,9 @@
           state.guildsPage, state.guildsPages, state.guildsTotal, 'guilds');
       })
       .catch(function (err) {
-        showToast(t('Error loading guilds: {message}', { message: err.message }), 'error');
+        var message = t('Error loading guilds: {message}', { message: err.message });
+        if (els.guildsTbody) els.guildsTbody.innerHTML = errorRowHtml(6, message, 'guilds');
+        showToast(message, 'error');
       });
   }
 
@@ -2217,8 +2372,8 @@
     var html = '';
     guilds.forEach(function (g) {
       html += '<tr>' +
-        '<td style="color: var(--text-muted);">' + cellValue(g.id) + '</td>' +
-        '<td><strong style="color: #fff;">' + escapeHtml(g.name) + '</strong></td>' +
+        '<td class="text-muted">' + cellValue(g.id) + '</td>' +
+        '<td><strong class="text-strong">' + escapeHtml(g.name) + '</strong></td>' +
         '<td>' + cellValue(g.level) + '</td>' +
         '<td>' + cellValue(g.member_count) + '</td>' +
         '<td>' + cellValue(g.total_level) + '</td>' +
@@ -2257,7 +2412,7 @@
           var html = '';
           members.forEach(function (m) {
             html += '<tr>' +
-              '<td><strong style="color: #fff;">' + escapeHtml(m.name) + '</strong></td>' +
+              '<td><strong class="text-strong">' + escapeHtml(m.name) + '</strong></td>' +
               '<td>' + escapeHtml(m.account) + '</td>' +
               '<td>' + escapeHtml(m.career_name) + '</td>' +
               '<td>' + cellValue(m.level) + '</td>' +
@@ -2298,7 +2453,9 @@
     params.set('view', state.auctionView);
     params.set('page', String(state.auctionsPage));
 
-    apiFetch('/api/admin/auctions?' + params.toString())
+    var request = apiFetch('/api/admin/auctions?' + params.toString());
+    trackBusy(els.auctionsTbody, request);
+    request
       .then(function (data) {
         state.auctionsPages = data.pages || 1;
         state.auctionsTotal = data.total || 0;
@@ -2308,7 +2465,9 @@
           state.auctionsPage, state.auctionsPages, state.auctionsTotal, 'records');
       })
       .catch(function (err) {
-        showToast(t('Error loading auctions: {message}', { message: err.message }), 'error');
+        var message = t('Error loading auctions: {message}', { message: err.message });
+        if (els.auctionsTbody) els.auctionsTbody.innerHTML = errorRowHtml(6, message, 'auctions');
+        showToast(message, 'error');
       });
   }
 
@@ -2399,7 +2558,9 @@
   }
 
   function loadGiftCodes() {
-    apiFetch('/api/admin/gift-codes')
+    var request = apiFetch('/api/admin/gift-codes');
+    trackBusy(els.giftCodesTbody, request);
+    request
       .then(function (data) {
         var unavailable = data.available === false;
         if (els.giftCodesUnavailable) {
@@ -2412,8 +2573,9 @@
         renderGiftCodesTable(data.codes || []);
       })
       .catch(function (err) {
-        if (els.giftCodesTbody) els.giftCodesTbody.innerHTML = emptyRow(10, t('Error loading gift codes: {message}', { message: err.message }));
-        showToast(t('Error loading gift codes: {message}', { message: err.message }), 'error');
+        var message = t('Error loading gift codes: {message}', { message: err.message });
+        if (els.giftCodesTbody) els.giftCodesTbody.innerHTML = errorRowHtml(10, message, 'giftcodes');
+        showToast(message, 'error');
       });
   }
 
@@ -2488,6 +2650,8 @@
 
   function handleCreateGiftCode(e) {
     e.preventDefault();
+    var pending = document.getElementById('btn-giftcode-submit');
+    if (pending && pending.disabled) return;
     var code = (document.getElementById('giftcode-code').value || '').trim();
     if (code.length < 1 || code.length > 64) {
       setGiftCodeError(t('The code must be between 1 and 64 characters.'));
@@ -2536,7 +2700,7 @@
     setGiftCodeError('');
 
     var submit = document.getElementById('btn-giftcode-submit');
-    if (submit) submit.disabled = true;
+    setSubmitting(submit, true);
     apiFetch('/api/admin/gift-codes', {
       method: 'POST',
       body: {
@@ -2558,8 +2722,8 @@
         setGiftCodeError(err.message);
         showToast(err.message, 'error');
       })
-      .then(function () {
-        if (submit) submit.disabled = false;
+      .finally(function () {
+        setSubmitting(submit, false);
       });
   }
 
@@ -2632,7 +2796,9 @@
     params.set('page', String(market.page));
     params.set('page_size', String(MARKET_PAGE_SIZE));
 
-    return apiFetch('/api/admin/market?' + params.toString())
+    var request = apiFetch('/api/admin/market?' + params.toString());
+    trackBusy(els.marketTbody, request);
+    return request
       .then(function (data) {
         // A newer filter or page request supersedes this response.
         if (requestId !== market.request) return;
@@ -2663,7 +2829,7 @@
       .catch(function (err) {
         if (requestId !== market.request) return;
         var message = t('Error loading market: {message}', { message: err.message });
-        if (els.marketTbody) els.marketTbody.innerHTML = emptyRow(8, message);
+        if (els.marketTbody) els.marketTbody.innerHTML = errorRowHtml(8, message, 'market');
         showToast(message, 'error');
       });
   }
@@ -2692,11 +2858,29 @@
   }
 
   // --- Tabs Switching ---
+  // The loader behind each Retry button of a table error row (see errorRowHtml).
+  var RETRY_LOADERS = {
+    accounts: loadAccounts,
+    audit: loadAuditLog,
+    economy: loadEconomy,
+    rankings: loadRankings,
+    guilds: loadGuilds,
+    auctions: loadAuctions,
+    giftcodes: loadGiftCodes,
+    market: loadMarket
+  };
+
   function switchTab(tabId) {
     var previousTab = state.activeTab;
     state.activeTab = tabId;
     document.querySelectorAll('.tab-btn').forEach(function (b) {
-      b.classList.toggle('active', b.getAttribute('data-tab') === tabId);
+      var active = b.getAttribute('data-tab') === tabId;
+      b.classList.toggle('active', active);
+      if (active) {
+        b.setAttribute('aria-current', 'page');
+      } else {
+        b.removeAttribute('aria-current');
+      }
     });
 
     if (els.tabViewDashboard) els.tabViewDashboard.hidden = (tabId !== 'dashboard');
@@ -2807,7 +2991,7 @@
     };
     if (els.accountBtnPassword) els.accountBtnPassword.addEventListener('click', function () { showChangePassword(screenName()); });
     if (els.accountBtnBan) els.accountBtnBan.addEventListener('click', function () { showBanAccount(screenName()); });
-    if (els.accountBtnUnban) els.accountBtnUnban.addEventListener('click', function () { handleUnbanAccount(screenName()); });
+    if (els.accountBtnUnban) els.accountBtnUnban.addEventListener('click', function () { handleUnbanAccount(screenName(), els.accountBtnUnban); });
     if (els.accountBtnDelete) els.accountBtnDelete.addEventListener('click', function () { showDeleteAccount(screenName()); });
   }
 
@@ -3025,6 +3209,24 @@
     var btnNewAccountDash = document.getElementById('btn-new-account-dash');
     if (btnNewAccountDash) btnNewAccountDash.addEventListener('click', showCreateAccount);
 
+    var btnBrowseAccounts = document.getElementById('btn-browse-accounts');
+    if (btnBrowseAccounts) {
+      btnBrowseAccounts.addEventListener('click', function () {
+        var accountsTab = document.querySelector('.tab-btn[data-tab="accounts"]');
+        if (accountsTab) accountsTab.click();
+      });
+    }
+
+    if (els.mainContent) {
+      // Retry buttons rendered by the table error rows.
+      els.mainContent.addEventListener('click', function (e) {
+        var retry = e.target.closest('[data-retry]');
+        if (!retry) return;
+        var key = retry.getAttribute('data-retry');
+        if (Object.prototype.hasOwnProperty.call(RETRY_LOADERS, key)) RETRY_LOADERS[key]();
+      });
+    }
+
     var btnRefresh = document.getElementById('btn-refresh');
     if (btnRefresh) {
       btnRefresh.addEventListener('click', function () {
@@ -3048,7 +3250,7 @@
         } else if (target.classList.contains('btn-ban')) {
           showBanAccount(acc);
         } else if (target.classList.contains('btn-unban')) {
-          handleUnbanAccount(acc);
+          handleUnbanAccount(acc, target);
         } else if (target.classList.contains('btn-delete')) {
           showDeleteAccount(acc);
         }
@@ -3061,6 +3263,8 @@
         if (modal) closeModal(modal);
       });
     });
+    // Registered before the account screen's own Escape rule: a press that closes a modal is handled once.
+    document.addEventListener('keydown', handleModalKeydown);
 
     var formPw = document.getElementById('form-password');
     if (formPw) formPw.addEventListener('submit', handleUpdatePassword);
