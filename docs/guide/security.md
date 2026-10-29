@@ -34,14 +34,18 @@ account_ban(account TEXT NOT NULL PRIMARY KEY, reason TEXT NOT NULL DEFAULT '',
             banned_utc INTEGER NOT NULL, until_utc INTEGER, banned_by TEXT)
 ```
 
-- **Ban** (`POST /api/admin/accounts/ban`, body `{"username", "reason"}`) writes the row (`banned_utc` = now in
-  unix seconds, `until_utc` = `NULL`, `banned_by` = the admin user), deletes the account's `auth_token` rows and
+- **Ban** (`POST /api/admin/accounts/ban`, body `{"username", "reason", "days"}`) writes the row (`banned_utc` =
+  now in unix seconds, `until_utc` = now + `days` × 86400 for a temporary ban or `NULL` without `days`,
+  `banned_by` = the admin user), deletes the account's `auth_token` rows and
   writes the `ban_account` audit row, all in one SQLite transaction. Banning a banned account replaces its row. The
   `reason` is text of up to 500 characters (otherwise `400`); it is stored in RO3Emu's table.
 - **Unban** (`POST /api/admin/accounts/unban`, body `{"username"}`) deletes the row and writes the
   `unban_account` audit row in one transaction.
-- **Active ban:** the row exists and `until_utc` is `NULL` or later than now. The panel never sets
-  `until_utc`; a row with a past `until_utc` shows as not banned. The accounts list (`status=banned|active`),
+- **Temporary ban:** `days` is a whole number from 1 to 3650 (otherwise `400`); the form offers permanent, 1, 7
+  and 30 days. RO3Emu lets the account sign in again once `until_utc` has passed; the list, the account sheet and
+  the audit row show the end date.
+- **Active ban:** the row exists and `until_utc` is `NULL` or later than now; a row with a past `until_utc` shows
+  as not banned. The accounts list (`status=banned|active`),
   the account sheet and the dashboard count read only active rows.
 - **Older RO3Emu** (no `account_ban` table): ban and unban answer `409` with "Update RO3Emu: this server does
   not support account bans", and change nothing. Reads show every account as not banned, and the accounts

@@ -796,7 +796,8 @@
       if (acc.is_admin) {
         badgeHtml = '<span class="badge badge-admin">★ GM Admin</span>';
       } else if (acc.is_banned) {
-        badgeHtml = '<span class="badge badge-banned" title="' + escapeHtml(acc.ban_reason) + '">' + escapeHtml(t('✕ Banned')) + '</span>';
+        var banTitle = acc.banned_until ? acc.ban_reason + ' · ' + t('Suspended until {until}', { until: acc.banned_until }) : acc.ban_reason;
+        badgeHtml = '<span class="badge badge-banned" title="' + escapeHtml(banTitle) + '">' + escapeHtml(t('✕ Banned')) + '</span>';
       } else {
         badgeHtml = '<span class="badge badge-active">' + escapeHtml(t('✓ Active')) + '</span>';
       }
@@ -857,7 +858,9 @@
         document.getElementById('detail-acc-name').textContent = acc.name;
         document.getElementById('detail-acc-created').textContent = formatDate(acc.created_utc);
         document.getElementById('detail-acc-status').innerHTML = acc.is_banned ?
-          '<span class="badge badge-banned">' + escapeHtml(t('Banned ({reason})', { reason: acc.ban_reason })) + '</span>' :
+          '<span class="badge badge-banned">' + escapeHtml(acc.banned_until ?
+            t('Banned until {until} ({reason})', { until: acc.banned_until, reason: acc.ban_reason }) :
+            t('Banned ({reason})', { reason: acc.ban_reason })) + '</span>' :
           '<span class="badge badge-active">' + escapeHtml(t('Active')) + '</span>';
         document.getElementById('detail-acc-tokens').textContent = t('{count} sessions', { count: acc.tokens_count });
 
@@ -1246,6 +1249,7 @@
       t('Suspending account {account} makes RO3Emu refuse its sign-in and revokes its active sessions.') :
       t('This RO3Emu does not support account bans, so account {account} cannot be suspended. Update RO3Emu first.'), name);
     document.getElementById('ban-reason').value = '';
+    document.getElementById('ban-days').value = '';
     openModal(els.modalBan);
   }
 
@@ -1253,10 +1257,14 @@
     e.preventDefault();
     if (!state.selectedAccount) return;
     var reason = (document.getElementById('ban-reason').value || '').trim() || t('Administrative suspension');
+    var body = { username: state.selectedAccount.name, reason: reason };
+    // Empty: a permanent ban. Otherwise RO3Emu lifts it by itself after that many days.
+    var days = parseInt(document.getElementById('ban-days').value, 10);
+    if (days > 0) body.days = days;
 
     apiFetch('/api/admin/accounts/ban', {
       method: 'POST',
-      body: { username: state.selectedAccount.name, reason: reason }
+      body: body
     })
       .then(function (data) {
         showToast(data.message, data.enforced === false ? 'info' : 'success');
