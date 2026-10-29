@@ -265,14 +265,14 @@ class GuildsAuctionsTest(unittest.TestCase):
 
     def test_guild_detail_unknown_career_uses_fallback_label(self):
         data = self.get_ok("/api/admin/guilds/2")
-        self.assertEqual(data["members"][0]["career_name"], "Clase 9999")
+        self.assertEqual(data["members"][0]["career_name"], "Class 9999")
 
     def test_guild_detail_unknown_or_invalid_id_is_404(self):
         for path in ("/api/admin/guilds/999", "/api/admin/guilds/abc", "/api/admin/guilds/1;DROP",
                      "/api/admin/guilds/99999999999999999999999"):
             status, data = self.request(path)
             self.assertEqual(status, 404, path)
-            self.assertEqual(data["error"], "Gremio no encontrado")
+            self.assertEqual(data["error"], "Guild not found")
 
     # --- auctions ---
 

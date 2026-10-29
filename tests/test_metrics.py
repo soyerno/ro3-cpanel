@@ -200,7 +200,7 @@ class TestOnlineAndMetricsEndpoints(unittest.TestCase):
         self.assertEqual(m["sessions"]["in_world"], 2)
         self.assertEqual(m["sessions"]["by_map"], [
             {"map": 10100, "scene_name": "Prontera", "count": 3},
-            {"map": 99999, "scene_name": "Mapa 99999", "count": 1},
+            {"map": 99999, "scene_name": "Map 99999", "count": 1},
         ])
         self.assertEqual(m["database"], {"statements": 120, "commits": 40})
         self.assertEqual(m["runtime"], {"working_set_bytes": 157286400})
@@ -235,7 +235,7 @@ class TestOnlineAndMetricsEndpoints(unittest.TestCase):
         self.assertEqual(data["players"][1]["character"], None)
         self.assertEqual(data["players"][1]["scene_id"], None)
         self.assertEqual(data["players"][1]["scene_name"], None)
-        self.assertEqual(data["players"][2]["scene_name"], "Mapa 99999")
+        self.assertEqual(data["players"][2]["scene_name"], "Map 99999")
         for player in data["players"]:
             self.assertNotIn("remote", player)
         for ip in ("203.0.113.7", "198.51.100.2", "192.0.2.9"):
@@ -288,8 +288,8 @@ class TestOnlineAndMetricsEndpoints(unittest.TestCase):
         self.fake.routes["/ro3emu/metrics"] = json_route(METRICS_FIXTURE, delay=1.5)
 
         started = time.monotonic()
-        self.assert_unavailable("/api/admin/online", "a tiempo")
-        self.assert_unavailable("/api/admin/metrics", "a tiempo")
+        self.assert_unavailable("/api/admin/online", "in time")
+        self.assert_unavailable("/api/admin/metrics", "in time")
         self.assertLess(time.monotonic() - started, 2.5)
 
     def test_invalid_json(self):
@@ -304,14 +304,14 @@ class TestOnlineAndMetricsEndpoints(unittest.TestCase):
         big = [dict(ONLINE_FIXTURE[0], account="p%d" % i) for i in range(200)]
         self.fake.routes["/ro3emu/online"] = json_route(big)
 
-        self.assert_unavailable("/api/admin/online", "tamaño")
+        self.assert_unavailable("/api/admin/online", "size")
 
     def test_unexpected_shape(self):
         self.fake.routes["/ro3emu/online"] = json_route({"players": []})
         self.fake.routes["/ro3emu/metrics"] = json_route([1, 2, 3])
 
-        self.assert_unavailable("/api/admin/online", "formato")
-        self.assert_unavailable("/api/admin/metrics", "formato")
+        self.assert_unavailable("/api/admin/online", "format")
+        self.assert_unavailable("/api/admin/metrics", "format")
 
     def test_unreachable_ro3emu(self):
         with closing(socket.socket()) as s:
@@ -327,7 +327,7 @@ class TestOnlineAndMetricsEndpoints(unittest.TestCase):
                 self.assertEqual(status, 200)
                 self.assertIs(data["available"], False)
                 self.assertTrue(
-                    "conectar" in data["reason"] or "a tiempo" in data["reason"],
+                    "connect" in data["reason"] or "in time" in data["reason"],
                     data["reason"],
                 )
 

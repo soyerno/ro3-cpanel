@@ -173,6 +173,54 @@ body {
   color: var(--danger);
 }
 
+/* Language switch (EN | ES) */
+.lang-switch {
+  display: inline-flex;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.lang-switch-login {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+}
+
+.lang-btn {
+  background: transparent;
+  border: 0;
+  color: var(--text-muted);
+  padding: 4px 9px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.lang-btn + .lang-btn {
+  border-left: 1px solid var(--border-color);
+}
+
+.lang-btn:hover {
+  color: var(--text-main);
+}
+
+.lang-btn.active {
+  background: var(--gold-glow);
+  color: var(--gold);
+}
+
+.lang-btn:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: -2px;
+}
+
+.modal-intro strong {
+  color: var(--text-main);
+}
+
 /* Sub-nav Tabs */
 .subnav-tabs {
   background: #111722;
@@ -865,6 +913,7 @@ body {
   padding: 32px;
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.8), 0 0 20px rgba(229, 192, 123, 0.08);
   text-align: center;
+  position: relative;
 }
 
 .login-logo {

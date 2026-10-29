@@ -49,7 +49,9 @@ DEFAULT_CONFIG = {
     "session_secret": secrets.token_hex(32),
     # GM tools (POST /api/admin/gm): panel commands an admin may send through RO3Emu's loopback GM endpoint.
     "gm_allowed_commands": ["warp"],
-    "gm_unstuck_scene": 10111
+    "gm_unstuck_scene": 10111,
+    # Language of the panel when the browser has not chosen one: "en" (default) or "es".
+    "default_language": "en"
 }
 
 def load_config():
@@ -75,6 +77,185 @@ def load_config():
     return config
 
 CONFIG = load_config()
+
+# --- Language (English default, Spanish translation) ---
+# User-facing messages are written in English and used as the translation key; ES_MESSAGES holds the
+# Spanish text. The request handler sets the language for the current thread from the X-Panel-Lang header,
+# falling back to config "default_language".
+SUPPORTED_LANGUAGES = ("en", "es")
+_LANGUAGE = threading.local()
+
+
+def normalize_language(value):
+    value = str(value or "").strip().lower()
+    return value if value in SUPPORTED_LANGUAGES else "en"
+
+
+def default_language():
+    return normalize_language(CONFIG.get("default_language"))
+
+
+def set_language(value):
+    """Set the language for the current thread; None restores the configured default."""
+    _LANGUAGE.value = None if value is None else normalize_language(value)
+
+
+def current_language():
+    return getattr(_LANGUAGE, "value", None) or default_language()
+
+
+def tr(text, **params):
+    """Translate an English message into the current language and fill its {placeholders}."""
+    if current_language() == "es":
+        text = ES_MESSAGES.get(text, text)
+    return text.format(**params) if params else text
+
+
+ES_MESSAGES = {
+    # Labels
+    "No bag": "Sin bolsa",
+    "Items": "Objetos",
+    "Equipment": "Equipo",
+    "Cards": "Cartas",
+    "Totems": "Tótems",
+    "Emblems": "Emblemas",
+    "Currencies": "Monedas",
+    "Class special": "Especial de clase",
+    "Character": "Personaje",
+    "Guild": "Gremio",
+    "System": "Sistema",
+    "Escrow": "Custodia",
+    "Recovery": "Recuperación",
+    "Item": "Ítem",
+    "Currency": "Moneda",
+    "Guild resource": "Recurso de gremio",
+    "Event resource": "Recurso de evento",
+    "Asset": "Activo",
+    "Type {kind}": "Tipo {kind}",
+    "Class {id}": "Clase {id}",
+    "Map {id}": "Mapa {id}",
+    "Online": "En línea",
+    "Offline": "Sin conexión",
+    # Sign-in and generic API errors
+    "Unauthorized. Sign in as an administrator.": "No autorizado. Inicie sesión como administrador.",
+    "Endpoint not found": "Endpoint no encontrado",
+    "Invalid request body": "Cuerpo de solicitud inválido",
+    "Signed out successfully": "Sesión cerrada correctamente",
+    "Enter a username and password": "Debe ingresar usuario y contraseña",
+    "Too many failed attempts. Try again in {seconds} seconds.":
+        "Demasiados intentos fallidos. Intente nuevamente en {seconds} segundos.",
+    "Access denied: invalid administrator credentials.":
+        "Acceso denegado: credenciales de administrador inválidas.",
+    # Accounts, characters, guilds
+    "Account not found": "Cuenta no encontrada",
+    "Invalid character ID": "ID de personaje inválido",
+    "Invalid character ID: it must be a positive integer": "ID de personaje inválido: debe ser un entero positivo",
+    "Character not found": "Personaje no encontrado",
+    "Error reading the character's inventory": "Error leyendo el inventario del personaje",
+    "Guild not found": "Gremio no encontrado",
+    "This character's mailbox could not be decoded.": "El buzón de este personaje no se pudo decodificar.",
+    "The username must be between 3 and 32 characters":
+        "El nombre de usuario debe tener entre 3 y 32 caracteres",
+    "The password must be at least 6 characters": "La contraseña debe tener al menos 6 caracteres",
+    "The new password must be at least 6 characters": "La nueva contraseña debe tener al menos 6 caracteres",
+    "Username required": "Usuario requerido",
+    "Account '{username}' already exists": "La cuenta '{username}' ya existe",
+    "Account '{username}' does not exist": "La cuenta '{username}' no existe",
+    "Account '{username}' created successfully.": "Cuenta '{username}' creada exitosamente.",
+    "Password for '{username}' updated successfully. Sessions revoked.":
+        "Contraseña de '{username}' actualizada exitosamente. Sesiones revocadas.",
+    "An administrator account cannot be suspended.":
+        "No se puede suspender una cuenta con rol de administrador.",
+    "An administrator account cannot be deleted.": "No se puede eliminar una cuenta de administrador.",
+    "Account '{username}' marked as suspended in the panel and its active sessions were revoked. "
+    "RO3Emu does not check this suspension at login: the player can still sign in.":
+        "Cuenta '{username}' marcada como suspendida en el panel y sus sesiones activas fueron revocadas. "
+        "RO3Emu no consulta esta suspensión al iniciar sesión: el jugador puede volver a entrar.",
+    "Suspension of account '{username}' removed successfully.":
+        "Suspensión de la cuenta '{username}' removida exitosamente.",
+    "Account '{username}' and its data were deleted successfully.":
+        "Cuenta '{username}' y sus datos fueron eliminados exitosamente.",
+    "Notes saved successfully.": "Notas guardadas correctamente.",
+    "Invalid date. Use the format YYYY-MM-DD.": "Fecha inválida. Use el formato AAAA-MM-DD.",
+    "Invalid ranking type. Allowed values: {values}": "Tipo de ranking inválido. Valores permitidos: {values}",
+    # RO3Emu connection
+    "The RO3Emu response exceeds the maximum allowed size.":
+        "La respuesta de RO3Emu supera el tamaño máximo permitido.",
+    "RO3Emu does not expose this endpoint to the panel: it only answers on loopback, "
+    "so the panel must run on the same host as RO3Emu (or behind a local proxy).":
+        "RO3Emu no expone este endpoint para el panel: solo responde por loopback, "
+        "así que el panel debe correr en el mismo host que RO3Emu (o detrás de un proxy local).",
+    "RO3Emu answered HTTP {code}.": "RO3Emu respondió HTTP {code}.",
+    "RO3Emu did not answer in time.": "RO3Emu no respondió a tiempo.",
+    "Could not connect to RO3Emu.": "No se pudo conectar con RO3Emu.",
+    "The RO3Emu response is not valid JSON.": "La respuesta de RO3Emu no es JSON válido.",
+    "The RO3Emu response has an unexpected format.": "La respuesta de RO3Emu tiene un formato inesperado.",
+    "RO3Emu database unavailable.": "Base de datos de RO3Emu no disponible.",
+    # GM tools
+    "GM endpoint unavailable (the panel must run on the same host as RO3Emu).":
+        "Endpoint GM no disponible (requiere que el panel corra en el mismo host que RO3Emu).",
+    "The RO3Emu GM endpoint only accepts local connections: the panel must run on the same host "
+    "as RO3Emu and 'ro3_base_url' (or 'ro3_status_url') must point to 127.0.0.1, ::1 or localhost.":
+        "El endpoint GM de RO3Emu solo acepta conexiones locales: el panel debe correr en el mismo host "
+        "que RO3Emu y 'ro3_base_url' (o 'ro3_status_url') debe apuntar a 127.0.0.1, ::1 o localhost.",
+    "'ro3_base_url' (or 'ro3_status_url') must not include a username or password (user:pass@host).":
+        "'ro3_base_url' (o 'ro3_status_url') no puede incluir usuario ni contraseña (usuario:clave@host).",
+    "'{label}' must be an integer between {minimum} and {maximum}.":
+        "'{label}' debe ser un número entero entre {minimum} y {maximum}.",
+    "Invalid configuration: 'gm_unstuck_scene' must be a valid scene number.":
+        "Configuración inválida: 'gm_unstuck_scene' debe ser un número de escena válido.",
+    "GM command not supported by the panel.": "Comando GM no soportado por el panel.",
+    "The command '{command}' is not enabled in 'gm_allowed_commands'.":
+        "El comando '{command}' no está habilitado en 'gm_allowed_commands'.",
+    "Invalid account.": "Cuenta inválida.",
+    "Invalid account: it contains characters that are not allowed.":
+        "Cuenta inválida: contiene caracteres no permitidos.",
+    "'args' must be a JSON object.": "'args' debe ser un objeto JSON.",
+    "Arguments not allowed: {args}": "Argumentos no permitidos: {args}",
+    "warp requires 'scene' (sceneEntry).": "warp requiere 'scene' (sceneEntry).",
+    "warp requires 'x' and 'z' together, or neither.": "warp requiere 'x' y 'z' juntos, o ninguno de los dos.",
+    "Command sent: RO3Emu answered 'done'. The result (or a usage error) appears in the player's "
+    "in-game chat, not in the panel.":
+        "Comando enviado: RO3Emu respondió 'done'. El resultado (o un error de uso) aparece en el chat "
+        "del juego del jugador, no en el panel.",
+    "The account is not in the game (it has no connected character).":
+        "La cuenta no está en el juego (no tiene un personaje conectado).",
+    "RO3Emu is not accepting commands right now (the server is not in the Accepting phase).":
+        "RO3Emu no acepta comandos en este momento (el servidor no está en fase Accepting).",
+    "Unexpected RO3Emu response (HTTP {code}).": "Respuesta inesperada de RO3Emu (HTTP {code}).",
+    # Stored audit-log details (see localize_audit_details)
+    "Invalid credentials": "Credenciales inválidas",
+    "Administrative sign-in": "Inicio de sesión administrativo",
+    "Account created by admin": "Cuenta creada por admin",
+    "Password changed by admin": "Contraseña modificada por admin",
+    "Suspension lifted by admin": "Suspensión levantada por admin",
+    "Account deleted by admin": "Cuenta eliminada por admin",
+    "Rule violation / Admin action": "Violación de normas / Acción de administrador",
+}
+
+
+# Audit rows store English text (see log_audit calls); the audit view translates it on read.
+# Rows written before the panel was bilingual stay as stored.
+_AUDIT_DETAIL_PATTERNS = (
+    (re.compile(r"^Reason: (.*)$", re.S), "Motivo: {0}"),
+    (re.compile(r"^Retry in (\d+)s$"), "Reintentar en {0}s"),
+    (re.compile(r"^(.*) -> sent \(done\)$", re.S), "{0} -> enviado (done)"),
+    (re.compile(r"^(.*) -> failed: (.*)$", re.S), "{0} -> fallido: {1}"),
+    (re.compile(r"^(.*) -> rejected: (.*)$", re.S), "{0} -> rechazado: {1}"),
+)
+
+
+def localize_audit_details(details):
+    if current_language() != "es" or not isinstance(details, str) or not details:
+        return details
+    if details in ES_MESSAGES:
+        return ES_MESSAGES[details]
+    for pattern, template in _AUDIT_DETAIL_PATTERNS:
+        match = pattern.match(details)
+        if match:
+            return template.format(*match.groups())
+    return details
+
 HOST = CONFIG.get("host", "0.0.0.0")
 PORT = int(CONFIG.get("port", 8095))
 DB_PATH = os.path.abspath(CONFIG.get("ro3_db_path", "ro3emu.db"))
@@ -277,14 +458,14 @@ SCENE_MAP = {
 # RO3Emu PackType values stored in item.pack (aethai/ro3emu-server
 # src/Ro3Emu.Server/Protos/romsg/MG_Pack.proto, enum PackType).
 PACK_NAMES = {
-    0: 'Sin bolsa',
-    1: 'Objetos',
-    2: 'Equipo',
-    3: 'Cartas',
-    4: 'Tótems',
-    5: 'Emblemas',
-    20: 'Monedas',
-    100: 'Especial de clase'
+    0: 'No bag',
+    1: 'Items',
+    2: 'Equipment',
+    3: 'Cards',
+    4: 'Totems',
+    5: 'Emblems',
+    20: 'Currencies',
+    100: 'Class special'
 }
 
 # Max value of a signed 64-bit SQLite INTEGER.
@@ -332,15 +513,15 @@ def _as_int(value):
 
 
 def career_name(career_id):
-    """Display name for a career (class) id; unknown ids render as "Clase <id>"."""
+    """Display name for a career (class) id; unknown ids render as "Class <id>"."""
     name = CAREER_MAP.get(_as_int(career_id))
-    return name if name is not None else f"Clase {career_id}"
+    return name if name is not None else tr("Class {id}", id=career_id)
 
 
 def scene_name(scene_id):
-    """Display name for a scene (map) id; unknown ids render as "Mapa <id>"."""
+    """Display name for a scene (map) id; unknown ids render as "Map <id>"."""
     name = SCENE_MAP.get(_as_int(scene_id))
-    return name if name is not None else f"Mapa {scene_id}"
+    return name if name is not None else tr("Map {id}", id=scene_id)
 
 
 def _parse_names_section(section_name, section):
@@ -669,7 +850,7 @@ def parse_ranking_int(params, key, default, minimum, maximum=None):
 
 
 def career_label(career_id):
-    return CAREER_MAP.get(career_id, f"Clase {career_id}")
+    return CAREER_MAP.get(career_id, tr("Class {id}", id=career_id))
 
 
 def parse_stats(stats_str):
@@ -842,18 +1023,18 @@ ECONOMY_DEFAULT_PAGE_SIZE = 50
 ECONOMY_MAX_PAGE_SIZE = 200
 ECONOMY_OWNER_KIND_ROLE = 1
 ECONOMY_OWNER_KIND_LABELS = {
-    1: 'Personaje',
-    2: 'Gremio',
-    3: 'Sistema',
-    4: 'Custodia',
-    5: 'Recuperación'
+    1: 'Character',
+    2: 'Guild',
+    3: 'System',
+    4: 'Escrow',
+    5: 'Recovery'
 }
 ECONOMY_ASSET_KIND_CURRENCY = 2
 ECONOMY_ASSET_KIND_LABELS = {
-    1: 'Ítem',
-    2: 'Moneda',
-    3: 'Recurso de gremio',
-    4: 'Recurso de evento'
+    1: 'Item',
+    2: 'Currency',
+    3: 'Guild resource',
+    4: 'Event resource'
 }
 # Upstream RoleStore.cs: currencies are ItemConfig ids and "1 = Zeny".
 ZENY_CURRENCY_ID = 1
@@ -971,7 +1152,7 @@ def query_economy(account, character, from_ms, to_ms, page, page_size):
             if asset_kind == ECONOMY_ASSET_KIND_CURRENCY and row["asset_id"] == ZENY_CURRENCY_ID:
                 asset_label = "Zeny"
             else:
-                asset_label = f"{ECONOMY_ASSET_KIND_LABELS.get(asset_kind, 'Activo')} #{row['asset_id']}"
+                asset_label = f"{tr(ECONOMY_ASSET_KIND_LABELS.get(asset_kind, 'Asset'))} #{row['asset_id']}"
             actor_role = row["actor_role"]
             entries.append({
                 "entry_id": row["entry_id"],
@@ -982,7 +1163,7 @@ def query_economy(account, character, from_ms, to_ms, page, page_size):
                 "actor_role": actor_role,
                 "actor_role_name": role_names.get(int(actor_role)) if actor_role is not None else None,
                 "owner_kind": row["owner_kind"],
-                "owner_kind_label": ECONOMY_OWNER_KIND_LABELS.get(row["owner_kind"], f"Tipo {row['owner_kind']}"),
+                "owner_kind_label": tr(ECONOMY_OWNER_KIND_LABELS[row["owner_kind"]]) if row["owner_kind"] in ECONOMY_OWNER_KIND_LABELS else tr("Type {kind}", kind=row["owner_kind"]),
                 "owner_id": owner_id,
                 "owner_name": owner_name,
                 "asset_kind": asset_kind,
@@ -1023,7 +1204,7 @@ def ro3_base_url():
 def fetch_ro3_json(path):
     """GET a RO3Emu JSON endpoint within RO3_HTTP_TIMEOUT and RO3_MAX_RESPONSE_BYTES.
 
-    Raises Ro3EmuUnavailable with a Spanish reason on any failure.
+    Raises Ro3EmuUnavailable with a translated reason on any failure.
     """
     deadline = time.monotonic() + RO3_HTTP_TIMEOUT
     req = urllib.request.Request(ro3_base_url() + path, headers={'User-Agent': 'RO3AdminCPanel'})
@@ -1031,7 +1212,7 @@ def fetch_ro3_json(path):
         with urllib.request.urlopen(req, timeout=RO3_HTTP_TIMEOUT) as resp:
             declared = resp.headers.get('Content-Length')
             if declared and declared.isdigit() and int(declared) > RO3_MAX_RESPONSE_BYTES:
-                raise Ro3EmuUnavailable("La respuesta de RO3Emu supera el tamaño máximo permitido.")
+                raise Ro3EmuUnavailable(tr("The RO3Emu response exceeds the maximum allowed size."))
             body = bytearray()
             while True:
                 if time.monotonic() > deadline:
@@ -1041,32 +1222,33 @@ def fetch_ro3_json(path):
                     break
                 body.extend(chunk)
                 if len(body) > RO3_MAX_RESPONSE_BYTES:
-                    raise Ro3EmuUnavailable("La respuesta de RO3Emu supera el tamaño máximo permitido.")
+                    raise Ro3EmuUnavailable(tr("The RO3Emu response exceeds the maximum allowed size."))
     except Ro3EmuUnavailable:
         raise
     except urllib.error.HTTPError as e:
         e.close()
         if e.code == 404:
-            raise Ro3EmuUnavailable(
-                "RO3Emu no expone este endpoint para el panel: solo responde por loopback, "
-                "así que el panel debe correr en el mismo host que RO3Emu (o detrás de un proxy local)."
-            )
-        raise Ro3EmuUnavailable(f"RO3Emu respondió HTTP {e.code}.")
+            raise Ro3EmuUnavailable(tr(
+                "RO3Emu does not expose this endpoint to the panel: it only answers on loopback, "
+                "so the panel must run on the same host as RO3Emu (or behind a local proxy)."
+            ))
+        raise Ro3EmuUnavailable(tr("RO3Emu answered HTTP {code}.", code=e.code))
     except (TimeoutError, socket.timeout):
-        raise Ro3EmuUnavailable("RO3Emu no respondió a tiempo.")
+        raise Ro3EmuUnavailable(tr("RO3Emu did not answer in time."))
     except urllib.error.URLError as e:
         if isinstance(e.reason, (TimeoutError, socket.timeout)):
-            raise Ro3EmuUnavailable("RO3Emu no respondió a tiempo.")
-        raise Ro3EmuUnavailable("No se pudo conectar con RO3Emu.")
+            raise Ro3EmuUnavailable(tr("RO3Emu did not answer in time."))
+        raise Ro3EmuUnavailable(tr("Could not connect to RO3Emu."))
     except (OSError, ValueError, http.client.HTTPException):
-        raise Ro3EmuUnavailable("No se pudo conectar con RO3Emu.")
+        raise Ro3EmuUnavailable(tr("Could not connect to RO3Emu."))
     try:
         return json.loads(bytes(body).decode('utf-8'))
     except (UnicodeDecodeError, ValueError):
-        raise Ro3EmuUnavailable("La respuesta de RO3Emu no es JSON válido.")
+        raise Ro3EmuUnavailable(tr("The RO3Emu response is not valid JSON."))
 
 
-UNEXPECTED_FORMAT = "La respuesta de RO3Emu tiene un formato inesperado."
+def unexpected_format():
+    return tr("The RO3Emu response has an unexpected format.")
 
 
 def _number(value):
@@ -1086,7 +1268,7 @@ def _section(data, key):
 def summarize_metrics(snapshot):
     """Selected fields of RO3Emu's ServerMetrics.Snapshot(); missing values become None."""
     if not isinstance(snapshot, dict):
-        raise Ro3EmuUnavailable(UNEXPECTED_FORMAT)
+        raise Ro3EmuUnavailable(unexpected_format())
     wire = _section(snapshot, "wire")
     sessions = _section(snapshot, "sessions")
     database = _section(snapshot, "database")
@@ -1134,7 +1316,7 @@ def summarize_metrics(snapshot):
 def summarize_online(entries, show_ips):
     """RO3Emu /ro3emu/online rows -> panel rows; 'remote' (player IP) only when show_ips."""
     if not isinstance(entries, list):
-        raise Ro3EmuUnavailable(UNEXPECTED_FORMAT)
+        raise Ro3EmuUnavailable(unexpected_format())
     players = []
     for entry in entries:
         if not isinstance(entry, dict):
@@ -1308,7 +1490,8 @@ GM_DEFAULT_UNSTUCK_SCENE = 10111  # the scene in upstream docs/guide/gm-access.m
 GM_SCENE_MAX = 10 ** 9
 GM_COORD_LIMIT = 100000
 GM_ACCOUNT_MAX_LEN = 64
-GM_UNAVAILABLE = "Endpoint GM no disponible (requiere que el panel corra en el mismo host que RO3Emu)."
+def gm_unavailable():
+    return tr("GM endpoint unavailable (the panel must run on the same host as RO3Emu).")
 
 
 class GmRequestError(Exception):
@@ -1342,14 +1525,14 @@ def gm_endpoint_base():
     except ValueError:
         host, parts = None, None
     if parts is None or parts.scheme not in ("http", "https") or not is_loopback_host(host):
-        raise GmRequestError(400, (
-            "El endpoint GM de RO3Emu solo acepta conexiones locales: el panel debe correr en el mismo host "
-            "que RO3Emu y 'ro3_base_url' (o 'ro3_status_url') debe apuntar a 127.0.0.1, ::1 o localhost."
+        raise GmRequestError(400, tr(
+            "The RO3Emu GM endpoint only accepts local connections: the panel must run on the same host "
+            "as RO3Emu and 'ro3_base_url' (or 'ro3_status_url') must point to 127.0.0.1, ::1 or localhost."
         ))
     # urlsplit's hostname drops userinfo but netloc keeps it; never send a URL that carries credentials.
     if "@" in parts.netloc:
-        raise GmRequestError(400, (
-            "'ro3_base_url' (o 'ro3_status_url') no puede incluir usuario ni contraseña (usuario:clave@host)."
+        raise GmRequestError(400, tr(
+            "'ro3_base_url' (or 'ro3_status_url') must not include a username or password (user:pass@host)."
         ))
     return f"{parts.scheme}://{parts.netloc}"
 
@@ -1364,7 +1547,7 @@ def gm_allowed_commands():
 def _gm_int(value, minimum, maximum, label):
     # bool is an int subclass; JSON true/false must not pass as 1/0.
     if type(value) is not int or not (minimum <= value <= maximum):
-        raise GmRequestError(400, f"'{label}' debe ser un número entero entre {minimum} y {maximum}.")
+        raise GmRequestError(400, tr("'{label}' must be an integer between {minimum} and {maximum}.", label=label, minimum=minimum, maximum=maximum))
     return value
 
 
@@ -1372,21 +1555,21 @@ def _gm_args(args, allowed_keys):
     if args is None:
         args = {}
     if not isinstance(args, dict):
-        raise GmRequestError(400, "'args' debe ser un objeto JSON.")
+        raise GmRequestError(400, tr("'args' must be a JSON object."))
     extra = set(args) - set(allowed_keys)
     if extra:
-        raise GmRequestError(400, "Argumentos no permitidos: " + ", ".join(sorted(repr(k) for k in extra)))
+        raise GmRequestError(400, tr("Arguments not allowed: {args}", args=", ".join(sorted(repr(k) for k in extra))))
     return args
 
 
 def _build_warp(args):
     args = _gm_args(args, ("scene", "x", "z"))
     if "scene" not in args:
-        raise GmRequestError(400, "warp requiere 'scene' (sceneEntry).")
+        raise GmRequestError(400, tr("warp requires 'scene' (sceneEntry)."))
     scene = _gm_int(args["scene"], 1, GM_SCENE_MAX, "scene")
     has_x, has_z = "x" in args, "z" in args
     if has_x != has_z:
-        raise GmRequestError(400, "warp requiere 'x' y 'z' juntos, o ninguno de los dos.")
+        raise GmRequestError(400, tr("warp requires 'x' and 'z' together, or neither."))
     if not has_x:
         return f"!warp {scene}"
     x = _gm_int(args["x"], -GM_COORD_LIMIT, GM_COORD_LIMIT, "x")
@@ -1399,7 +1582,7 @@ def _build_unstuck(args):
     try:
         scene = _gm_int(CONFIG.get("gm_unstuck_scene", GM_DEFAULT_UNSTUCK_SCENE), 1, GM_SCENE_MAX, "gm_unstuck_scene")
     except GmRequestError:
-        raise GmRequestError(400, "Configuración inválida: 'gm_unstuck_scene' debe ser un número de escena válido.")
+        raise GmRequestError(400, tr("Invalid configuration: 'gm_unstuck_scene' must be a valid scene number."))
     return f"!warp {scene}"
 
 
@@ -1414,18 +1597,18 @@ GM_COMMANDS = {
 def build_gm_line(command, args):
     """Validates a panel GM command and returns the exact `!` line to send, or raises GmRequestError."""
     if not isinstance(command, str) or command not in GM_COMMANDS:
-        raise GmRequestError(400, "Comando GM no soportado por el panel.")
+        raise GmRequestError(400, tr("GM command not supported by the panel."))
     enabled_by, builder = GM_COMMANDS[command]
     if not gm_allowed_commands().intersection(enabled_by):
-        raise GmRequestError(400, f"El comando '{command}' no está habilitado en 'gm_allowed_commands'.")
+        raise GmRequestError(400, tr("The command '{command}' is not enabled in 'gm_allowed_commands'.", command=command))
     return builder(args)
 
 
 def validate_gm_account(account):
     if not isinstance(account, str) or not account or len(account) > GM_ACCOUNT_MAX_LEN:
-        raise GmRequestError(400, "Cuenta inválida.")
+        raise GmRequestError(400, tr("Invalid account."))
     if any(c.isspace() or not c.isprintable() or c in "!&=?#%" for c in account):
-        raise GmRequestError(400, "Cuenta inválida: contiene caracteres no permitidos.")
+        raise GmRequestError(400, tr("Invalid account: it contains characters that are not allowed."))
     return account
 
 
@@ -1450,10 +1633,10 @@ def send_gm_line(base_url, account, line):
     try:
         with _GM_OPENER.open(req, timeout=GM_TIMEOUT_SECONDS) as resp:
             resp.read(4096)
-            return 200, (
-                "Comando enviado: RO3Emu respondió 'done'. El resultado (o un error de uso) aparece en el chat "
-                "del juego del jugador, no en el panel."
-            ), "enviado (done)"
+            return 200, tr(
+                "Command sent: RO3Emu answered 'done'. The result (or a usage error) appears in the player's "
+                "in-game chat, not in the panel."
+            ), "sent (done)"
     except urllib.error.HTTPError as e:
         # The status line already arrived; a body that stalls or resets must not drop the reply or the audit row.
         with e:
@@ -1462,14 +1645,14 @@ def send_gm_line(base_url, account, line):
             except Exception:
                 body = ""
         if e.code == 400 and "not in game" in body:
-            return 409, "La cuenta no está en el juego (no tiene un personaje conectado).", "fallido: not in game"
+            return 409, tr("The account is not in the game (it has no connected character)."), "failed: not in game"
         if e.code == 503:
-            return 503, "RO3Emu no acepta comandos en este momento (el servidor no está en fase Accepting).", "fallido: HTTP 503"
+            return 503, tr("RO3Emu is not accepting commands right now (the server is not in the Accepting phase)."), "failed: HTTP 503"
         if e.code == 404:
-            return 502, GM_UNAVAILABLE, "fallido: HTTP 404"
-        return 502, f"Respuesta inesperada de RO3Emu (HTTP {e.code}).", f"fallido: HTTP {e.code}"
+            return 502, gm_unavailable(), "failed: HTTP 404"
+        return 502, tr("Unexpected RO3Emu response (HTTP {code}).", code=e.code), f"failed: HTTP {e.code}"
     except Exception as e:  # URLError, timeout, connection reset: never a 500 from the panel
-        return 502, GM_UNAVAILABLE, f"fallido: {type(e).__name__}"
+        return 502, gm_unavailable(), f"failed: {type(e).__name__}"
 
 
 def _audit_text(value, limit=200):
@@ -1509,7 +1692,7 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
             self.send_header('Content-Length', str(len(content)))
             # The app shell must be revalidated so a deploy shows up on the next load;
             # only static images keep a one-hour cache.
-            if filename in ('index.html', 'admin.js', 'admin.css'):
+            if filename in ('index.html', 'admin.js', 'admin.css', os.path.join('locales', 'es.json')):
                 self.send_header('Cache-Control', 'no-cache')
             else:
                 self.send_header('Cache-Control', 'public, max-age=3600')
@@ -1550,14 +1733,20 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
     def check_auth(self):
         return get_session(self.get_session_token())
 
+    def apply_request_language(self):
+        """Language of this request: the X-Panel-Lang header, else the configured default."""
+        header = self.headers.get('X-Panel-Lang')
+        set_language(header if header and header.strip().lower() in SUPPORTED_LANGUAGES else None)
+
     def do_OPTIONS(self):
         self.send_response(204)
         self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-        self.send_header('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Panel-Lang')
         self.send_header('Access-Control-Allow-Credentials', 'true')
         self.end_headers()
 
     def do_GET(self):
+        self.apply_request_language()
         url_parts = self.path.split('?')
         raw_path = url_parts[0].rstrip('/')
         query_str = url_parts[1] if len(url_parts) > 1 else ''
@@ -1572,13 +1761,16 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
             return self.serve_static_file('admin.js', 'application/javascript; charset=utf-8')
         if raw_path in ['/favicon.svg', '/assets/favicon.svg', '/admin/favicon.svg']:
             return self.serve_static_file('favicon.svg', 'image/svg+xml')
+        if raw_path == '/locales/es.json':
+            return self.serve_static_file(os.path.join('locales', 'es.json'), 'application/json; charset=utf-8')
 
         # 2. Public Config API (Branding)
         if raw_path == '/api/admin/config':
             return self.send_json(200, {
                 "server_title": CONFIG.get("server_title", "RO3 Control Panel"),
                 "server_subtitle": CONFIG.get("server_subtitle", "Ragnarok Online 3 Management"),
-                "logo_text": CONFIG.get("logo_text", "RO3")
+                "logo_text": CONFIG.get("logo_text", "RO3"),
+                "default_language": default_language()
             })
 
         # 3. Session Verification
@@ -1596,7 +1788,7 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
         # Protected Endpoints
         session = self.check_auth()
         if not session:
-            return self.send_json(401, {"error": "No autorizado. Inicie sesión como administrador."})
+            return self.send_json(401, {"error": tr("Unauthorized. Sign in as an administrator.")})
 
         # 4. Stats
         if raw_path == '/api/admin/stats':
@@ -1651,9 +1843,10 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
         if raw_path == '/api/admin/auctions':
             return self.handle_auctions_list(params)
 
-        self.send_json(404, {"error": "Endpoint no encontrado"})
+        self.send_json(404, {"error": tr("Endpoint not found")})
 
     def do_POST(self):
+        self.apply_request_language()
         raw_path = self.path.split('?')[0].rstrip('/')
         client_ip = self.headers.get('X-Real-IP') or self.headers.get('X-Forwarded-For') or self.client_address[0]
 
@@ -1667,12 +1860,12 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
             extra_headers = {
                 'Set-Cookie': 'ro3_admin_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0'
             }
-            return self.send_json(200, {"success": True, "message": "Sesión cerrada correctamente"}, extra_headers)
+            return self.send_json(200, {"success": True, "message": tr("Signed out successfully")}, extra_headers)
 
         # Protected Actions
         session = self.check_auth()
         if not session:
-            return self.send_json(401, {"error": "No autorizado. Inicie sesión como administrador."})
+            return self.send_json(401, {"error": tr("Unauthorized. Sign in as an administrator.")})
 
         if raw_path == '/api/admin/accounts/create':
             return self.handle_create_account(session['user'], client_ip)
@@ -1689,20 +1882,20 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
         if raw_path == '/api/admin/gm':
             return self.handle_gm(session['user'], client_ip)
 
-        self.send_json(404, {"error": "Endpoint no encontrado"})
+        self.send_json(404, {"error": tr("Endpoint not found")})
 
     # --- Handlers ---
 
     def handle_login(self, client_ip):
         body = self.read_json_body()
         if not body:
-            return self.send_json(400, {"error": "Cuerpo de solicitud inválido"})
+            return self.send_json(400, {"error": tr("Invalid request body")})
 
         username = (body.get("username") or body.get("identity") or "").strip()
         password = body.get("password") or body.get("credential") or ""
 
         if not username or not password:
-            return self.send_json(400, {"error": "Debe ingresar usuario y contraseña"})
+            return self.send_json(400, {"error": tr("Enter a username and password")})
 
         # Failures are tracked per IP and per username. X-Forwarded-For can be spoofed to
         # rotate the IP key, so the username key is what stops a distributed guess on one
@@ -1711,24 +1904,24 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
         # reserve() counts this attempt as a failure up front; success resets it below.
         retry_after = LOGIN_THROTTLE.reserve(*throttle_keys)
         if retry_after > 0:
-            log_audit("system", "login_throttled", username, f"Reintentar en {retry_after}s", client_ip)
+            log_audit("system", "login_throttled", username, f"Retry in {retry_after}s", client_ip)
             return self.send_json(
                 429,
-                {"error": f"Demasiados intentos fallidos. Intente nuevamente en {retry_after} segundos."},
+                {"error": tr("Too many failed attempts. Try again in {seconds} seconds.", seconds=retry_after)},
                 {"Retry-After": str(retry_after)}
             )
 
         valid, resolved_user = authenticate_admin(username, password)
         if not valid:
-            log_audit("system", "login_failed", username, "Credenciales inválidas", client_ip)
-            return self.send_json(401, {"error": "Acceso denegado: credenciales de administrador inválidas."})
+            log_audit("system", "login_failed", username, "Invalid credentials", client_ip)
+            return self.send_json(401, {"error": tr("Access denied: invalid administrator credentials.")})
 
         LOGIN_THROTTLE.reset(*throttle_keys)
 
         token = secrets.token_urlsafe(32)
         create_session(token, resolved_user, client_ip)
 
-        log_audit(resolved_user, "login_success", resolved_user, "Inicio de sesión administrativo", client_ip)
+        log_audit(resolved_user, "login_success", resolved_user, "Administrative sign-in", client_ip)
 
         extra_headers = {
             'Set-Cookie': f'ro3_admin_session={token}; Path=/; HttpOnly; SameSite=Lax; Max-Age={SESSION_TTL_SECONDS}'
@@ -1776,7 +1969,7 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
             "server": {
                 "online": server_online,
                 "players_online": online_players,
-                "status_label": "En línea" if server_online else "Sin conexión",
+                "status_label": tr("Online") if server_online else tr("Offline"),
                 "db_size_mb": db_size_mb,
                 "backups_count": backups_count,
                 "last_backup": last_backup_time
@@ -1796,7 +1989,7 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
         except Ro3EmuUnavailable as e:
             return self.send_json(200, {"available": False, "reason": str(e)})
         except Exception:
-            return self.send_json(200, {"available": False, "reason": UNEXPECTED_FORMAT})
+            return self.send_json(200, {"available": False, "reason": unexpected_format()})
         return self.send_json(200, {
             "available": True,
             "show_ips": show_ips,
@@ -1810,7 +2003,7 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
         except Ro3EmuUnavailable as e:
             return self.send_json(200, {"available": False, "reason": str(e)})
         except Exception:
-            return self.send_json(200, {"available": False, "reason": UNEXPECTED_FORMAT})
+            return self.send_json(200, {"available": False, "reason": unexpected_format()})
         return self.send_json(200, {"available": True, "metrics": metrics})
 
     def handle_accounts_list(self, params):
@@ -1918,7 +2111,7 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
         with get_db() as con:
             acc = con.execute("SELECT name, created_utc FROM account WHERE name=?", (account_name,)).fetchone()
             if not acc:
-                return self.send_json(404, {"error": "Cuenta no encontrada"})
+                return self.send_json(404, {"error": tr("Account not found")})
 
             meta = con.execute("SELECT is_banned, ban_reason, banned_at, notes FROM admin_account_meta WHERE name=?", (account_name,)).fetchone()
             tokens = [dict(t) for t in con.execute("SELECT token, kind, expires_utc FROM auth_token WHERE account=?", (account_name,)).fetchall()]
@@ -1943,7 +2136,7 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
         """Read-only, paginated view of one live character's role.mailbox."""
         role_id = int(raw_role_id) if POSITIVE_INT.match(raw_role_id) else 0
         if role_id <= 0 or role_id > 2 ** 63 - 1:
-            return self.send_json(400, {"error": "ID de personaje inválido"})
+            return self.send_json(400, {"error": tr("Invalid character ID")})
         page = parse_int_param(params, 'page', 1, minimum=1)
         page_size = parse_int_param(params, 'page_size', MAIL_PAGE_SIZE_DEFAULT,
                                     minimum=1, maximum=MAIL_PAGE_SIZE_MAX)
@@ -1955,7 +2148,7 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
                 (role_id,)
             ).fetchone()
         if not role:
-            return self.send_json(404, {"error": "Personaje no encontrado"})
+            return self.send_json(404, {"error": tr("Character not found")})
 
         data = {
             "role_id": role["id"],
@@ -1969,7 +2162,7 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
             letters = decode_mailbox(role["mailbox"])
         except MailboxDecodeError:
             data.update({"decodable": False, "total": 0, "pages": 1, "mails": [],
-                         "message": "El buzón de este personaje no se pudo decodificar."})
+                         "message": tr("This character's mailbox could not be decoded.")})
             return self.send_json(200, data)
 
         # Same order RO3Emu lists mail in: newest CreatedTime first, then Id descending.
@@ -1988,7 +2181,7 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
     def handle_character_items(self, role_id_str):
         """Read-only inventory of one character (SELECT only)."""
         if not (role_id_str.isascii() and role_id_str.isdigit()) or not (0 < int(role_id_str) <= MAX_SQLITE_INT):
-            return self.send_json(400, {"error": "ID de personaje inválido: debe ser un entero positivo"})
+            return self.send_json(400, {"error": tr("Invalid character ID: it must be a positive integer")})
         role_id = int(role_id_str)
 
         try:
@@ -1997,7 +2190,7 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
                     "SELECT id, name, account, deleted_time FROM role WHERE id=?", (role_id,)
                 ).fetchone()
                 if not role or (role["deleted_time"] or 0) != 0:
-                    return self.send_json(404, {"error": "Personaje no encontrado"})
+                    return self.send_json(404, {"error": tr("Character not found")})
                 character = {"id": role["id"], "name": role["name"], "account": role["account"]}
 
                 has_item_table = con.execute(
@@ -2011,7 +2204,7 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
                 ).fetchall()]
         except sqlite3.Error as e:
             print(f"[Inventory Error] {e}", file=sys.stderr)
-            return self.send_json(500, {"error": "Error leyendo el inventario del personaje"})
+            return self.send_json(500, {"error": tr("Error reading the character's inventory")})
 
         names = load_item_names() or {}
         items = []
@@ -2024,7 +2217,7 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
                 "name": names.get(str(entry)),
                 "stack": r.get("stack"),
                 "pack": pack,
-                "pack_name": PACK_NAMES.get(pack),
+                "pack_name": tr(PACK_NAMES[pack]) if pack in PACK_NAMES else None,
                 "equipped": bool(r.get("grid") or 0),
                 "locked": bool(r.get("is_locked") or 0),
                 "bind_type": r.get("bind_type") or 0
@@ -2081,7 +2274,7 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
             if guild_id is not None:
                 row = con.execute(f"{GUILD_SUMMARY_SQL} WHERE g.id = ? GROUP BY g.id", (guild_id,)).fetchone()
             if not row:
-                return self.send_json(404, {"error": "Gremio no encontrado"})
+                return self.send_json(404, {"error": tr("Guild not found")})
 
             members = []
             for r in con.execute(
@@ -2149,22 +2342,22 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
     def handle_create_account(self, admin_user, client_ip):
         body = self.read_json_body()
         if not body:
-            return self.send_json(400, {"error": "Cuerpo de solicitud inválido"})
+            return self.send_json(400, {"error": tr("Invalid request body")})
 
         username = (body.get("username") or "").strip()
         password = (body.get("password") or "").strip()
         notes = (body.get("notes") or "").strip()
 
         if not username or len(username) < 3 or len(username) > 32:
-            return self.send_json(400, {"error": "El nombre de usuario debe tener entre 3 y 32 caracteres"})
+            return self.send_json(400, {"error": tr("The username must be between 3 and 32 characters")})
 
         if not password or len(password) < 6:
-            return self.send_json(400, {"error": "La contraseña debe tener al menos 6 caracteres"})
+            return self.send_json(400, {"error": tr("The password must be at least 6 characters")})
 
         with get_db() as con:
             existing = con.execute("SELECT name FROM account WHERE name=?", (username,)).fetchone()
             if existing:
-                return self.send_json(400, {"error": f"La cuenta '{username}' ya existe"})
+                return self.send_json(400, {"error": tr("Account '{username}' already exists", username=username)})
 
             pw_hash, salt = hash_ro3_password(password)
             now_iso = datetime.now(timezone.utc).isoformat() + "Z"
@@ -2182,59 +2375,59 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
 
             con.commit()
 
-        log_audit(admin_user, "create_account", username, "Cuenta creada por admin", client_ip)
+        log_audit(admin_user, "create_account", username, "Account created by admin", client_ip)
         return self.send_json(200, {
             "success": True,
-            "message": f"Cuenta '{username}' creada exitosamente."
+            "message": tr("Account '{username}' created successfully.", username=username)
         })
 
     def handle_update_password(self, admin_user, client_ip):
         body = self.read_json_body()
         if not body:
-            return self.send_json(400, {"error": "Cuerpo de solicitud inválido"})
+            return self.send_json(400, {"error": tr("Invalid request body")})
 
         username = (body.get("username") or "").strip()
         new_password = (body.get("new_password") or "").strip()
 
         if not username:
-            return self.send_json(400, {"error": "Usuario requerido"})
+            return self.send_json(400, {"error": tr("Username required")})
 
         if not new_password or len(new_password) < 6:
-            return self.send_json(400, {"error": "La nueva contraseña debe tener al menos 6 caracteres"})
+            return self.send_json(400, {"error": tr("The new password must be at least 6 characters")})
 
         with get_db() as con:
             existing = con.execute("SELECT name FROM account WHERE name=?", (username,)).fetchone()
             if not existing:
-                return self.send_json(404, {"error": f"La cuenta '{username}' no existe"})
+                return self.send_json(404, {"error": tr("Account '{username}' does not exist", username=username)})
 
             pw_hash, salt = hash_ro3_password(new_password)
             con.execute("UPDATE account SET password_hash=?, salt=? WHERE name=?", (pw_hash, salt, username))
             con.execute("DELETE FROM auth_token WHERE account=?", (username,))
             con.commit()
 
-        log_audit(admin_user, "update_password", username, "Contraseña modificada por admin", client_ip)
+        log_audit(admin_user, "update_password", username, "Password changed by admin", client_ip)
         return self.send_json(200, {
             "success": True,
-            "message": f"Contraseña de '{username}' actualizada exitosamente. Sesiones revocadas."
+            "message": tr("Password for '{username}' updated successfully. Sessions revoked.", username=username)
         })
 
     def handle_ban_account(self, admin_user, client_ip):
         body = self.read_json_body()
         if not body:
-            return self.send_json(400, {"error": "Cuerpo de solicitud inválido"})
+            return self.send_json(400, {"error": tr("Invalid request body")})
 
         username = (body.get("username") or "").strip()
-        reason = (body.get("reason") or "Violación de normas / Acción de administrador").strip()
+        reason = (body.get("reason") or "Rule violation / Admin action").strip()
 
         admin_usernames = [a.get("username", "").strip().lower() for a in CONFIG.get("admin_users", [])]
         if username.lower() in admin_usernames:
-            return self.send_json(400, {"error": "No se puede suspender una cuenta con rol de administrador."})
+            return self.send_json(400, {"error": tr("An administrator account cannot be suspended.")})
 
         now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
         with get_db() as con:
             existing = con.execute("SELECT name FROM account WHERE name=?", (username,)).fetchone()
             if not existing:
-                return self.send_json(404, {"error": f"La cuenta '{username}' no existe"})
+                return self.send_json(404, {"error": tr("Account '{username}' does not exist", username=username)})
 
             con.execute("""
                 INSERT INTO admin_account_meta (name, is_banned, ban_reason, banned_at, updated_utc)
@@ -2245,24 +2438,25 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
             con.execute("DELETE FROM auth_token WHERE account=?", (username,))
             con.commit()
 
-        log_audit(admin_user, "ban_account", username, f"Motivo: {reason}", client_ip)
+        log_audit(admin_user, "ban_account", username, f"Reason: {reason}", client_ip)
         return self.send_json(200, {
             "success": True,
             "enforced": False,
-            "message": (
-                f"Cuenta '{username}' marcada como suspendida en el panel y sus sesiones activas fueron revocadas. "
-                "RO3Emu no consulta esta suspensión al iniciar sesión: el jugador puede volver a entrar."
+            "message": tr(
+                "Account '{username}' marked as suspended in the panel and its active sessions were revoked. "
+                "RO3Emu does not check this suspension at login: the player can still sign in.",
+                username=username,
             )
         })
 
     def handle_unban_account(self, admin_user, client_ip):
         body = self.read_json_body()
         if not body:
-            return self.send_json(400, {"error": "Cuerpo de solicitud inválido"})
+            return self.send_json(400, {"error": tr("Invalid request body")})
 
         username = (body.get("username") or "").strip()
         if not username:
-            return self.send_json(400, {"error": "Usuario requerido"})
+            return self.send_json(400, {"error": tr("Username required")})
 
         with get_db() as con:
             con.execute("""
@@ -2272,29 +2466,29 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
             """, (username,))
             con.commit()
 
-        log_audit(admin_user, "unban_account", username, "Suspensión levantada por admin", client_ip)
+        log_audit(admin_user, "unban_account", username, "Suspension lifted by admin", client_ip)
         return self.send_json(200, {
             "success": True,
-            "message": f"Suspensión de la cuenta '{username}' removida exitosamente."
+            "message": tr("Suspension of account '{username}' removed successfully.", username=username)
         })
 
     def handle_delete_account(self, admin_user, client_ip):
         body = self.read_json_body()
         if not body:
-            return self.send_json(400, {"error": "Cuerpo de solicitud inválido"})
+            return self.send_json(400, {"error": tr("Invalid request body")})
 
         username = (body.get("username") or "").strip()
         if not username:
-            return self.send_json(400, {"error": "Usuario requerido"})
+            return self.send_json(400, {"error": tr("Username required")})
 
         admin_usernames = [a.get("username", "").strip().lower() for a in CONFIG.get("admin_users", [])]
         if username.lower() in admin_usernames:
-            return self.send_json(400, {"error": "No se puede eliminar una cuenta de administrador."})
+            return self.send_json(400, {"error": tr("An administrator account cannot be deleted.")})
 
         with get_db() as con:
             existing = con.execute("SELECT name FROM account WHERE name=?", (username,)).fetchone()
             if not existing:
-                return self.send_json(404, {"error": f"La cuenta '{username}' no existe"})
+                return self.send_json(404, {"error": tr("Account '{username}' does not exist", username=username)})
 
             con.execute("DELETE FROM account WHERE name=?", (username,))
             con.execute("DELETE FROM auth_token WHERE account=?", (username,))
@@ -2302,16 +2496,16 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
             con.execute("UPDATE role SET deleted_time=? WHERE account=?", (int(time.time()), username))
             con.commit()
 
-        log_audit(admin_user, "delete_account", username, "Cuenta eliminada por admin", client_ip)
+        log_audit(admin_user, "delete_account", username, "Account deleted by admin", client_ip)
         return self.send_json(200, {
             "success": True,
-            "message": f"Cuenta '{username}' y sus datos fueron eliminados exitosamente."
+            "message": tr("Account '{username}' and its data were deleted successfully.", username=username)
         })
 
     def handle_save_notes(self, admin_user, client_ip):
         body = self.read_json_body()
         if not body:
-            return self.send_json(400, {"error": "Cuerpo de solicitud inválido"})
+            return self.send_json(400, {"error": tr("Invalid request body")})
 
         username = (body.get("username") or "").strip()
         notes = (body.get("notes") or "").strip()
@@ -2326,7 +2520,7 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
 
         return self.send_json(200, {
             "success": True,
-            "message": "Notas guardadas correctamente."
+            "message": tr("Notes saved successfully.")
         })
 
     def handle_gm(self, admin_user, client_ip):
@@ -2337,7 +2531,7 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
         line = None
         try:
             if not isinstance(body, dict):
-                raise GmRequestError(400, "Cuerpo de solicitud inválido")
+                raise GmRequestError(400, tr("Invalid request body"))
             line = build_gm_line(raw_command, body.get("args"))
             account = validate_gm_account(raw_account)
             base_url = gm_endpoint_base()
@@ -2349,12 +2543,12 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
                         (account.lower(), account),
                     ).fetchall()
             except (sqlite3.Error, OSError):
-                raise GmRequestError(503, "Base de datos de RO3Emu no disponible.")
+                raise GmRequestError(503, tr("RO3Emu database unavailable."))
             if not rows:
-                raise GmRequestError(404, f"La cuenta '{account}' no existe")
+                raise GmRequestError(404, tr("Account '{username}' does not exist", username=account))
             account = rows[0]["name"]
         except GmRequestError as e:
-            details = f"{_audit_text(line or raw_command)} -> rechazado: {e.message}"
+            details = f"{_audit_text(line or raw_command)} -> rejected: {e.message}"
             log_audit(admin_user, "gm_command", _audit_text(raw_account, 80), details, client_ip)
             return self.send_json(e.status, {"error": e.message})
 
@@ -2372,6 +2566,8 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
                 (limit,)
             ).fetchall()
             logs = [dict(r) for r in rows]
+        for entry in logs:
+            entry["details"] = localize_audit_details(entry.get("details"))
         return self.send_json(200, {"logs": logs})
 
     def handle_economy(self, params):
@@ -2384,7 +2580,7 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
             from_ms = parse_iso_date_ms(params.get('from', [''])[0])
             to_ms = parse_iso_date_ms(params.get('to', [''])[0])
         except ValueError:
-            return self.send_json(400, {"error": "Fecha inválida. Use el formato AAAA-MM-DD."})
+            return self.send_json(400, {"error": tr("Invalid date. Use the format YYYY-MM-DD.")})
 
         result = query_economy(account, character, from_ms, to_ms, page, page_size)
         return self.send_json(200, result)
@@ -2393,7 +2589,7 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
         ranking_type = params.get('type', ['level'])[0].strip().lower() or 'level'
         if ranking_type not in RANKING_TYPES:
             return self.send_json(400, {
-                "error": "Tipo de ranking inválido. Valores permitidos: " + ", ".join(RANKING_TYPES)
+                "error": tr("Invalid ranking type. Allowed values: {values}", values=", ".join(RANKING_TYPES))
             })
 
         limit = parse_ranking_int(params, 'limit', RANKING_DEFAULT_LIMIT, 1, RANKING_MAX_LIMIT)

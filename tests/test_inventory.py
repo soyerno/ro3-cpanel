@@ -179,12 +179,12 @@ class InventoryEndpointTests(unittest.TestCase):
         self.assertEqual(by_guid[1000001]["entry"], 100001)
         self.assertEqual(by_guid[1000001]["stack"], 5)
         self.assertEqual(by_guid[1000001]["pack"], 1)
-        self.assertEqual(by_guid[1000001]["pack_name"], "Objetos")
+        self.assertEqual(by_guid[1000001]["pack_name"], "Items")
         self.assertFalse(by_guid[1000001]["locked"])
         self.assertTrue(by_guid[1000002]["locked"])
         self.assertEqual(by_guid[1000002]["bind_type"], 1)
-        self.assertEqual(by_guid[1000002]["pack_name"], "Equipo")
-        self.assertEqual(by_guid[1000003]["pack_name"], "Cartas")
+        self.assertEqual(by_guid[1000002]["pack_name"], "Equipment")
+        self.assertEqual(by_guid[1000003]["pack_name"], "Cards")
 
     def test_equipped_flag_follows_grid_and_unknown_pack_has_null_name(self):
         with contextlib.closing(sqlite3.connect(self.db_path)) as con:
@@ -246,17 +246,17 @@ class InventoryEndpointTests(unittest.TestCase):
                 status, data = self._get_items(bad)
                 self.assertEqual(status, 400, data)
                 self.assertIn("error", data)
-                self.assertIn("personaje", data["error"].lower())
+                self.assertIn("character", data["error"].lower())
 
     def test_unknown_role_returns_404(self):
         status, data = self._get_items(4242)
         self.assertEqual(status, 404, data)
-        self.assertEqual(data["error"], "Personaje no encontrado")
+        self.assertEqual(data["error"], "Character not found")
 
     def test_deleted_role_returns_404(self):
         status, data = self._get_items(3)
         self.assertEqual(status, 404, data)
-        self.assertEqual(data["error"], "Personaje no encontrado")
+        self.assertEqual(data["error"], "Character not found")
 
     def test_missing_item_table_reports_unavailable(self):
         with contextlib.closing(sqlite3.connect(self.db_path)) as con:

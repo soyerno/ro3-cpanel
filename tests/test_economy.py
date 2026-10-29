@@ -311,7 +311,7 @@ class TestEconomyApi(EconomyApiTestBase):
         for params in ({"from": "2026-13-01"}, {"to": "abc"}, {"from": "2026/01/01"}, {"to": "2026-02-30"}):
             status, body = self.get(params)
             self.assertEqual(status, 400, params)
-            self.assertIn("fecha", body["error"].lower())
+            self.assertIn("date", body["error"].lower())
 
     def test_pagination_math(self):
         status, body = self.get({"page_size": 3})

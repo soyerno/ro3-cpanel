@@ -159,6 +159,108 @@
     toasts: document.getElementById('toast-container')
   };
 
+  // --- i18n ---
+  // The English text is the key; public/locales/es.json maps it to Spanish.
+  // Missing keys, a failed dictionary fetch or an unknown language all fall back to English.
+  var LANG_STORAGE_KEY = 'panel_lang';
+  var LOCALE_URL = '/locales/es.json';
+  var i18n = { lang: 'en', es: {}, stored: false };
+
+  function isSupportedLang(lang) {
+    return lang === 'en' || lang === 'es';
+  }
+
+  function readStoredLang() {
+    try {
+      var value = globalThis.localStorage.getItem(LANG_STORAGE_KEY);
+      return isSupportedLang(value) ? value : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function storeLang(lang) {
+    i18n.stored = true;
+    try {
+      globalThis.localStorage.setItem(LANG_STORAGE_KEY, lang);
+    } catch (e) {
+      // Storage can be unavailable (private mode); the choice then lasts for this page only.
+    }
+  }
+
+  function t(key, params) {
+    var text = key;
+    if (i18n.lang === 'es' && Object.prototype.hasOwnProperty.call(i18n.es, key)) {
+      var translated = i18n.es[key];
+      if (typeof translated === 'string' && translated) text = translated;
+    }
+    if (!params) return text;
+    return text.replace(/\{(\w+)\}/g, function (match, name) {
+      return Object.prototype.hasOwnProperty.call(params, name) ? String(params[name]) : match;
+    });
+  }
+
+  function applyI18n(root) {
+    root = root || document;
+    document.documentElement.lang = i18n.lang;
+    root.querySelectorAll('[data-i18n]').forEach(function (el) {
+      el.textContent = t(el.getAttribute('data-i18n'));
+    });
+    ['placeholder', 'title', 'aria-label'].forEach(function (attr) {
+      root.querySelectorAll('[data-i18n-' + attr + ']').forEach(function (el) {
+        el.setAttribute(attr, t(el.getAttribute('data-i18n-' + attr)));
+      });
+    });
+  }
+
+  function updateLangButtons() {
+    document.querySelectorAll('.lang-btn').forEach(function (btn) {
+      var active = btn.getAttribute('data-lang') === i18n.lang;
+      btn.classList.toggle('active', active);
+      btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+    });
+  }
+
+  // Re-translate the static DOM and reload the active view so server-provided labels follow the language.
+  function relocalize() {
+    applyI18n(document);
+    updateLangButtons();
+    if (state.authenticated) {
+      updateStatsUI();
+      switchTab(state.activeTab);
+    }
+  }
+
+  function setLanguage(lang, persist) {
+    i18n.lang = isSupportedLang(lang) ? lang : 'en';
+    if (persist) storeLang(i18n.lang);
+    relocalize();
+  }
+
+  function loadLocale() {
+    return fetch(LOCALE_URL, { credentials: 'same-origin', headers: { 'X-Panel-Lang': i18n.lang } })
+      .then(function (res) {
+        return res.ok ? res.json() : {};
+      })
+      .then(function (dict) {
+        if (dict && typeof dict === 'object' && !Array.isArray(dict)) i18n.es = dict;
+        if (i18n.lang === 'es') relocalize();
+      })
+      .catch(function () {
+        // English keeps working without the dictionary.
+      });
+  }
+
+  function handleLangClick() {
+    var lang = this.getAttribute('data-lang');
+    if (!isSupportedLang(lang)) return;
+    if (lang === i18n.lang) {
+      storeLang(lang);
+      return;
+    }
+    setLanguage(lang, true);
+  }
+
   // --- Toast Notifications ---
   function showToast(message, type) {
     type = type || 'info';
@@ -186,7 +288,7 @@
 
   function formatNumber(num) {
     if (num === null || num === undefined) return '0';
-    return Number(num).toLocaleString();
+    return Number(num).toLocaleString(i18n.lang);
   }
 
   // Currencies other than Zeny have no verified name in RO3Emu, so they are listed by item id.
@@ -202,7 +304,7 @@
     try {
       var d = new Date(isoStr);
       if (isNaN(d.getTime())) return isoStr;
-      return d.toLocaleString(undefined, {
+      return d.toLocaleString(i18n.lang, {
         day: '2-digit', month: '2-digit', year: 'numeric',
         hour: '2-digit', minute: '2-digit'
       });
@@ -216,6 +318,7 @@
     options = options || {};
     options.headers = options.headers || {};
     options.credentials = 'include';
+    options.headers['X-Panel-Lang'] = i18n.lang;
     if (options.body && typeof options.body === 'object' && !(options.body instanceof FormData)) {
       options.headers['Content-Type'] = 'application/json';
       options.body = JSON.stringify(options.body);
@@ -240,6 +343,9 @@
         if (cfg) {
           state.branding = cfg;
           applyBranding();
+          if (!i18n.stored && isSupportedLang(cfg.default_language) && cfg.default_language !== i18n.lang) {
+            setLanguage(cfg.default_language, false);
+          }
         }
       })
       .catch(function () {
@@ -306,12 +412,12 @@
     var pass = els.loginPass.value || '';
 
     if (!user || !pass) {
-      showLoginError('Por favor complete usuario y contraseña.');
+      showLoginError(t('Please enter username and password.'));
       return;
     }
 
     els.loginSubmit.disabled = true;
-    els.loginSubmit.textContent = 'Verificando...';
+    els.loginSubmit.textContent = t('Verifying...');
     if (els.loginError) els.loginError.hidden = true;
 
     apiFetch('/api/admin/login', {
@@ -319,16 +425,16 @@
       body: { username: user, password: pass }
     })
       .then(function (data) {
-        showToast('Bienvenido, ' + data.user + ' (Administrador)', 'success');
+        showToast(t('Welcome, {user} (Administrator)', { user: data.user }), 'success');
         els.loginPass.value = '';
         setAuthenticated(data.user);
       })
       .catch(function (err) {
-        showLoginError(err.message || 'Credenciales inválidas');
+        showLoginError(err.message || t('Invalid credentials'));
       })
       .finally(function () {
         els.loginSubmit.disabled = false;
-        els.loginSubmit.textContent = 'Acceder al Panel';
+        els.loginSubmit.textContent = t('Access Panel');
       });
   }
 
@@ -339,10 +445,10 @@
   }
 
   function handleLogout() {
-    if (!confirm('¿Desea cerrar la sesión de administración?')) return;
+    if (!confirm(t('Do you want to end the administration session?'))) return;
     apiFetch('/api/admin/logout', { method: 'POST' })
       .finally(function () {
-        showToast('Sesión cerrada correctamente', 'info');
+        showToast(t('Session closed successfully'), 'info');
         setUnauthenticated();
       });
   }
@@ -355,7 +461,7 @@
         updateStatsUI();
       })
       .catch(function (err) {
-        console.error('Error cargando estadísticas:', err);
+        showToast(t('Error loading statistics: {message}', { message: err.message }), 'error');
       });
   }
 
@@ -367,7 +473,7 @@
       els.serverStatusDot.className = 'status-dot ' + (s.server.online ? 'online' : '');
     }
     if (els.serverStatusText) {
-      els.serverStatusText.textContent = s.server.online ? 'En línea' : 'Sin conexión';
+      els.serverStatusText.textContent = s.server.online ? t('Online') : t('Offline');
     }
     if (els.serverOnlineCount) {
       els.serverOnlineCount.textContent = s.server.players_online;
@@ -414,7 +520,7 @@
 
   function setUnavailable(el, reason) {
     if (!el) return;
-    el.textContent = reason ? 'No disponible: ' + reason : 'No disponible';
+    el.textContent = reason ? t('Not available: {reason}', { reason: reason }) : t('Not available');
     el.hidden = false;
   }
 
@@ -451,7 +557,7 @@
     if (els.metricDb) els.metricDb.textContent = formatMetric(db.statements) + ' / ' + formatMetric(db.commits);
     if (els.metricErrors) els.metricErrors.textContent = formatMetric(errors.exceptions) + ' / ' + formatMetric(errors.error_logs);
     if (els.metricsCaptured) {
-      els.metricsCaptured.textContent = m.captured_utc ? 'Capturado: ' + formatDate(m.captured_utc) : '';
+      els.metricsCaptured.textContent = m.captured_utc ? t('Captured: {date}', { date: formatDate(m.captured_utc) }) : '';
     }
   }
 
@@ -480,10 +586,10 @@
     if (els.onlineUnavailable) els.onlineUnavailable.hidden = true;
     if (els.onlineTableWrap) els.onlineTableWrap.hidden = false;
     if (els.onlineIpTh) els.onlineIpTh.hidden = !showIps;
-    if (els.onlineCountLabel) els.onlineCountLabel.textContent = String(players.length) + ' sesiones';
+    if (els.onlineCountLabel) els.onlineCountLabel.textContent = t('{count} sessions', { count: players.length });
 
     if (players.length === 0) {
-      els.onlineTbody.innerHTML = '<tr><td colspan="' + cols + '" style="text-align: center; color: var(--text-muted); padding: 24px;">No hay jugadores conectados.</td></tr>';
+      els.onlineTbody.innerHTML = '<tr><td colspan="' + cols + '" style="text-align: center; color: var(--text-muted); padding: 24px;">' + escapeHtml(t('No players connected.')) + '</td></tr>';
       return;
     }
 
@@ -491,7 +597,7 @@
       var pos = (isNum(p.x) && isNum(p.z)) ? String(p.x) + ', ' + String(p.z) : '—';
       var row = '<tr>' +
         '<td>' + escapeHtml(p.account) + '</td>' +
-        '<td>' + (p.character ? escapeHtml(p.character) : '<span style="color: var(--text-muted);">Sin personaje</span>') + '</td>' +
+        '<td>' + (p.character ? escapeHtml(p.character) : '<span style="color: var(--text-muted);">' + escapeHtml(t('No character')) + '</span>') + '</td>' +
         '<td>' + (p.scene_name ? escapeHtml(p.scene_name) : '—') + '</td>' +
         '<td>' + escapeHtml(pos) + '</td>';
       if (showIps) row += '<td>' + (p.remote ? escapeHtml(p.remote) : '—') + '</td>';
@@ -522,7 +628,7 @@
         renderAccountsPager();
       })
       .catch(function (err) {
-        showToast('Error cargando cuentas: ' + err.message, 'error');
+        showToast(t('Error loading accounts: {message}', { message: err.message }), 'error');
       });
   }
 
@@ -540,8 +646,11 @@
     if (!els.accountsPager) return;
     els.accountsPager.hidden = state.accountsTotal === 0;
     if (els.pagerInfo) {
-      els.pagerInfo.textContent = 'Página ' + state.accountsPage + ' de ' + state.accountsPages +
-        ' (' + formatNumber(state.accountsTotal) + ' cuentas)';
+      els.pagerInfo.textContent = t('Page {page} of {pages} ({total} accounts)', {
+        page: state.accountsPage,
+        pages: state.accountsPages,
+        total: formatNumber(state.accountsTotal)
+      });
     }
     if (els.pagerPrev) els.pagerPrev.disabled = state.accountsPage <= 1;
     if (els.pagerNext) els.pagerNext.disabled = state.accountsPage >= state.accountsPages;
@@ -552,7 +661,7 @@
     var list = state.accounts;
 
     if (!list.length) {
-      els.accountsTbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--text-muted); padding: 32px;">No se encontraron cuentas con los criterios de búsqueda.</td></tr>';
+      els.accountsTbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--text-muted); padding: 32px;">' + escapeHtml(t('No accounts found matching the search criteria.')) + '</td></tr>';
       return;
     }
 
@@ -562,9 +671,9 @@
       if (acc.is_admin) {
         badgeHtml = '<span class="badge badge-admin">★ GM Admin</span>';
       } else if (acc.is_banned) {
-        badgeHtml = '<span class="badge badge-banned" title="' + escapeHtml(acc.ban_reason) + '">✕ Baneada</span>';
+        badgeHtml = '<span class="badge badge-banned" title="' + escapeHtml(acc.ban_reason) + '">' + escapeHtml(t('✕ Banned')) + '</span>';
       } else {
-        badgeHtml = '<span class="badge badge-active">✓ Activa</span>';
+        badgeHtml = '<span class="badge badge-active">' + escapeHtml(t('✓ Active')) + '</span>';
       }
 
       var charsHtml = '';
@@ -579,7 +688,7 @@
         });
         charsHtml += '</div>';
       } else {
-        charsHtml = '<span style="color: var(--text-dim); font-size: 11px;">Sin personajes</span>';
+        charsHtml = '<span style="color: var(--text-dim); font-size: 11px;">' + escapeHtml(t('No characters')) + '</span>';
       }
 
       html += '<tr data-account="' + escapeHtml(acc.name) + '">' +
@@ -590,13 +699,13 @@
         '<td style="color: var(--text-muted); font-size: 12px;">' + formatDate(acc.last_login) + '</td>' +
         '<td>' +
           '<div style="display: flex; gap: 6px;">' +
-            '<button class="btn btn-secondary btn-sm btn-view-detail" data-account="' + escapeHtml(acc.name) + '" title="Ver detalles y personajes">Ficha</button>' +
-            '<button class="btn btn-secondary btn-sm btn-change-pw" data-account="' + escapeHtml(acc.name) + '" title="Cambiar contraseña">Clave</button>' +
+            '<button class="btn btn-secondary btn-sm btn-view-detail" data-account="' + escapeHtml(acc.name) + '" title="' + escapeHtml(t('View details and characters')) + '">' + escapeHtml(t('Record')) + '</button>' +
+            '<button class="btn btn-secondary btn-sm btn-change-pw" data-account="' + escapeHtml(acc.name) + '" title="' + escapeHtml(t('Change password')) + '">' + escapeHtml(t('Pass')) + '</button>' +
             (acc.is_admin ? '' : (acc.is_banned ?
-              '<button class="btn btn-secondary btn-sm btn-unban" data-account="' + escapeHtml(acc.name) + '" title="Quitar suspensión">Desbanear</button>' :
-              '<button class="btn btn-danger btn-sm btn-ban" data-account="' + escapeHtml(acc.name) + '" title="Suspender cuenta">Ban</button>'
+              '<button class="btn btn-secondary btn-sm btn-unban" data-account="' + escapeHtml(acc.name) + '" title="' + escapeHtml(t('Remove suspension')) + '">' + escapeHtml(t('Unban')) + '</button>' :
+              '<button class="btn btn-danger btn-sm btn-ban" data-account="' + escapeHtml(acc.name) + '" title="' + escapeHtml(t('Suspend account')) + '">' + escapeHtml(t('Ban')) + '</button>'
             )) +
-            (acc.is_admin ? '' : '<button class="btn btn-danger btn-sm btn-delete" data-account="' + escapeHtml(acc.name) + '" title="Eliminar cuenta">✕</button>') +
+            (acc.is_admin ? '' : '<button class="btn btn-danger btn-sm btn-delete" data-account="' + escapeHtml(acc.name) + '" title="' + escapeHtml(t('Delete account')) + '">✕</button>') +
           '</div>' +
         '</td>' +
       '</tr>';
@@ -623,9 +732,9 @@
         document.getElementById('detail-acc-name').textContent = acc.name;
         document.getElementById('detail-acc-created').textContent = formatDate(acc.created_utc);
         document.getElementById('detail-acc-status').innerHTML = acc.is_banned ?
-          '<span class="badge badge-banned">Baneada (' + escapeHtml(acc.ban_reason) + ')</span>' :
-          '<span class="badge badge-active">Activa</span>';
-        document.getElementById('detail-acc-tokens').textContent = acc.tokens_count + ' sesiones';
+          '<span class="badge badge-banned">' + escapeHtml(t('Banned ({reason})', { reason: acc.ban_reason })) + '</span>' :
+          '<span class="badge badge-active">' + escapeHtml(t('Active')) + '</span>';
+        document.getElementById('detail-acc-tokens').textContent = t('{count} sessions', { count: acc.tokens_count });
 
         var notesField = document.getElementById('detail-acc-notes');
         if (notesField) notesField.value = acc.notes || '';
@@ -634,7 +743,7 @@
         var charsContainer = document.getElementById('detail-chars-list');
         if (charsContainer) {
           if (!acc.characters || !acc.characters.length) {
-            charsContainer.innerHTML = '<p style="color: var(--text-muted); padding: 12px;">Esta cuenta no posee personajes creados aún.</p>';
+            charsContainer.innerHTML = '<p style="color: var(--text-muted); padding: 12px;">' + escapeHtml(t('This account has no characters yet.')) + '</p>';
           } else {
             var charsHtml = '';
             acc.characters.forEach(function (c) {
@@ -645,14 +754,14 @@
                     '<span class="badge badge-admin" style="margin-left: 6px;">' + escapeHtml(c.career_name) + '</span>' +
                   '</div>' +
                   '<div style="font-size: 12px; color: var(--gold); font-weight: 700;">' +
-                    'Nivel ' + c.level + ' / Job ' + c.job_level +
+                    escapeHtml(t('Level {level} / Job {job}', { level: c.level, job: c.job_level })) +
                   '</div>' +
                 '</div>' +
                 '<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 12px; margin-bottom: 8px;">' +
                   '<div><strong>Zeny:</strong> <span style="color: var(--success);">' + formatNumber(c.currency.zeny) + ' Z</span></div>' +
-                  '<div><strong>Otras monedas:</strong> <span style="color: var(--info);">' + formatOtherCurrencies(c.currency.others) + '</span></div>' +
-                  '<div><strong>Ubicación:</strong> ' + escapeHtml(c.scene_name) + ' (' + c.pos.x + ', ' + c.pos.z + ')</div>' +
-                  '<div><strong>Último ingreso:</strong> ' + formatDate(c.last_login) + '</div>' +
+                  '<div><strong>' + escapeHtml(t('Other currencies:')) + '</strong> <span style="color: var(--info);">' + formatOtherCurrencies(c.currency.others) + '</span></div>' +
+                  '<div><strong>' + escapeHtml(t('Location:')) + '</strong> ' + escapeHtml(c.scene_name) + ' (' + c.pos.x + ', ' + c.pos.z + ')</div>' +
+                  '<div><strong>' + escapeHtml(t('Last login:')) + '</strong> ' + formatDate(c.last_login) + '</div>' +
                 '</div>' +
                 '<div class="stats-grid-mini">' +
                   '<div><div class="stat-box-lbl">STR</div><div class="stat-box-val">' + c.stats.str + '</div></div>' +
@@ -663,8 +772,8 @@
                   '<div><div class="stat-box-lbl">LUK</div><div class="stat-box-val">' + c.stats.luk + '</div></div>' +
                 '</div>' +
                 '<div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px;">' +
-                  '<button class="btn btn-secondary btn-sm btn-view-inventory" data-role-id="' + escapeHtml(String(c.id)) + '" title="Ver objetos del personaje">Ver inventario</button>' +
-                  '<button type="button" class="btn btn-secondary btn-sm btn-view-mail" data-role-id="' + escapeHtml(String(c.id)) + '" title="Ver correo del personaje (solo lectura)">Ver correo</button>' +
+                  '<button class="btn btn-secondary btn-sm btn-view-inventory" data-role-id="' + escapeHtml(String(c.id)) + '" title="' + escapeHtml(t('View character items')) + '">' + escapeHtml(t('View inventory')) + '</button>' +
+                  '<button type="button" class="btn btn-secondary btn-sm btn-view-mail" data-role-id="' + escapeHtml(String(c.id)) + '" title="' + escapeHtml(t('View character mail (read-only)')) + '">' + escapeHtml(t('View mail')) + '</button>' +
                 '</div>' +
                 '<div class="char-inventory" hidden></div>' +
                 '<div class="char-mail-panel" id="char-mail-' + escapeHtml(String(c.id)) + '" hidden></div>' +
@@ -677,7 +786,7 @@
         openModal(els.modalDetail);
       })
       .catch(function (err) {
-        showToast('Error cargando ficha: ' + err.message, 'error');
+        showToast(t('Error loading record: {message}', { message: err.message }), 'error');
       });
   }
 
@@ -687,46 +796,46 @@
   function renderMailAttachments(m) {
     var parts = [];
     (m.attachments || []).forEach(function (a) {
-      parts.push('Ítem ' + escapeHtml(String(a.entry)) + ' x' + escapeHtml(String(a.count)));
+      parts.push(escapeHtml(t('Item {entry} x{count}', { entry: a.entry, count: a.count })));
     });
     (m.items || []).forEach(function (it) {
-      parts.push('Ítem ' + escapeHtml(String(it.entry)) + ' x' + escapeHtml(String(it.stack)));
+      parts.push(escapeHtml(t('Item {entry} x{count}', { entry: it.entry, count: it.stack })));
     });
     (m.currency || []).forEach(function (cur) {
-      parts.push('Moneda ' + escapeHtml(String(cur.entry)) + ': ' + formatNumber(cur.amount));
+      parts.push(escapeHtml(t('Currency {entry}: {amount}', { entry: cur.entry, amount: formatNumber(cur.amount) })));
     });
-    return parts.length ? parts.join(', ') : 'Sin adjuntos';
+    return parts.length ? parts.join(', ') : escapeHtml(t('No attachments'));
   }
 
   function renderCharacterMail(panel, roleId, data) {
     if (!data.decodable) {
-      panel.innerHTML = '<p class="char-mail-empty">' + escapeHtml(data.message || 'El buzón no se pudo decodificar.') + '</p>';
+      panel.innerHTML = '<p class="char-mail-empty">' + escapeHtml(data.message || t('The mailbox could not be decoded.')) + '</p>';
       return;
     }
     if (!data.mails.length) {
-      panel.innerHTML = '<p class="char-mail-empty">' + (data.total ? 'No hay correos en esta página.' : 'El buzón está vacío.') + '</p>';
+      panel.innerHTML = '<p class="char-mail-empty">' + escapeHtml(data.total ? t('There are no mails on this page.') : t('The mailbox is empty.')) + '</p>';
       return;
     }
     var html = '<ul class="char-mail-list">';
     data.mails.forEach(function (m) {
-      var subject = m.title || m.abstract || ('Plantilla ' + String(m.template_id));
+      var subject = m.title || m.abstract || t('Template {id}', { id: m.template_id });
       html += '<li class="char-mail-item">' +
         '<div class="char-mail-head">' +
           '<strong>' + escapeHtml(subject) + '</strong>' +
-          '<span class="badge ' + (m.read ? 'badge-active' : 'badge-admin') + '">' + (m.read ? 'Leído' : 'No leído') + '</span>' +
-          (m.claimed ? ' <span class="badge badge-active">Reclamado</span>' : '') +
+          '<span class="badge ' + (m.read ? 'badge-active' : 'badge-admin') + '">' + escapeHtml(m.read ? t('Read') : t('Unread')) + '</span>' +
+          (m.claimed ? ' <span class="badge badge-active">' + escapeHtml(t('Claimed')) + '</span>' : '') +
         '</div>' +
-        '<div class="char-mail-meta">De: ' + escapeHtml(m.sender || '—') + ' · ' + formatDate(m.created_at) +
-          (m.remove_at ? ' · Expira: ' + formatDate(m.remove_at) : '') + '</div>' +
+        '<div class="char-mail-meta">' + escapeHtml(t('From: {sender} · {date}', { sender: m.sender || '—', date: formatDate(m.created_at) })) +
+          (m.remove_at ? ' · ' + escapeHtml(t('Expires: {date}', { date: formatDate(m.remove_at) })) : '') + '</div>' +
         (m.content ? '<div class="char-mail-body">' + escapeHtml(m.content) + '</div>' : '') +
-        '<div class="char-mail-meta">Adjuntos (' + escapeHtml(String(m.attachment_count)) + '): ' + renderMailAttachments(m) + '</div>' +
+        '<div class="char-mail-meta">' + escapeHtml(t('Attachments ({count}):', { count: m.attachment_count })) + ' ' + renderMailAttachments(m) + '</div>' +
       '</li>';
     });
     html += '</ul>';
     html += '<div class="pager">' +
-      '<button type="button" class="btn btn-secondary btn-sm btn-mail-page" data-role-id="' + escapeHtml(String(roleId)) + '" data-page="' + escapeHtml(String(data.page - 1)) + '"' + (data.page <= 1 ? ' disabled' : '') + '>Anterior</button>' +
-      '<span class="pager-info">Página ' + escapeHtml(String(data.page)) + ' de ' + escapeHtml(String(data.pages)) + ' · ' + escapeHtml(String(data.total)) + ' correos</span>' +
-      '<button type="button" class="btn btn-secondary btn-sm btn-mail-page" data-role-id="' + escapeHtml(String(roleId)) + '" data-page="' + escapeHtml(String(data.page + 1)) + '"' + (data.page >= data.pages ? ' disabled' : '') + '>Siguiente</button>' +
+      '<button type="button" class="btn btn-secondary btn-sm btn-mail-page" data-role-id="' + escapeHtml(String(roleId)) + '" data-page="' + escapeHtml(String(data.page - 1)) + '"' + (data.page <= 1 ? ' disabled' : '') + '>' + escapeHtml(t('Previous')) + '</button>' +
+      '<span class="pager-info">' + escapeHtml(t('Page {page} of {pages} · {total} mails', { page: data.page, pages: data.pages, total: data.total })) + '</span>' +
+      '<button type="button" class="btn btn-secondary btn-sm btn-mail-page" data-role-id="' + escapeHtml(String(roleId)) + '" data-page="' + escapeHtml(String(data.page + 1)) + '"' + (data.page >= data.pages ? ' disabled' : '') + '>' + escapeHtml(t('Next')) + '</button>' +
     '</div>';
     panel.innerHTML = html;
   }
@@ -735,13 +844,13 @@
     var panel = document.getElementById('char-mail-' + roleId);
     if (!panel) return;
     panel.hidden = false;
-    panel.innerHTML = '<p class="char-mail-empty">Cargando correo...</p>';
+    panel.innerHTML = '<p class="char-mail-empty">' + escapeHtml(t('Loading mail...')) + '</p>';
     apiFetch('/api/admin/characters/' + encodeURIComponent(roleId) + '/mail?page=' + encodeURIComponent(page) + '&page_size=' + MAIL_PAGE_SIZE)
       .then(function (data) {
         renderCharacterMail(panel, roleId, data);
       })
       .catch(function (err) {
-        panel.innerHTML = '<p class="char-mail-empty">' + escapeHtml('Error cargando correo: ' + err.message) + '</p>';
+        panel.innerHTML = '<p class="char-mail-empty">' + escapeHtml(t('Error loading mail: {message}', { message: err.message })) + '</p>';
       });
   }
 
@@ -754,21 +863,21 @@
 
     if (!container.hidden) {
       container.hidden = true;
-      btn.textContent = 'Ver inventario';
+      btn.textContent = t('View inventory');
       return;
     }
 
     btn.disabled = true;
-    btn.textContent = 'Cargando...';
+    btn.textContent = t('Loading...');
     apiFetch('/api/admin/characters/' + encodeURIComponent(roleId) + '/items')
       .then(function (data) {
         container.innerHTML = renderInventory(data);
         container.hidden = false;
-        btn.textContent = 'Ocultar inventario';
+        btn.textContent = t('Hide inventory');
       })
       .catch(function (err) {
-        btn.textContent = 'Ver inventario';
-        showToast('Error cargando inventario: ' + err.message, 'error');
+        btn.textContent = t('View inventory');
+        showToast(t('Error loading inventory: {message}', { message: err.message }), 'error');
       })
       .finally(function () {
         btn.disabled = false;
@@ -778,11 +887,11 @@
   function renderInventory(data) {
     var boxStyle = 'margin-top: 8px; padding: 10px; background: #0c1018; border: 1px solid var(--border-color); border-radius: var(--radius-sm); font-size: 12px;';
     if (!data || data.available === false) {
-      return '<div style="' + boxStyle + ' color: var(--text-muted);">El inventario no está disponible en esta base de datos.</div>';
+      return '<div style="' + boxStyle + ' color: var(--text-muted);">' + escapeHtml(t('The inventory is not available in this database.')) + '</div>';
     }
     var items = data.items || [];
     if (!items.length) {
-      return '<div style="' + boxStyle + ' color: var(--text-muted);">Este personaje no tiene objetos.</div>';
+      return '<div style="' + boxStyle + ' color: var(--text-muted);">' + escapeHtml(t('This character has no items.')) + '</div>';
     }
 
     // Group by pack, keeping the server order (pack, sort, guid).
@@ -798,19 +907,19 @@
     });
 
     var html = '<div style="' + boxStyle + '">' +
-      '<div style="color: var(--text-muted); margin-bottom: 8px;">Total de objetos: <strong style="color: #fff;">' + formatNumber(data.total) + '</strong></div>';
+      '<div style="color: var(--text-muted); margin-bottom: 8px;">' + escapeHtml(t('Total items:')) + ' <strong style="color: #fff;">' + formatNumber(data.total) + '</strong></div>';
     groups.forEach(function (g) {
-      var label = g.packName || ('Bolsa ' + g.pack);
+      var label = g.packName || t('Bag {pack}', { pack: g.pack });
       html += '<div style="margin-bottom: 10px;">' +
         '<span class="badge badge-admin">' + escapeHtml(label) + ' (' + g.items.length + ')</span>' +
         '<table class="data-table" style="margin-top: 6px;">' +
-          '<thead><tr><th>Objeto</th><th>Cantidad</th><th>Estado</th></tr></thead><tbody>';
+          '<thead><tr><th>' + escapeHtml(t('Inventory item')) + '</th><th>' + escapeHtml(t('Quantity')) + '</th><th>' + escapeHtml(t('Status')) + '</th></tr></thead><tbody>';
       g.items.forEach(function (item) {
         var name = item.name ? escapeHtml(item.name) : '#' + escapeHtml(String(item.entry));
         var flags = [];
-        if (item.equipped) flags.push('<span class="badge badge-active">Equipado</span>');
-        if (item.locked) flags.push('<span class="badge badge-banned">Bloqueado</span>');
-        if (item.bind_type) flags.push('<span class="badge badge-admin">Ligado</span>');
+        if (item.equipped) flags.push('<span class="badge badge-active">' + escapeHtml(t('Equipped')) + '</span>');
+        if (item.locked) flags.push('<span class="badge badge-banned">' + escapeHtml(t('Locked')) + '</span>');
+        if (item.bind_type) flags.push('<span class="badge badge-admin">' + escapeHtml(t('Bound')) + '</span>');
         html += '<tr>' +
           '<td><strong style="color: #fff;">' + name + '</strong> <span style="color: var(--text-dim);">#' + escapeHtml(String(item.entry)) + '</span></td>' +
           '<td>' + formatNumber(item.stack) + '</td>' +
@@ -831,10 +940,10 @@
       body: { username: state.selectedAccount.name, notes: notes }
     })
       .then(function () {
-        showToast('Notas actualizadas correctamente', 'success');
+        showToast(t('Notes updated successfully'), 'success');
       })
       .catch(function (err) {
-        showToast('Error guardando notas: ' + err.message, 'error');
+        showToast(t('Error saving notes: {message}', { message: err.message }), 'error');
       });
   }
 
@@ -846,22 +955,22 @@
     panel.id = 'gm-tools';
     panel.className = 'gm-tools';
     panel.innerHTML =
-      '<h4 class="gm-tools-title">Herramientas GM</h4>' +
-      '<p class="gm-tools-note">Solo funciona si el panel corre en el mismo host que RO3Emu (endpoint GM local) ' +
-        'y la cuenta tiene un personaje conectado. El resultado aparece en el chat del juego del jugador.</p>' +
+      '<h4 class="gm-tools-title" data-i18n="GM Tools">GM Tools</h4>' +
+      '<p class="gm-tools-note" data-i18n="Only works if the panel runs on the same host as RO3Emu (local GM endpoint) and the account has a connected character. The result appears in the player game chat.">Only works if the panel runs on the same host as RO3Emu (local GM endpoint) and the account has a connected character. The result appears in the player game chat.</p>' +
       '<form id="gm-warp-form" class="gm-warp-form" novalidate>' +
-        '<div><label class="form-label" for="gm-warp-scene">Escena</label>' +
+        '<div><label class="form-label" for="gm-warp-scene" data-i18n="Scene">Scene</label>' +
           '<input type="number" id="gm-warp-scene" class="form-input" min="1" step="1" required placeholder="10111"></div>' +
-        '<div><label class="form-label" for="gm-warp-x">X (opcional)</label>' +
+        '<div><label class="form-label" for="gm-warp-x" data-i18n="X (optional)">X (optional)</label>' +
           '<input type="number" id="gm-warp-x" class="form-input" step="1" placeholder="150"></div>' +
-        '<div><label class="form-label" for="gm-warp-z">Z (opcional)</label>' +
+        '<div><label class="form-label" for="gm-warp-z" data-i18n="Z (optional)">Z (optional)</label>' +
           '<input type="number" id="gm-warp-z" class="form-input" step="1" placeholder="190"></div>' +
         '<div class="gm-warp-actions">' +
-          '<button type="submit" class="btn btn-secondary btn-sm">Teletransportar</button>' +
-          '<button type="button" id="gm-unstuck" class="btn btn-secondary btn-sm">Desatascar (Unstuck)</button>' +
+          '<button type="submit" class="btn btn-secondary btn-sm" data-i18n="Teleport">Teleport</button>' +
+          '<button type="button" id="gm-unstuck" class="btn btn-secondary btn-sm" data-i18n="Unstuck">Unstuck</button>' +
         '</div>' +
       '</form>' +
       '<p id="gm-tools-result" class="gm-tools-result" aria-live="polite"></p>';
+    applyI18n(panel);
     body.appendChild(panel);
 
     document.getElementById('gm-warp-form').addEventListener('submit', handleGmWarp);
@@ -898,11 +1007,11 @@
     var x = parseGmInt('gm-warp-x');
     var z = parseGmInt('gm-warp-z');
     if (scene === null || isNaN(scene) || scene < 1) {
-      setGmResult('Ingrese un número de escena válido.', 'error');
+      setGmResult(t('Enter a valid scene number.'), 'error');
       return;
     }
     if ((x === null) !== (z === null) || (x !== null && (isNaN(x) || isNaN(z)))) {
-      setGmResult('Ingrese X y Z como números enteros, o deje ambos vacíos.', 'error');
+      setGmResult(t('Enter X and Z as whole numbers, or leave both empty.'), 'error');
       return;
     }
     var args = { scene: scene };
@@ -915,24 +1024,34 @@
 
   function sendGmCommand(command, args) {
     if (!state.selectedAccount) return;
-    setGmResult('Enviando…', '');
+    setGmResult(t('Sending…'), '');
     apiFetch('/api/admin/gm', {
       method: 'POST',
       body: { account: state.selectedAccount.name, command: command, args: args }
     })
       .then(function (data) {
         setGmResult(data.sent + ': ' + data.message, 'success');
-        showToast('Comando GM enviado', 'success');
+        showToast(t('GM command sent'), 'success');
       })
       .catch(function (err) {
         setGmResult(err.message, 'error');
-        showToast('Error GM: ' + err.message, 'error');
+        showToast(t('GM error: {message}', { message: err.message }), 'error');
       });
+  }
+
+  // Whole-sentence modal intros: `template` is a translated sentence containing {account}, which is
+  // replaced with the bold, escaped account name (the rest of the sentence is escaped as text).
+  function setModalIntro(id, template, accountName) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    el.innerHTML = escapeHtml(template).replace('{account}', function () {
+      return '<strong>' + escapeHtml(accountName) + '</strong>';
+    });
   }
 
   function showChangePassword(name) {
     state.selectedAccount = { name: name };
-    document.getElementById('pw-acc-name').textContent = name;
+    setModalIntro('pw-intro', t('Set a new password for account {account}. Active game sessions will be revoked.'), name);
     document.getElementById('pw-new-pass').value = '';
     openModal(els.modalPassword);
   }
@@ -942,7 +1061,7 @@
     if (!state.selectedAccount) return;
     var newPass = document.getElementById('pw-new-pass').value || '';
     if (!newPass || newPass.length < 6) {
-      showToast('La nueva contraseña debe tener al menos 6 caracteres.', 'error');
+      showToast(t('The new password must be at least 6 characters.'), 'error');
       return;
     }
 
@@ -955,7 +1074,7 @@
         closeModal(els.modalPassword);
       })
       .catch(function (err) {
-        showToast('Error: ' + err.message, 'error');
+        showToast(t('Error: {message}', { message: err.message }), 'error');
       });
   }
 
@@ -973,11 +1092,11 @@
     var notes = (document.getElementById('create-notes').value || '').trim();
 
     if (!user || user.length < 3) {
-      showToast('El usuario debe tener al menos 3 caracteres.', 'error');
+      showToast(t('The username must be at least 3 characters.'), 'error');
       return;
     }
     if (!pass || pass.length < 6) {
-      showToast('La contraseña debe tener al menos 6 caracteres.', 'error');
+      showToast(t('The password must be at least 6 characters.'), 'error');
       return;
     }
 
@@ -992,13 +1111,13 @@
         loadStats();
       })
       .catch(function (err) {
-        showToast('Error creando cuenta: ' + err.message, 'error');
+        showToast(t('Error creating account: {message}', { message: err.message }), 'error');
       });
   }
 
   function showBanAccount(name) {
     state.selectedAccount = { name: name };
-    document.getElementById('ban-acc-name').textContent = name;
+    setModalIntro('ban-intro', t('Suspending account {account} will mark it as suspended in the panel and revoke its active sessions. RO3Emu does not check this suspension at login yet, so the player may be able to log in again.'), name);
     document.getElementById('ban-reason').value = '';
     openModal(els.modalBan);
   }
@@ -1006,7 +1125,7 @@
   function handleBanAccount(e) {
     e.preventDefault();
     if (!state.selectedAccount) return;
-    var reason = (document.getElementById('ban-reason').value || '').trim() || 'Suspensión administrativa';
+    var reason = (document.getElementById('ban-reason').value || '').trim() || t('Administrative suspension');
 
     apiFetch('/api/admin/accounts/ban', {
       method: 'POST',
@@ -1019,12 +1138,12 @@
         loadStats();
       })
       .catch(function (err) {
-        showToast('Error suspendiendo cuenta: ' + err.message, 'error');
+        showToast(t('Error suspending account: {message}', { message: err.message }), 'error');
       });
   }
 
   function handleUnbanAccount(name) {
-    if (!confirm('¿Desea restablecer y quitar la suspensión de la cuenta "' + name + '"?')) return;
+    if (!confirm(t('Do you want to reset and remove the suspension of account "{name}"?', { name: name }))) return;
     apiFetch('/api/admin/accounts/unban', {
       method: 'POST',
       body: { username: name }
@@ -1035,13 +1154,13 @@
         loadStats();
       })
       .catch(function (err) {
-        showToast('Error quitando suspensión: ' + err.message, 'error');
+        showToast(t('Error removing suspension: {message}', { message: err.message }), 'error');
       });
   }
 
   function showDeleteAccount(name) {
     state.selectedAccount = { name: name };
-    document.getElementById('del-acc-name').textContent = name;
+    setModalIntro('del-intro', t('This action will permanently delete account {account}. To confirm, type the account name below:'), name);
     document.getElementById('del-confirm-name').value = '';
     openModal(els.modalDelete);
   }
@@ -1051,7 +1170,7 @@
     if (!state.selectedAccount) return;
     var typedName = (document.getElementById('del-confirm-name').value || '').trim();
     if (typedName !== state.selectedAccount.name) {
-      showToast('Debe escribir exactamente el nombre de la cuenta para confirmar.', 'error');
+      showToast(t('You must type the account name exactly to confirm.'), 'error');
       return;
     }
 
@@ -1066,7 +1185,7 @@
         loadStats();
       })
       .catch(function (err) {
-        showToast('Error eliminando cuenta: ' + err.message, 'error');
+        showToast(t('Error deleting account: {message}', { message: err.message }), 'error');
       });
   }
 
@@ -1076,7 +1195,7 @@
         var logs = data.logs || [];
         if (!els.auditTbody) return;
         if (!logs.length) {
-          els.auditTbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--text-muted); padding: 24px;">No hay registros de auditoría aún.</td></tr>';
+          els.auditTbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--text-muted); padding: 24px;">' + escapeHtml(t('No audit records yet.')) + '</td></tr>';
           return;
         }
         var html = '';
@@ -1092,7 +1211,7 @@
         els.auditTbody.innerHTML = html;
       })
       .catch(function (err) {
-        showToast('Error cargando registros: ' + err.message, 'error');
+        showToast(t('Error loading records: {message}', { message: err.message }), 'error');
       });
   }
 
@@ -1116,7 +1235,7 @@
         renderEconomyPager(data.total || 0);
       })
       .catch(function (err) {
-        showToast('Error cargando economía: ' + err.message, 'error');
+        showToast(t('Error loading economy: {message}', { message: err.message }), 'error');
       });
   }
 
@@ -1128,7 +1247,7 @@
   function renderEconomyTable(entries, available) {
     if (!els.economyTbody) return;
     if (!entries.length) {
-      var msg = available ? 'No hay movimientos para los filtros seleccionados.' : 'Registro de economía no disponible en esta base de datos.';
+      var msg = escapeHtml(available ? t('No movements for the selected filters.') : t('Economy log not available in this database.'));
       els.economyTbody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: var(--text-muted); padding: 24px;">' + msg + '</td></tr>';
       return;
     }
@@ -1155,7 +1274,7 @@
   function renderEconomyPager(total) {
     var eco = state.economy;
     if (els.economyPageInfo) {
-      els.economyPageInfo.textContent = 'Página ' + eco.page + ' de ' + eco.pages + ' (' + formatNumber(total) + ' movimientos)';
+      els.economyPageInfo.textContent = t('Page {page} of {pages} ({total} movements)', { page: eco.page, pages: eco.pages, total: formatNumber(total) });
     }
     if (els.economyPrev) els.economyPrev.disabled = eco.page <= 1;
     if (els.economyNext) els.economyNext.disabled = eco.page >= eco.pages;
@@ -1189,38 +1308,42 @@
   }
 
   // --- Rankings (read-only) ---
-  var RANKING_METRIC_LABELS = {
-    level: 'Nivel Base',
-    zeny: 'Zeny',
-    power: 'Poder'
-  };
+  function rankingMetricLabel(type) {
+    if (type === 'level') return t('Base Level');
+    if (type === 'zeny') return t('Zeny');
+    if (type === 'power') return t('Power');
+    return '';
+  }
 
   function renderRankingsHead(type) {
     if (!els.rankingsThead) return;
     if (type === 'guilds') {
       els.rankingsThead.innerHTML = '<tr>' +
         '<th style="width: 10%;">#</th>' +
-        '<th>Clan</th>' +
-        '<th style="width: 22%;">Miembros Activos</th>' +
-        '<th style="width: 22%;">Nivel Total</th>' +
+        '<th>' + escapeHtml(t('Clan')) + '</th>' +
+        '<th style="width: 22%;">' + escapeHtml(t('Active Members')) + '</th>' +
+        '<th style="width: 22%;">' + escapeHtml(t('Total Level')) + '</th>' +
       '</tr>';
       return;
     }
     els.rankingsThead.innerHTML = '<tr>' +
       '<th style="width: 8%;">#</th>' +
-      '<th>Personaje</th>' +
-      '<th style="width: 18%;">Cuenta</th>' +
-      '<th style="width: 18%;">Clase</th>' +
-      '<th style="width: 14%;">Nivel / Job</th>' +
-      '<th style="width: 16%;">' + escapeHtml(RANKING_METRIC_LABELS[type] || '') + '</th>' +
+      '<th>' + escapeHtml(t('Character')) + '</th>' +
+      '<th style="width: 18%;">' + escapeHtml(t('Account')) + '</th>' +
+      '<th style="width: 18%;">' + escapeHtml(t('Class')) + '</th>' +
+      '<th style="width: 14%;">' + escapeHtml(t('Level / Job')) + '</th>' +
+      '<th style="width: 16%;">' + escapeHtml(rankingMetricLabel(type)) + '</th>' +
     '</tr>';
   }
 
   function renderRankingsPager() {
     var totalPages = Math.max(1, Math.ceil(state.rankingTotal / state.rankingLimit));
     if (els.rankingPageLabel) {
-      els.rankingPageLabel.textContent = 'Página ' + state.rankingPage + ' de ' + totalPages +
-        ' (' + formatNumber(state.rankingTotal) + ')';
+      els.rankingPageLabel.textContent = t('Page {page} of {pages} ({total})', {
+        page: state.rankingPage,
+        pages: totalPages,
+        total: formatNumber(state.rankingTotal)
+      });
     }
     if (els.rankingPrev) els.rankingPrev.disabled = state.rankingPage <= 1;
     if (els.rankingNext) els.rankingNext.disabled = state.rankingPage >= totalPages;
@@ -1240,11 +1363,11 @@
         renderRankingsPager();
 
         if (data.available === false) {
-          els.rankingsTbody.innerHTML = '<tr><td colspan="' + colspan + '" style="text-align: center; color: var(--text-muted); padding: 24px;">La base de datos no tiene tablas de clanes todavía.</td></tr>';
+          els.rankingsTbody.innerHTML = '<tr><td colspan="' + colspan + '" style="text-align: center; color: var(--text-muted); padding: 24px;">' + escapeHtml(t('The database has no clan tables yet.')) + '</td></tr>';
           return;
         }
         if (!rows.length) {
-          els.rankingsTbody.innerHTML = '<tr><td colspan="' + colspan + '" style="text-align: center; color: var(--text-muted); padding: 24px;">No hay datos para este ranking.</td></tr>';
+          els.rankingsTbody.innerHTML = '<tr><td colspan="' + colspan + '" style="text-align: center; color: var(--text-muted); padding: 24px;">' + escapeHtml(t('No data for this ranking.')) + '</td></tr>';
           return;
         }
 
@@ -1271,7 +1394,7 @@
         els.rankingsTbody.innerHTML = html;
       })
       .catch(function (err) {
-        showToast('Error cargando rankings: ' + err.message, 'error');
+        showToast(t('Error loading rankings: {message}', { message: err.message }), 'error');
       });
   }
 
@@ -1287,11 +1410,15 @@
       escapeHtml(text) + '</td></tr>';
   }
 
-  function renderPager(pagerEl, infoEl, prevEl, nextEl, page, pages, total, noun) {
+  // kind selects a whole-sentence label ('guilds' or 'records') so word order can differ per language.
+  function renderPager(pagerEl, infoEl, prevEl, nextEl, page, pages, total, kind) {
     if (!pagerEl) return;
     pagerEl.hidden = total === 0;
     if (infoEl) {
-      infoEl.textContent = 'Página ' + page + ' de ' + pages + ' (' + formatNumber(total) + ' ' + noun + ')';
+      var info = { page: page, pages: pages, total: formatNumber(total) };
+      infoEl.textContent = kind === 'guilds' ?
+        t('Page {page} of {pages} ({total} guilds)', info) :
+        t('Page {page} of {pages} ({total} records)', info);
     }
     if (prevEl) prevEl.disabled = page <= 1;
     if (nextEl) nextEl.disabled = page >= pages;
@@ -1309,17 +1436,17 @@
         if (els.guildsUnavailable) els.guildsUnavailable.hidden = data.available !== false;
         renderGuildsTable(data.guilds || []);
         renderPager(els.guildsPager, els.guildsPagerInfo, els.guildsPagerPrev, els.guildsPagerNext,
-          state.guildsPage, state.guildsPages, state.guildsTotal, 'gremios');
+          state.guildsPage, state.guildsPages, state.guildsTotal, 'guilds');
       })
       .catch(function (err) {
-        showToast('Error cargando gremios: ' + err.message, 'error');
+        showToast(t('Error loading guilds: {message}', { message: err.message }), 'error');
       });
   }
 
   function renderGuildsTable(guilds) {
     if (!els.guildsTbody) return;
     if (!guilds.length) {
-      els.guildsTbody.innerHTML = emptyRow(6, 'No se encontraron gremios.');
+      els.guildsTbody.innerHTML = emptyRow(6, t('No guilds found.'));
       return;
     }
     var html = '';
@@ -1330,7 +1457,7 @@
         '<td>' + cellValue(g.level) + '</td>' +
         '<td>' + cellValue(g.member_count) + '</td>' +
         '<td>' + cellValue(g.total_level) + '</td>' +
-        '<td><button class="btn btn-secondary btn-sm btn-view-guild" data-guild="' + cellValue(g.id) + '" title="Ver miembros">Ficha</button></td>' +
+        '<td><button class="btn btn-secondary btn-sm btn-view-guild" data-guild="' + cellValue(g.id) + '" title="' + escapeHtml(t('View members')) + '">' + escapeHtml(t('Record')) + '</button></td>' +
       '</tr>';
     });
     els.guildsTbody.innerHTML = html;
@@ -1346,21 +1473,21 @@
     apiFetch('/api/admin/guilds/' + encodeURIComponent(guildId))
       .then(function (data) {
         if (data.available === false || !data.guild) {
-          showToast('La base de datos no contiene tablas de gremios.', 'info');
+          showToast(t('The database does not contain guild tables.'), 'info');
           return;
         }
         var g = data.guild;
         document.getElementById('guild-detail-name').textContent = g.name;
         document.getElementById('guild-detail-summary').innerHTML =
           '<div><strong>ID:</strong> <div>' + cellValue(g.id) + '</div></div>' +
-          '<div><strong>Nivel:</strong> <div>' + cellValue(g.level) + '</div></div>' +
-          '<div><strong>Miembros:</strong> <div>' + cellValue(g.member_count) + '</div></div>' +
-          '<div><strong>Nivel total:</strong> <div>' + cellValue(g.total_level) + '</div></div>';
+          '<div><strong>' + escapeHtml(t('Level:')) + '</strong> <div>' + cellValue(g.level) + '</div></div>' +
+          '<div><strong>' + escapeHtml(t('Members:')) + '</strong> <div>' + cellValue(g.member_count) + '</div></div>' +
+          '<div><strong>' + escapeHtml(t('Total level:')) + '</strong> <div>' + cellValue(g.total_level) + '</div></div>';
 
         var members = data.members || [];
         var tbody = document.getElementById('guild-members-tbody');
         if (!members.length) {
-          tbody.innerHTML = emptyRow(4, 'Este gremio no tiene miembros activos.');
+          tbody.innerHTML = emptyRow(4, t('This guild has no active members.'));
         } else {
           var html = '';
           members.forEach(function (m) {
@@ -1376,25 +1503,28 @@
         openModal(els.modalGuild);
       })
       .catch(function (err) {
-        showToast('Error cargando gremio: ' + err.message, 'error');
+        showToast(t('Error loading guild: {message}', { message: err.message }), 'error');
       });
   }
 
-  var AUCTION_COLUMNS = {
-    lots: [
-      ['id', 'ID'], ['source_key', 'Origen'], ['auction_type', 'Tipo'],
-      ['run_id', 'Ronda'], ['end_time', 'Fin'], ['settled', 'Liquidado']
-    ],
-    prebuy: [
-      ['id', 'ID'], ['role_name', 'Personaje'], ['role_id', 'ID Personaje'], ['auction_type', 'Tipo'],
-      ['item_id', 'Ítem'], ['quantity', 'Cantidad'], ['unit_price', 'Precio unitario'],
-      ['currency', 'Moneda'], ['processed', 'Procesado'], ['paused', 'Pausado']
-    ]
-  };
+  // Built per call so the column labels follow the active language.
+  function auctionColumns(view) {
+    if (view === 'prebuy') {
+      return [
+        ['id', 'ID'], ['role_name', t('Character')], ['role_id', t('Character ID')], ['auction_type', t('Type')],
+        ['item_id', t('Item ID')], ['quantity', t('Quantity')], ['unit_price', t('Unit price')],
+        ['currency', t('Currency')], ['processed', t('Processed')], ['paused', t('Paused')]
+      ];
+    }
+    return [
+      ['id', 'ID'], ['source_key', t('Source')], ['auction_type', t('Type')],
+      ['run_id', t('Round')], ['end_time', t('End')], ['settled', t('Settled')]
+    ];
+  }
 
   function auctionCell(value) {
-    if (value === true) return 'Sí';
-    if (value === false) return 'No';
+    if (value === true) return t('Yes');
+    if (value === false) return t('No');
     return cellValue(value);
   }
 
@@ -1410,15 +1540,15 @@
         if (els.auctionsUnavailable) els.auctionsUnavailable.hidden = data.available !== false;
         renderAuctionsTable(data.view || state.auctionView, data.rows || []);
         renderPager(els.auctionsPager, els.auctionsPagerInfo, els.auctionsPagerPrev, els.auctionsPagerNext,
-          state.auctionsPage, state.auctionsPages, state.auctionsTotal, 'registros');
+          state.auctionsPage, state.auctionsPages, state.auctionsTotal, 'records');
       })
       .catch(function (err) {
-        showToast('Error cargando subastas: ' + err.message, 'error');
+        showToast(t('Error loading auctions: {message}', { message: err.message }), 'error');
       });
   }
 
   function renderAuctionsTable(view, rows) {
-    var columns = AUCTION_COLUMNS[view] || AUCTION_COLUMNS.lots;
+    var columns = auctionColumns(view);
     if (els.auctionsThead) {
       els.auctionsThead.innerHTML = '<tr>' + columns.map(function (c) {
         return '<th>' + escapeHtml(c[1]) + '</th>';
@@ -1426,7 +1556,7 @@
     }
     if (!els.auctionsTbody) return;
     if (!rows.length) {
-      els.auctionsTbody.innerHTML = emptyRow(columns.length, 'No hay registros de subastas.');
+      els.auctionsTbody.innerHTML = emptyRow(columns.length, t('No auction records.'));
       return;
     }
     els.auctionsTbody.innerHTML = rows.map(function (r) {
@@ -1480,6 +1610,10 @@
   function setupEventListeners() {
     if (els.loginForm) els.loginForm.addEventListener('submit', handleLogin);
     if (els.btnLogout) els.btnLogout.addEventListener('click', handleLogout);
+
+    document.querySelectorAll('.lang-btn').forEach(function (btn) {
+      btn.addEventListener('click', handleLangClick);
+    });
 
     document.querySelectorAll('.tab-btn').forEach(function (btn) {
       btn.addEventListener('click', function () {
@@ -1612,7 +1746,7 @@
       btnRefresh.addEventListener('click', function () {
         loadStats();
         loadAccounts();
-        showToast('Datos actualizados', 'info');
+        showToast(t('Data refreshed'), 'info');
       });
     }
 
@@ -1699,7 +1833,15 @@
 
   // Initialization
   document.addEventListener('DOMContentLoaded', function () {
+    var storedLang = readStoredLang();
+    if (storedLang) {
+      i18n.lang = storedLang;
+      i18n.stored = true;
+    }
     setupEventListeners();
+    applyI18n(document);
+    updateLangButtons();
+    loadLocale();
     loadBranding();
     checkSession();
   });

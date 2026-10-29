@@ -32,20 +32,20 @@ class TestNameLookups(unittest.TestCase):
         self.assertEqual(server.scene_name(10101), "Izlude")
 
     def test_ids_whose_name_upstream_gives_to_another_id_fall_back(self):
-        self.assertEqual(server.career_name(1300), "Clase 1300")
-        self.assertEqual(server.career_name(4300), "Clase 4300")
-        self.assertEqual(server.scene_name(10600), "Mapa 10600")
+        self.assertEqual(server.career_name(1300), "Class 1300")
+        self.assertEqual(server.career_name(4300), "Class 4300")
+        self.assertEqual(server.scene_name(10600), "Map 10600")
 
     def test_unknown_career_falls_back(self):
-        self.assertEqual(server.career_name(987654), "Clase 987654")
+        self.assertEqual(server.career_name(987654), "Class 987654")
 
     def test_unknown_scene_falls_back(self):
-        self.assertEqual(server.scene_name(0), "Mapa 0")
-        self.assertEqual(server.scene_name(424242), "Mapa 424242")
+        self.assertEqual(server.scene_name(0), "Map 0")
+        self.assertEqual(server.scene_name(424242), "Map 424242")
 
     def test_non_integer_id_falls_back_without_raising(self):
-        self.assertEqual(server.career_name(None), "Clase None")
-        self.assertEqual(server.scene_name("abc"), "Mapa abc")
+        self.assertEqual(server.career_name(None), "Class None")
+        self.assertEqual(server.scene_name("abc"), "Map abc")
 
     def test_numeric_string_id_resolves(self):
         self.assertEqual(server.career_name("1100"), "Swordman")

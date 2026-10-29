@@ -157,7 +157,7 @@ class RankingsAPITest(unittest.TestCase):
     def test_unknown_type_returns_400_in_spanish(self):
         status, data = self.rankings("type=pvp")
         self.assertEqual(status, 400)
-        self.assertIn("Tipo de ranking inválido", data["error"])
+        self.assertIn("Invalid ranking type", data["error"])
 
     def test_level_ranking_orders_by_level_job_level_exp_and_excludes_deleted(self):
         self.add_role(1, "Low", level=10, job_level=5)
@@ -186,7 +186,7 @@ class RankingsAPITest(unittest.TestCase):
         self.add_role(1, "Mystery", career=9999, level=5)
         status, data = self.rankings("type=level")
         self.assertEqual(status, 200, data)
-        self.assertEqual(data["rankings"][0]["career_name"], "Clase 9999")
+        self.assertEqual(data["rankings"][0]["career_name"], "Class 9999")
 
     def test_limit_and_page_paginate_with_global_rank(self):
         for i in range(1, 8):
