@@ -168,6 +168,29 @@ class BanWritesServerTableTests(_PanelFixture):
         self.assertEqual((reason, until_utc), ("again", None))
         self.assertEqual(self._rows("SELECT COUNT(*) FROM account_ban")[0][0], 1)
 
+    def test_deleting_the_account_keeps_its_ban(self):
+        # A ban outlives its account: RO3Emu refuses the name if it is registered again.
+        self._call("POST", "/api/admin/accounts/ban", {"username": "player1", "reason": "cheating"})
+        status, _ = self._call("POST", "/api/admin/accounts/delete", {"username": "player1"})
+
+        self.assertEqual(status, 200)
+        self.assertEqual(self._rows("SELECT COUNT(*) FROM account WHERE name='player1'")[0][0], 0)
+        self.assertEqual(self._ban_row("player1")[:2], ("player1", "cheating"))
+
+    def test_reason_is_capped_at_500_characters(self):
+        status, _ = self._call("POST", "/api/admin/accounts/ban", {"username": "player1", "reason": "x" * 500})
+        self.assertEqual(status, 200)
+        self.assertEqual(len(self._ban_row("player1")[1]), 500)
+
+        for reason in ("y" * 501, 42, ["cheating"]):
+            with self.subTest(reason=reason):
+                status, body = self._call("POST", "/api/admin/accounts/ban", {"username": "player2", "reason": reason})
+                self.assertEqual(status, 400)
+                self.assertEqual(body["error"], "The reason must be text of up to 500 characters")
+                self.assertIsNone(self._ban_row("player2"))
+        status, body = self._call("POST", "/api/admin/accounts/ban", {"username": "player2", "reason": "y" * 501}, lang="es")
+        self.assertEqual(body["error"], "El motivo debe ser texto de hasta 500 caracteres")
+
     def test_unban_deletes_the_row_and_audits(self):
         self._call("POST", "/api/admin/accounts/ban", {"username": "player1", "reason": "cheating"})
         status, body = self._call("POST", "/api/admin/accounts/unban", {"username": "player1"})

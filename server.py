@@ -256,6 +256,7 @@ ES_MESSAGES = {
         "El inicio y el vencimiento deben ser marcas de tiempo unix en segundos",
     "The expiry must be after the start": "El vencimiento debe ser posterior al inicio",
     "The note must be text of up to 500 characters": "La nota debe ser texto de hasta 500 caracteres",
+    "The reason must be text of up to 500 characters": "El motivo debe ser texto de hasta 500 caracteres",
     "The gift code '{code}' already exists": "El código de regalo '{code}' ya existe",
     "The gift code '{code}' does not exist": "El código de regalo '{code}' no existe",
     "Gift code required": "Código de regalo requerido",
@@ -1777,6 +1778,8 @@ def _audit_text(value, limit=200):
 # only reads the redemption table to count uses.
 GIFT_CODE_MAX_LEN = 64
 GIFT_NOTE_MAX_LEN = 500
+# account_ban.reason is RO3Emu's column; the panel caps it like the other free-text fields it writes.
+BAN_REASON_MAX_LEN = 500
 
 
 def gift_codes_unsupported():
@@ -2740,7 +2743,10 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
             return self.send_json(400, {"error": tr("Invalid request body")})
 
         username = (body.get("username") or "").strip()
-        reason = (body.get("reason") or "Rule violation / Admin action").strip()
+        reason = body.get("reason") or "Rule violation / Admin action"
+        if not isinstance(reason, str) or len(reason.strip()) > BAN_REASON_MAX_LEN:
+            return self.send_json(400, {"error": tr("The reason must be text of up to 500 characters")})
+        reason = reason.strip()
 
         admin_usernames = [a.get("username", "").strip().lower() for a in CONFIG.get("admin_users", [])]
         if username.lower() in admin_usernames:
