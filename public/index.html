@@ -105,6 +105,9 @@
     <button class="tab-btn" data-tab="economy">
       <span data-i18n="💰 Economy">💰 Economy</span>
     </button>
+    <button class="tab-btn" data-tab="giftcodes">
+      <span data-i18n="🎁 Gift Codes">🎁 Gift Codes</span>
+    </button>
   </nav>
 
   <!-- 4. Main container -->
@@ -496,6 +499,52 @@
       </div>
     </section>
 
+    <!-- View 8: Gift codes -->
+    <section id="tab-view-giftcodes" hidden>
+      <div class="toolbar-card">
+        <div>
+          <h3 style="font-size: 15px; font-weight: 700; color: #fff; margin-bottom: 4px;" data-i18n="Gift Codes">Gift Codes</h3>
+          <span style="font-size: 12px; color: var(--text-muted);" data-i18n="Redeemable reward codes. Players redeem them in the game client, not in this panel.">Redeemable reward codes. Players redeem them in the game client, not in this panel.</span>
+        </div>
+        <div class="filter-group">
+          <button type="button" id="btn-giftcodes-refresh" class="btn btn-secondary" title="Refresh data" data-i18n-title="Refresh data">
+            <span>🔄</span> <span data-i18n="Refresh">Refresh</span>
+          </button>
+          <button type="button" id="btn-new-giftcode" class="btn btn-primary">
+            <span>➕</span> <span data-i18n="Create Gift Code">Create Gift Code</span>
+          </button>
+        </div>
+      </div>
+
+      <div id="giftcodes-unavailable" class="readonly-notice" role="status" hidden></div>
+
+      <div id="giftcodes-table-wrap" class="table-container">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th data-i18n="Code">Code</th>
+              <th data-i18n="Rewards">Rewards</th>
+              <th data-i18n="Uses">Uses</th>
+              <th data-i18n="Per account">Per account</th>
+              <th data-i18n="Starts">Starts</th>
+              <th data-i18n="Expires">Expires</th>
+              <th data-i18n="Status">Status</th>
+              <th data-i18n="Created by">Created by</th>
+              <th data-i18n="Note">Note</th>
+              <th data-i18n="Actions">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="giftcodes-tbody">
+            <tr>
+              <td colspan="10" style="text-align: center; color: var(--text-muted); padding: 32px;" data-i18n="Loading gift codes...">
+                Loading gift codes...
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
   </main>
 
   <!-- ================= MODALS ================= -->
@@ -683,6 +732,65 @@
         <div class="modal-footer">
           <button type="button" class="btn btn-secondary" data-close-modal data-i18n="Cancel">Cancel</button>
           <button type="submit" class="btn btn-danger" data-i18n="Delete Permanently">Delete Permanently</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal 6: Create gift code -->
+  <div id="modal-giftcode" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="giftcode-modal-title" hidden>
+    <div class="modal-dialog" style="max-width: 560px;">
+      <div class="modal-header">
+        <div id="giftcode-modal-title" class="modal-title" data-i18n="🎁 Create Gift Code">🎁 Create Gift Code</div>
+        <button type="button" class="modal-close" data-close-modal aria-label="Close" data-i18n-aria-label="Close">&times;</button>
+      </div>
+
+      <form id="form-giftcode" novalidate>
+        <div class="modal-body">
+          <div class="form-group">
+            <label class="form-label" for="giftcode-code" data-i18n="Code">Code</label>
+            <input type="text" id="giftcode-code" class="form-input" placeholder="E.g.: WELCOME2026" data-i18n-placeholder="E.g.: WELCOME2026" maxlength="64" autocomplete="off" required>
+          </div>
+
+          <div class="form-group">
+            <span class="form-label" id="giftcode-items-label" data-i18n="Rewards">Rewards</span>
+            <div id="giftcode-items" class="giftcode-items" role="group" aria-labelledby="giftcode-items-label"></div>
+            <button type="button" id="btn-giftcode-add-item" class="btn btn-secondary btn-sm" data-i18n="➕ Add reward">➕ Add reward</button>
+          </div>
+
+          <div class="giftcode-row">
+            <div class="form-group">
+              <label class="form-label" for="giftcode-max-uses" data-i18n="Max uses (0 = unlimited)">Max uses (0 = unlimited)</label>
+              <input type="number" id="giftcode-max-uses" class="form-input" min="0" step="1" value="0" inputmode="numeric">
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="giftcode-per-account" data-i18n="Uses per account">Uses per account</label>
+              <input type="number" id="giftcode-per-account" class="form-input" min="1" step="1" value="1" inputmode="numeric">
+            </div>
+          </div>
+
+          <div class="giftcode-row">
+            <div class="form-group">
+              <label class="form-label" for="giftcode-starts" data-i18n="Starts (Optional)">Starts (Optional)</label>
+              <input type="datetime-local" id="giftcode-starts" class="form-input">
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="giftcode-expires" data-i18n="Expires (Optional)">Expires (Optional)</label>
+              <input type="datetime-local" id="giftcode-expires" class="form-input">
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="giftcode-note" data-i18n="Notes (Optional)">Notes (Optional)</label>
+            <input type="text" id="giftcode-note" class="form-input" placeholder="E.g.: Launch event" data-i18n-placeholder="E.g.: Launch event" autocomplete="off">
+          </div>
+
+          <div id="giftcode-error" class="form-error" role="alert" hidden></div>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-close-modal data-i18n="Cancel">Cancel</button>
+          <button type="submit" id="btn-giftcode-submit" class="btn btn-primary" data-i18n="Create Gift Code">Create Gift Code</button>
         </div>
       </form>
     </div>

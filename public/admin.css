@@ -1040,3 +1040,61 @@ body {
 .guild-summary strong {
   color: var(--text-muted);
 }
+
+/* Gift codes */
+.btn[hidden] {
+  display: none;
+}
+
+.giftcode-items {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.giftcode-item-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.giftcode-item-row .form-input:first-child {
+  flex: 2;
+}
+
+.giftcode-item-row .form-input:nth-child(2) {
+  flex: 1;
+}
+
+.giftcode-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.giftcode-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: var(--text-main);
+  font-weight: 700;
+  word-break: break-all;
+}
+
+.giftcode-rewards {
+  min-width: 160px;
+}
+
+.form-error {
+  padding: 10px 12px;
+  border: 1px solid var(--danger);
+  background: var(--danger-bg);
+  color: var(--danger);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+}
+
+@media (max-width: 560px) {
+  .giftcode-row {
+    grid-template-columns: 1fr;
+  }
+}
