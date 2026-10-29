@@ -36,7 +36,8 @@ account_ban(account TEXT NOT NULL PRIMARY KEY, reason TEXT NOT NULL DEFAULT '',
 
 - **Ban** (`POST /api/admin/accounts/ban`, body `{"username", "reason"}`) writes the row (`banned_utc` = now in
   unix seconds, `until_utc` = `NULL`, `banned_by` = the admin user), deletes the account's `auth_token` rows and
-  writes the `ban_account` audit row, all in one SQLite transaction. Banning a banned account replaces its row.
+  writes the `ban_account` audit row, all in one SQLite transaction. Banning a banned account replaces its row. The
+  `reason` is text of up to 500 characters (otherwise `400`); it is stored in RO3Emu's table.
 - **Unban** (`POST /api/admin/accounts/unban`, body `{"username"}`) deletes the row and writes the
   `unban_account` audit row in one transaction.
 - **Active ban:** the row exists and `until_utc` is `NULL` or later than now. The panel never sets
@@ -46,6 +47,9 @@ account_ban(account TEXT NOT NULL PRIMARY KEY, reason TEXT NOT NULL DEFAULT '',
   not support account bans", and change nothing. Reads show every account as not banned, and the accounts
   list, the account sheet and `/api/admin/stats` return `"bans_supported": false`.
 - Players already in the world are not kicked by a ban; it applies from their next sign-in.
+- **Deleting an account keeps its ban:** `account_ban` keeps the row, and RO3Emu refuses that name (in any
+  letter case) if it is registered again, so a player cannot escape a ban by recreating the account. The
+  accounts list and the counts only show bans of existing accounts.
 - **Old panel bans are not migrated.** Before this change a ban was only `admin_account_meta.is_banned`, which
   RO3Emu never read. The panel no longer reads that flag (the column stays, and the table keeps the account
   notes). After updating RO3Emu, ban those accounts again. To list them:
