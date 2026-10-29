@@ -373,7 +373,12 @@
       el.textContent = state.branding.server_subtitle;
     });
     els.brandLogos.forEach(function (el) {
-      el.textContent = state.branding.logo_text;
+      if (state.branding.logo_image_url) {
+        var alt = state.branding.logo_text || 'Logo';
+        el.innerHTML = '<img src="' + escapeHtml(state.branding.logo_image_url) + '" alt="' + escapeHtml(alt) + '" class="brand-logo-img">';
+      } else {
+        el.textContent = state.branding.logo_text;
+      }
     });
   }
 

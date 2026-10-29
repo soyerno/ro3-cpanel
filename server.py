@@ -1904,6 +1904,7 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
                 "server_title": CONFIG.get("server_title", "RO3 Control Panel"),
                 "server_subtitle": CONFIG.get("server_subtitle", "Ragnarok Online 3 Management"),
                 "logo_text": CONFIG.get("logo_text", "RO3"),
+                "logo_image_url": CONFIG.get("logo_image_url", ""),
                 "default_language": default_language()
             })
 
