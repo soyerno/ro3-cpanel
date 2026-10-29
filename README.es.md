@@ -114,7 +114,7 @@ el registro de auditoría. Ver [Arquitectura de Seguridad](docs/guide/security.m
 
 Suspender una cuenta requiere un RO3Emu con suspensiones de cuentas. El panel escribe la suspensión en la
 tabla `account_ban` de RO3Emu, y RO3Emu rechaza el inicio de sesión de esa cuenta hasta que se quite la
-suspensión. Las sesiones de juego de la cuenta se revocan en el acto. Con un RO3Emu anterior (sin la tabla
+suspensión. Las sesiones de juego de la cuenta se revocan en el acto. Una suspensión es permanente o dura 1, 7 o 30 días. Con un RO3Emu anterior (sin la tabla
 `account_ban`) el panel no suspende y pide actualizar RO3Emu; nunca crea la tabla. Borrar una cuenta no levanta su
 suspensión: RO3Emu sigue rechazando ese nombre si se vuelve a registrar.
 

@@ -710,6 +710,16 @@
             <label class="form-label" for="ban-reason" data-i18n="Suspension Reason">Suspension Reason</label>
             <input type="text" id="ban-reason" class="form-input" maxlength="500" placeholder="E.g.: Use of unauthorized programs" data-i18n-placeholder="E.g.: Use of unauthorized programs" required>
           </div>
+
+          <div class="form-group">
+            <label class="form-label" for="ban-days" data-i18n="Duration">Duration</label>
+            <select id="ban-days" class="form-input">
+              <option value="" data-i18n="Permanent">Permanent</option>
+              <option value="1" data-i18n="1 day">1 day</option>
+              <option value="7" data-i18n="7 days">7 days</option>
+              <option value="30" data-i18n="30 days">30 days</option>
+            </select>
+          </div>
         </div>
 
         <div class="modal-footer">

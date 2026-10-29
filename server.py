@@ -257,6 +257,12 @@ ES_MESSAGES = {
     "The expiry must be after the start": "El vencimiento debe ser posterior al inicio",
     "The note must be text of up to 500 characters": "La nota debe ser texto de hasta 500 caracteres",
     "The reason must be text of up to 500 characters": "El motivo debe ser texto de hasta 500 caracteres",
+    "The duration must be a whole number of days from 1 to 3650":
+        "La duración debe ser un número entero de días entre 1 y 3650",
+    "Account '{username}' suspended until {until} and its active sessions were revoked. "
+    "RO3Emu refuses its sign-in until then, or until the suspension is removed.":
+        "Cuenta '{username}' suspendida hasta {until} y sus sesiones activas fueron revocadas. "
+        "RO3Emu rechaza su inicio de sesión hasta entonces, o hasta que se quite la suspensión.",
     "The gift code '{code}' already exists": "El código de regalo '{code}' ya existe",
     "The gift code '{code}' does not exist": "El código de regalo '{code}' no existe",
     "Gift code required": "Código de regalo requerido",
@@ -1437,11 +1443,11 @@ def ban_time_label(banned_utc):
     return datetime.fromtimestamp(int(banned_utc), tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
 
 def active_ban(con, account, now):
-    """The account's active ban row (reason, banned_utc), or None; also None when bans are unsupported."""
+    """The account's active ban row (reason, banned_utc, until_utc), or None; also None when bans are unsupported."""
     if not bans_supported(con):
         return None
     return con.execute(
-        f"SELECT reason, banned_utc FROM account_ban b WHERE b.account = ? AND {ACTIVE_BAN_SQL}", (account, now)
+        f"SELECT reason, banned_utc, until_utc FROM account_ban b WHERE b.account = ? AND {ACTIVE_BAN_SQL}", (account, now)
     ).fetchone()
 
 def count_active_bans(con, now):
@@ -1454,11 +1460,12 @@ def count_active_bans(con, now):
 def account_ban_sql(con, now):
     """SQL pieces for the accounts list: (join, join args, ban columns, condition that means banned)."""
     if not bans_supported(con):
-        return "", [], "0 AS is_banned, '' AS ban_reason, NULL AS banned_utc", "0"
+        return "", [], "0 AS is_banned, '' AS ban_reason, NULL AS banned_utc, NULL AS ban_until_utc", "0"
     return (
         f" LEFT JOIN account_ban b ON b.account = a.name AND {ACTIVE_BAN_SQL}",
         [now],
-        "b.account IS NOT NULL AS is_banned, COALESCE(b.reason, '') AS ban_reason, b.banned_utc AS banned_utc",
+        "b.account IS NOT NULL AS is_banned, COALESCE(b.reason, '') AS ban_reason, b.banned_utc AS banned_utc,"
+        " b.until_utc AS ban_until_utc",
         "b.account IS NOT NULL",
     )
 
@@ -1780,6 +1787,8 @@ GIFT_CODE_MAX_LEN = 64
 GIFT_NOTE_MAX_LEN = 500
 # account_ban.reason is RO3Emu's column; the panel caps it like the other free-text fields it writes.
 BAN_REASON_MAX_LEN = 500
+# A temporary ban lasts 1 to 3650 days (issue #40); without days it is permanent (until_utc NULL).
+BAN_MAX_DAYS = 3650
 
 
 def gift_codes_unsupported():
@@ -2413,6 +2422,7 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
                 a["is_admin"] = (name.lower() in admin_usernames)
                 a["is_banned"] = bool(a["is_banned"])
                 a["banned_at"] = ban_time_label(a.pop("banned_utc"))
+                a["banned_until"] = ban_time_label(a.pop("ban_until_utc"))
 
                 latest_login = None
                 for cr in acc_roles:
@@ -2450,6 +2460,7 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
                 "is_banned": ban is not None,
                 "ban_reason": ban["reason"] if ban else "",
                 "banned_at": ban_time_label(ban["banned_utc"]) if ban else "",
+                "banned_until": ban_time_label(ban["until_utc"]) if ban else "",
                 "bans_supported": bans_supported(con),
                 "notes": meta["notes"] if meta else "",
                 "tokens_count": len(tokens),
@@ -2747,6 +2758,10 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
         if not isinstance(reason, str) or len(reason.strip()) > BAN_REASON_MAX_LEN:
             return self.send_json(400, {"error": tr("The reason must be text of up to 500 characters")})
         reason = reason.strip()
+        days = body.get("days")
+        # bool is an int in Python: refuse it explicitly.
+        if days is not None and (isinstance(days, bool) or not isinstance(days, int) or not 1 <= days <= BAN_MAX_DAYS):
+            return self.send_json(400, {"error": tr("The duration must be a whole number of days from 1 to 3650")})
 
         admin_usernames = [a.get("username", "").strip().lower() for a in CONFIG.get("admin_users", [])]
         if username.lower() in admin_usernames:
@@ -2759,25 +2774,32 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
             if not existing:
                 return self.send_json(404, {"error": tr("Account '{username}' does not exist", username=username)})
 
+            now = int(time.time())
+            until_utc = now + days * 86400 if days is not None else None
+            details = f"Reason: {reason}" + (f"; until {ban_time_label(until_utc)}" if until_utc else "")
             # One transaction: the ban row RO3Emu reads at login, the token revocation and the audit row.
             con.execute(
                 "INSERT OR REPLACE INTO account_ban (account, reason, banned_utc, until_utc, banned_by)"
-                " VALUES (?, ?, ?, NULL, ?)",
-                (username, reason, int(time.time()), admin_user),
+                " VALUES (?, ?, ?, ?, ?)",
+                (username, reason, now, until_utc, admin_user),
             )
             con.execute("DELETE FROM auth_token WHERE account=?", (username,))
-            insert_audit(con, admin_user, "ban_account", username, f"Reason: {reason}", client_ip)
+            insert_audit(con, admin_user, "ban_account", username, details, client_ip)
             con.commit()
 
-        return self.send_json(200, {
-            "success": True,
-            "enforced": True,
-            "message": tr(
+        if until_utc:
+            message = tr(
+                "Account '{username}' suspended until {until} and its active sessions were revoked. "
+                "RO3Emu refuses its sign-in until then, or until the suspension is removed.",
+                username=username, until=ban_time_label(until_utc),
+            )
+        else:
+            message = tr(
                 "Account '{username}' suspended and its active sessions were revoked. "
                 "RO3Emu refuses its sign-in until the suspension is removed.",
                 username=username,
             )
-        })
+        return self.send_json(200, {"success": True, "enforced": True, "until_utc": until_utc, "message": message})
 
     def handle_unban_account(self, admin_user, client_ip):
         body = self.read_json_body()
