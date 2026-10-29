@@ -1,0 +1,105 @@
+{
+  "version": 2,
+  "name": "drive-clicking-es-on-the-login-screen-shows-the-panel",
+  "projectId": "public-a5f5d4ff",
+  "createdAt": 1793234181971,
+  "steps": [
+    {
+      "tool": "reticle_act",
+      "anchor": {
+        "kind": "role",
+        "role": "button",
+        "name": "ES",
+        "nth": 0,
+        "of": 2
+      },
+      "args": {},
+      "action": "click",
+      "timeoutMs": 15000,
+      "page": "/"
+    },
+    {
+      "tool": "reticle_act",
+      "anchor": {
+        "kind": "role",
+        "role": "button",
+        "name": "EN",
+        "nth": 0,
+        "of": 2
+      },
+      "args": {},
+      "action": "click",
+      "timeoutMs": 15000,
+      "page": "/"
+    },
+    {
+      "tool": "reticle_act",
+      "anchor": {
+        "kind": "role",
+        "role": "button",
+        "name": "ES",
+        "nth": 0,
+        "of": 2
+      },
+      "args": {},
+      "action": "click",
+      "expect": {
+        "kind": "text",
+        "contains": "Acceder al Panel"
+      },
+      "timeoutMs": 10000,
+      "page": "/"
+    },
+    {
+      "tool": "reticle_act",
+      "anchor": {
+        "kind": "role",
+        "role": "button",
+        "name": "EN",
+        "nth": 0,
+        "of": 2
+      },
+      "args": {},
+      "action": "click",
+      "expect": {
+        "kind": "allOf",
+        "predicates": [
+          {
+            "kind": "text",
+            "contains": "Restricted access"
+          },
+          {
+            "kind": "text",
+            "contains": "Access Panel"
+          },
+          {
+            "kind": "text",
+            "contains": "Acceder al Panel",
+            "absent": true
+          }
+        ]
+      },
+      "timeoutMs": 10000,
+      "page": "/"
+    }
+  ],
+  "startPath": "/",
+  "intent": "Clicking ES on the login screen shows the panel in Spanish and the choice survives a reload",
+  "requires": [
+    {
+      "kind": "route",
+      "pathname": "/"
+    }
+  ],
+  "ensures": [
+    {
+      "kind": "route",
+      "pathname": "/"
+    }
+  ],
+  "author": {
+    "agent": "claude-code",
+    "person": "desouza030689@gmail.com"
+  },
+  "intentId": "flow:drive-clicking-es-on-the-login-screen-shows-the-panel"
+}

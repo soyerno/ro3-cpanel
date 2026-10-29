@@ -1,0 +1,18 @@
+{
+  "intents": {
+    "flow:drive-clicking-es-on-the-login-screen-shows-the-panel": {
+      "declaredAt": 1793234181972,
+      "id": "flow:drive-clicking-es-on-the-login-screen-shows-the-panel",
+      "state": "declared",
+      "statement": "Clicking ES on the login screen shows the panel in Spanish and the choice survives a reload",
+      "status": "proposed",
+      "subject": "drive-clicking-es-on-the-login-screen-sh",
+      "surface": {
+        "flow": "drive-clicking-es-on-the-login-screen-shows-the-panel"
+      },
+      "updatedAt": 1793234181972
+    }
+  },
+  "subject": "drive-clicking-es-on-the-login-screen-sh",
+  "version": 1
+}
