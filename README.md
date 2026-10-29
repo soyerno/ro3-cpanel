@@ -177,6 +177,7 @@ Only relational columns are read, as defined in `ro3emu-server` (`Accounts/Persi
 
 - [Hosting & Deployment Guide](docs/guide/hosting.md) (Windows Scheduled Tasks, Linux systemd, Docker, Nginx, Cloudflare)
 - [White-Label Customization Guide](docs/guide/white-label.md) (Theming, server branding, logo customization)
+- [Gift Codes](docs/guide/gift-codes.md) (Create and manage redeemable codes from the panel)
 - [Language](docs/guide/language.md) (English by default, Spanish translation, switching from the panel)
 - [Career and Scene Names](docs/guide/names.md) (Class and map names, custom `names_file`)
 - [Security Architecture](docs/guide/security.md) (PBKDF2 hashing, session tokens, audit trail)
