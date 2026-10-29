@@ -16,6 +16,8 @@
       logo_text: 'RO3'
     },
     stats: null,
+    // false when RO3Emu has no account_ban table (an older server cannot enforce a ban).
+    bansSupported: true,
     accounts: [],
     filteredAccounts: [],
     auditLogs: [],
@@ -601,7 +603,10 @@
     if (els.statAccounts) els.statAccounts.textContent = formatNumber(s.counts.accounts);
     if (els.statChars) els.statChars.textContent = formatNumber(s.counts.characters);
     if (els.statOnline) els.statOnline.textContent = formatNumber(s.server.players_online);
-    if (els.statBanned) els.statBanned.textContent = formatNumber(s.counts.banned);
+    if (els.statBanned) {
+      els.statBanned.textContent = formatNumber(s.counts.banned);
+      els.statBanned.title = s.bans_supported === false ? t('Update RO3Emu: this server does not support account bans') : '';
+    }
     if (els.tabAccountsCount) els.tabAccountsCount.textContent = s.counts.accounts;
   }
 
@@ -741,6 +746,7 @@
           return;
         }
         state.accounts = data.accounts || [];
+        state.bansSupported = data.bans_supported !== false;
         state.accountsPages = pages;
         state.accountsTotal = data.total || 0;
         renderAccountsTable();
@@ -1236,7 +1242,9 @@
 
   function showBanAccount(name) {
     state.selectedAccount = { name: name };
-    setModalIntro('ban-intro', t('Suspending account {account} will mark it as suspended in the panel and revoke its active sessions. RO3Emu does not check this suspension at login yet, so the player may be able to log in again.'), name);
+    setModalIntro('ban-intro', state.bansSupported ?
+      t('Suspending account {account} makes RO3Emu refuse its sign-in and revokes its active sessions.') :
+      t('This RO3Emu does not support account bans, so account {account} cannot be suspended. Update RO3Emu first.'), name);
     document.getElementById('ban-reason').value = '';
     openModal(els.modalBan);
   }

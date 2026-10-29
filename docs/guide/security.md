@@ -24,9 +24,32 @@ This guarantees 100% interoperability with RO3Emu (`Ro3Emu.Server.exe`) game log
 Whenever a password is changed or an account is banned/suspended:
 - All active records in `auth_token` for that account are deleted, which revokes its existing login tokens.
 
-> **Known limitation:** a ban is stored only in the panel's `admin_account_meta` table. RO3Emu's login
-> (`/sdk/login`) does not read it, so a banned player can sign in again and get fresh tokens until RO3Emu
-> enforces account bans. Tracked in [#1](https://github.com/soyerno/ro3-cpanel/issues/1).
+### Account bans
+
+Bans require an RO3Emu with account bans. RO3Emu owns the `account_ban` table and refuses the sign-in of
+an account with an active ban; the panel is the only writer of that table and never creates or alters it.
+
+```
+account_ban(account TEXT NOT NULL PRIMARY KEY, reason TEXT NOT NULL DEFAULT '',
+            banned_utc INTEGER NOT NULL, until_utc INTEGER, banned_by TEXT)
+```
+
+- **Ban** (`POST /api/admin/accounts/ban`, body `{"username", "reason"}`) writes the row (`banned_utc` = now in
+  unix seconds, `until_utc` = `NULL`, `banned_by` = the admin user), deletes the account's `auth_token` rows and
+  writes the `ban_account` audit row, all in one SQLite transaction. Banning a banned account replaces its row.
+- **Unban** (`POST /api/admin/accounts/unban`, body `{"username"}`) deletes the row and writes the
+  `unban_account` audit row in one transaction.
+- **Active ban:** the row exists and `until_utc` is `NULL` or later than now. The panel never sets
+  `until_utc`; a row with a past `until_utc` shows as not banned. The accounts list (`status=banned|active`),
+  the account sheet and the dashboard count read only active rows.
+- **Older RO3Emu** (no `account_ban` table): ban and unban answer `409` with "Update RO3Emu: this server does
+  not support account bans", and change nothing. Reads show every account as not banned, and the accounts
+  list, the account sheet and `/api/admin/stats` return `"bans_supported": false`.
+- Players already in the world are not kicked by a ban; it applies from their next sign-in.
+- **Old panel bans are not migrated.** Before this change a ban was only `admin_account_meta.is_banned`, which
+  RO3Emu never read. The panel no longer reads that flag (the column stays, and the table keeps the account
+  notes). After updating RO3Emu, ban those accounts again. To list them:
+  `SELECT name, ban_reason FROM admin_account_meta WHERE is_banned = 1;`
 
 ## 3. Session Security
 
@@ -140,4 +163,5 @@ Safeguards in the panel:
   error status but its body stalls or breaks, the panel maps the status code alone (an unread body cannot
   match `not in game`), still answers, and still writes the audit row.
 
-RO3Emu has no kick, ban or mute command, so the panel cannot offer them.
+RO3Emu has no kick or mute command, so the panel cannot offer them. Bans go through the `account_ban`
+table instead ([Account bans](#account-bans)).
