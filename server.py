@@ -267,6 +267,11 @@ ES_MESSAGES = {
     "The gift code '{code}' already exists": "El código de regalo '{code}' ya existe",
     "The gift code '{code}' does not exist": "El código de regalo '{code}' no existe",
     "Gift code required": "Código de regalo requerido",
+    "The account vault is not available yet: the web player portal creates it the first time it runs":
+        "La bóveda de la cuenta todavía no está disponible: el portal web de jugadores la crea la primera vez que se ejecuta",
+    "The web market is not available yet: the web player portal creates it the first time it runs":
+        "El mercado web todavía no está disponible: el portal web de jugadores lo crea la primera vez que se ejecuta",
+    "Invalid market status. Allowed values: {values}": "Estado de mercado inválido. Valores permitidos: {values}",
     "Gift code '{code}' created successfully.": "Código de regalo '{code}' creado exitosamente.",
     "Gift code '{code}' disabled.": "Código de regalo '{code}' desactivado.",
     "Gift code '{code}' enabled.": "Código de regalo '{code}' activado.",
@@ -1937,6 +1942,58 @@ def validate_gift_code_body(body):
     }, None
 
 
+# --- Web player portal data: account vault and web market (read-only) ---
+# The web player portal (konsor-ro3 windows/player_api.py) owns account_vip, account_vault, web_market and
+# web_market_claim. The panel only reads them, never creates or alters them and never moves an item: an item
+# must never exist twice, and every transfer belongs to the portal's atomic code.
+ACCOUNT_VAULT_PATH = re.compile(r'^/api/admin/accounts/([^/]+)/vault$')
+MARKET_STATUSES = ("active", "sold", "cancelled", "all")
+MARKET_SUMMARY_KEYS = ("active", "sold", "cancelled", "active_zeny", "sold_zeny", "pending_claims", "pending_zeny")
+
+
+def vault_unavailable_reason():
+    return tr("The account vault is not available yet: the web player portal creates it the first time it runs")
+
+
+def market_unavailable_reason():
+    return tr("The web market is not available yet: the web player portal creates it the first time it runs")
+
+
+def account_vip_status(con, account):
+    """VIP status as the web portal computes it: a GM always, else an account_vip row, else a [VIP] note."""
+    none = {"is_vip": False, "vip_until": None, "source": "none"}
+    if table_exists(con, "admin_gm") and con.execute(
+        "SELECT 1 FROM admin_gm WHERE account = ? COLLATE NOCASE", (account,)
+    ).fetchone():
+        return {"is_vip": True, "vip_until": None, "source": "gm"}
+    if table_exists(con, "account_vip"):
+        row = con.execute(
+            "SELECT is_vip, vip_until FROM account_vip WHERE account = ? COLLATE NOCASE", (account,)
+        ).fetchone()
+        if row and row["is_vip"]:
+            until = row["vip_until"]
+            if until:
+                try:
+                    expires = datetime.fromisoformat(str(until).replace("Z", "+00:00"))
+                    if expires.tzinfo is None:
+                        expires = expires.replace(tzinfo=timezone.utc)
+                    if datetime.now(timezone.utc) > expires:
+                        expires = None
+                except ValueError:
+                    expires = True  # an unreadable date keeps the VIP, like the portal does
+                if expires is None:
+                    pass
+                else:
+                    return {"is_vip": True, "vip_until": until, "source": "vip"}
+            else:
+                return {"is_vip": True, "vip_until": None, "source": "vip"}
+    if table_exists(con, "admin_account_meta"):
+        row = con.execute("SELECT notes FROM admin_account_meta WHERE name = ?", (account,)).fetchone()
+        if row and row["notes"] and "[VIP]" in str(row["notes"]).upper():
+            return {"is_vip": True, "vip_until": None, "source": "note"}
+    return none
+
+
 class CPanelRequestHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         # Concise server log
@@ -2079,6 +2136,15 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
         # 5. Accounts List
         if raw_path == '/api/admin/accounts':
             return self.handle_accounts_list(params)
+
+        # 5b. Account vault (read-only): /api/admin/accounts/<name>/vault
+        vault_match = ACCOUNT_VAULT_PATH.match(raw_path)
+        if vault_match:
+            return self.handle_account_vault(urllib.parse.unquote(vault_match.group(1)), params)
+
+        # 5c. Web market (read-only)
+        if raw_path == '/api/admin/market':
+            return self.handle_market(params)
 
         # 6. Account Detail: /api/admin/accounts/<name>
         if raw_path.startswith('/api/admin/accounts/'):
@@ -3074,6 +3140,133 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
             log_audit(admin_user, "gift_code_enable", stored, "Gift code enabled by admin", client_ip)
             message = tr("Gift code '{code}' enabled.", code=stored)
         return self.send_json(200, {"success": True, "code": stored, "message": message})
+
+    def handle_account_vault(self, account_name, params):
+        page = parse_int_param(params, 'page', 1, minimum=1)
+        page_size = parse_int_param(params, 'page_size', LIST_PAGE_SIZE_DEFAULT, minimum=1, maximum=LIST_PAGE_SIZE_MAX)
+        with get_db() as con:
+            open_read_only(con)
+            acc = con.execute("SELECT name FROM account WHERE name = ?", (account_name,)).fetchone()
+            if not acc:
+                return self.send_json(404, {"error": tr("Account not found")})
+            name = acc["name"]
+            vip = account_vip_status(con, name)
+            if not table_exists(con, "account_vault"):
+                return self.send_json(200, {
+                    "available": False, "reason": vault_unavailable_reason(), "account": name, "vip": vip,
+                    "items": [], **paging(0, page, page_size),
+                })
+            total = con.execute("SELECT COUNT(*) FROM account_vault WHERE account = ? COLLATE NOCASE", (name,)).fetchone()[0]
+            rows = []
+            offset = (page - 1) * page_size
+            if offset < total:
+                rows = con.execute(
+                    "SELECT id, entry, stack, pack, is_locked, bind_type, bind_expire, deposited_by_role_id,"
+                    " deposited_by_name, deposited_utc FROM account_vault WHERE account = ? COLLATE NOCASE"
+                    " ORDER BY id DESC LIMIT ? OFFSET ?",
+                    (name, page_size, offset),
+                ).fetchall()
+        names = load_item_names() or {}
+        items = [{
+            "id": r["id"],
+            "entry": r["entry"],
+            "name": names.get(str(r["entry"])),
+            "stack": r["stack"],
+            "pack": r["pack"],
+            "pack_name": tr(PACK_NAMES[r["pack"]]) if r["pack"] in PACK_NAMES else None,
+            "locked": bool(r["is_locked"]),
+            "bind_type": r["bind_type"] or 0,
+            "bind_expire": r["bind_expire"] or 0,
+            "deposited_by_name": r["deposited_by_name"],
+            "deposited_by_role_id": r["deposited_by_role_id"],
+            "deposited_utc": r["deposited_utc"],
+        } for r in rows]
+        return self.send_json(200, {
+            "available": True, "account": name, "vip": vip, "items": items, **paging(total, page, page_size),
+        })
+
+    def handle_market(self, params):
+        status = (params.get('status', ['active'])[0] or 'active').strip().lower()
+        if status not in MARKET_STATUSES:
+            return self.send_json(400, {"error": tr("Invalid market status. Allowed values: {values}", values=", ".join(MARKET_STATUSES))})
+        q = params.get('q', [''])[0].strip().lower()
+        page = parse_int_param(params, 'page', 1, minimum=1)
+        page_size = parse_int_param(params, 'page_size', LIST_PAGE_SIZE_DEFAULT, minimum=1, maximum=LIST_PAGE_SIZE_MAX)
+        empty_summary = {key: 0 for key in MARKET_SUMMARY_KEYS}
+        names = load_item_names() or {}
+        with get_db() as con:
+            open_read_only(con)
+            if not table_exists(con, "web_market"):
+                return self.send_json(200, {
+                    "available": False, "reason": market_unavailable_reason(), "summary": empty_summary,
+                    "status": status, "listings": [], **paging(0, page, page_size),
+                })
+            con.create_function("PY_LOWER", 1, sql_py_lower)
+            counts = {r["status"]: (r["n"], r["zeny"]) for r in con.execute(
+                "SELECT status, COUNT(*) AS n, COALESCE(SUM(price_zeny), 0) AS zeny FROM web_market GROUP BY status"
+            )}
+            summary = dict(empty_summary)
+            summary["active"], summary["active_zeny"] = counts.get("active", (0, 0))
+            summary["sold"], summary["sold_zeny"] = counts.get("sold", (0, 0))
+            summary["cancelled"] = counts.get("cancelled", (0, 0))[0]
+            if table_exists(con, "web_market_claim"):
+                pending = con.execute(
+                    "SELECT COUNT(*), COALESCE(SUM(amount_zeny), 0) FROM web_market_claim WHERE is_claimed = 0"
+                ).fetchone()
+                summary["pending_claims"], summary["pending_zeny"] = pending[0], pending[1]
+
+            where, args = [], []
+            if status != "all":
+                where.append("status = ?")
+                args.append(status)
+            if q:
+                # instr() is a literal substring test, so LIKE wildcards in q never apply.
+                clauses = [
+                    "instr(PY_LOWER(seller_account), ?) > 0", "instr(PY_LOWER(seller_role_name), ?) > 0",
+                    "instr(PY_LOWER(COALESCE(buyer_account, '')), ?) > 0", "instr(PY_LOWER(COALESCE(buyer_role_name, '')), ?) > 0",
+                ]
+                clause_args = [q, q, q, q]
+                if q.isascii() and q.isdigit() and int(q) <= MAX_SQLITE_INT:
+                    clauses.append("entry = ?")
+                    clause_args.append(int(q))
+                matching_entries = sorted(int(k) for k, v in names.items() if k.isdigit() and q in v.lower())[:500]
+                if matching_entries:
+                    clauses.append("entry IN (%s)" % ",".join("?" * len(matching_entries)))
+                    clause_args.extend(matching_entries)
+                where.append("(" + " OR ".join(clauses) + ")")
+                args.extend(clause_args)
+            where_sql = ("WHERE " + " AND ".join(where)) if where else ""
+            total = con.execute(f"SELECT COUNT(*) FROM web_market {where_sql}", args).fetchone()[0]
+            rows = []
+            offset = (page - 1) * page_size
+            if offset < total:
+                rows = con.execute(
+                    "SELECT id, seller_account, seller_role_id, seller_role_name, entry, stack, pack, price_zeny, is_locked,"
+                    f" status, buyer_account, buyer_role_name, created_utc, updated_utc FROM web_market {where_sql}"
+                    " ORDER BY id DESC LIMIT ? OFFSET ?",
+                    args + [page_size, offset],
+                ).fetchall()
+        listings = [{
+            "id": r["id"],
+            "seller_account": r["seller_account"],
+            "seller_role_id": r["seller_role_id"],
+            "seller_role_name": r["seller_role_name"],
+            "entry": r["entry"],
+            "name": names.get(str(r["entry"])),
+            "stack": r["stack"],
+            "pack": r["pack"],
+            "pack_name": tr(PACK_NAMES[r["pack"]]) if r["pack"] in PACK_NAMES else None,
+            "price_zeny": r["price_zeny"],
+            "locked": bool(r["is_locked"]),
+            "status": r["status"],
+            "buyer_account": r["buyer_account"],
+            "buyer_role_name": r["buyer_role_name"],
+            "created_utc": r["created_utc"],
+            "updated_utc": r["updated_utc"],
+        } for r in rows]
+        return self.send_json(200, {
+            "available": True, "summary": summary, "status": status, "listings": listings, **paging(total, page, page_size),
+        })
 
     def handle_economy(self, params):
         account = params.get('account', [''])[0].strip()
