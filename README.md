@@ -116,8 +116,9 @@ See [Security Architecture](docs/guide/security.md#5-gm-tools).
 
 Suspending an account requires an RO3Emu with account bans. The panel writes the ban to RO3Emu's
 `account_ban` table, and RO3Emu refuses that account's sign-in until the suspension is removed. The
-account's game sessions are revoked at once. With an older RO3Emu (no `account_ban` table) the panel
-refuses to ban and asks you to update RO3Emu; it never creates the table.
+account's game sessions are revoked at once. A suspension is permanent or lasts 1, 7 or 30 days. With an older RO3Emu (no `account_ban` table) the panel
+refuses to ban and asks you to update RO3Emu; it never creates the table. Deleting an account does not lift its ban:
+RO3Emu keeps refusing that name if it is registered again.
 
 Accounts suspended by an older panel were only flagged in the panel and are not carried over: after
 updating RO3Emu, suspend them again. See [Security Architecture](docs/guide/security.md#account-bans).

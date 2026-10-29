@@ -336,5 +336,12 @@
   "The expiry must be later than the start.": "El vencimiento debe ser posterior al inicio.",
   "Username must not exceed 32 characters.": "El usuario no debe superar los 32 caracteres.",
   "Password must not exceed 128 characters.": "La contraseña no debe superar los 128 caracteres.",
-  "Temporarily banned ({seconds}s)": "Bloqueo temporal ({seconds}s)"
+  "Temporarily banned ({seconds}s)": "Bloqueo temporal ({seconds}s)",
+  "Duration": "Duración",
+  "Permanent": "Permanente",
+  "1 day": "1 día",
+  "7 days": "7 días",
+  "30 days": "30 días",
+  "Banned until {until} ({reason})": "Baneada hasta {until} ({reason})",
+  "Suspended until {until}": "Suspendida hasta {until}"
 }

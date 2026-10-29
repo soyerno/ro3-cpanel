@@ -34,19 +34,27 @@ account_ban(account TEXT NOT NULL PRIMARY KEY, reason TEXT NOT NULL DEFAULT '',
             banned_utc INTEGER NOT NULL, until_utc INTEGER, banned_by TEXT)
 ```
 
-- **Ban** (`POST /api/admin/accounts/ban`, body `{"username", "reason"}`) writes the row (`banned_utc` = now in
-  unix seconds, `until_utc` = `NULL`, `banned_by` = the admin user), deletes the account's `auth_token` rows and
-  writes the `ban_account` audit row, all in one SQLite transaction. Banning a banned account replaces its row.
+- **Ban** (`POST /api/admin/accounts/ban`, body `{"username", "reason", "days"}`) writes the row (`banned_utc` =
+  now in unix seconds, `until_utc` = now + `days` × 86400 for a temporary ban or `NULL` without `days`,
+  `banned_by` = the admin user), deletes the account's `auth_token` rows and
+  writes the `ban_account` audit row, all in one SQLite transaction. Banning a banned account replaces its row. The
+  `reason` is text of up to 500 characters (otherwise `400`); it is stored in RO3Emu's table.
 - **Unban** (`POST /api/admin/accounts/unban`, body `{"username"}`) deletes the row and writes the
   `unban_account` audit row in one transaction. With no row for that name it answers `404` "Account
   '{username}' is not suspended" and writes nothing. It also lifts the ban of a deleted account.
-- **Active ban:** the row exists and `until_utc` is `NULL` or later than now. The panel never sets
-  `until_utc`; a row with a past `until_utc` shows as not banned. The accounts list (`status=banned|active`),
+- **Temporary ban:** `days` is a whole number from 1 to 3650 (otherwise `400`); the form offers permanent, 1, 7
+  and 30 days. RO3Emu lets the account sign in again once `until_utc` has passed; the list, the account sheet and
+  the audit row show the end date.
+- **Active ban:** the row exists and `until_utc` is `NULL` or later than now; a row with a past `until_utc` shows
+  as not banned. The accounts list (`status=banned|active`),
   the account sheet and the dashboard count read only active rows.
 - **Older RO3Emu** (no `account_ban` table): ban and unban answer `409` with "Update RO3Emu: this server does
   not support account bans", and change nothing. Reads show every account as not banned, and the accounts
   list, the account sheet and `/api/admin/stats` return `"bans_supported": false`.
 - Players already in the world are not kicked by a ban; it applies from their next sign-in.
+- **Deleting an account keeps its ban:** `account_ban` keeps the row, and RO3Emu refuses that name (in any
+  letter case) if it is registered again, so a player cannot escape a ban by recreating the account. The
+  accounts list and the counts only show bans of existing accounts.
 - **Old panel bans are not migrated.** Before this change a ban was only `admin_account_meta.is_banned`, which
   RO3Emu never read. The panel no longer reads that flag (the column stays, and the table keeps the account
   notes). After updating RO3Emu, ban those accounts again. To list them:

@@ -159,6 +159,43 @@ class BanWritesServerTableTests(_PanelFixture):
             [(ADMIN_USER, "player1", "Reason: cheating")],
         )
 
+    def test_a_temporary_ban_sets_until_utc_and_shows_its_end(self):
+        # issue #40: days sets until_utc; RO3Emu lifts the ban by itself after it.
+        status, body = self._call("POST", "/api/admin/accounts/ban", {"username": "player1", "reason": "spam", "days": 7})
+
+        self.assertEqual(status, 200)
+        _, _, banned_utc, until_utc, _ = self._ban_row("player1")
+        self.assertEqual(until_utc, banned_utc + 7 * 86400)
+        until = server.ban_time_label(until_utc)
+        self.assertIn(until, body["message"])
+        self.assertEqual(
+            self._rows("SELECT details FROM admin_audit_log WHERE action='ban_account'"),
+            [("Reason: spam; until %s" % until,)],
+        )
+        row = next(a for a in self._accounts("banned")["accounts"] if a["name"] == "player1")
+        self.assertEqual(row["banned_until"], until)
+        self.assertEqual(self._detail("player1")["banned_until"], until)
+
+    def test_a_ban_without_days_is_permanent(self):
+        for payload in ({}, {"days": None}):
+            with self.subTest(payload=payload):
+                status, _ = self._call("POST", "/api/admin/accounts/ban", dict(payload, username="player1", reason="r"))
+                self.assertEqual(status, 200)
+                self.assertIsNone(self._ban_row("player1")[3])
+        self.assertEqual(self._detail("player1")["banned_until"], "")
+        row = next(a for a in self._accounts("banned")["accounts"] if a["name"] == "player1")
+        self.assertEqual(row["banned_until"], "")
+
+    def test_an_invalid_duration_is_refused(self):
+        for days in (0, -1, 3651, "7", 1.5, True, [7]):
+            with self.subTest(days=days):
+                status, body = self._call("POST", "/api/admin/accounts/ban", {"username": "player1", "reason": "r", "days": days})
+                self.assertEqual(status, 400)
+                self.assertEqual(body["error"], "The duration must be a whole number of days from 1 to 3650")
+                self.assertIsNone(self._ban_row("player1"))
+        status, body = self._call("POST", "/api/admin/accounts/ban", {"username": "player1", "days": 0}, lang="es")
+        self.assertEqual(body["error"], "La duración debe ser un número entero de días entre 1 y 3650")
+
     def test_ban_again_replaces_the_row(self):
         self._insert_ban("player1", int(time.time()) - 10, reason="expired")
         status, _ = self._call("POST", "/api/admin/accounts/ban", {"username": "player1", "reason": "again"})
@@ -167,6 +204,29 @@ class BanWritesServerTableTests(_PanelFixture):
         _, reason, _, until_utc, _ = self._ban_row("player1")
         self.assertEqual((reason, until_utc), ("again", None))
         self.assertEqual(self._rows("SELECT COUNT(*) FROM account_ban")[0][0], 1)
+
+    def test_deleting_the_account_keeps_its_ban(self):
+        # A ban outlives its account: RO3Emu refuses the name if it is registered again.
+        self._call("POST", "/api/admin/accounts/ban", {"username": "player1", "reason": "cheating"})
+        status, _ = self._call("POST", "/api/admin/accounts/delete", {"username": "player1"})
+
+        self.assertEqual(status, 200)
+        self.assertEqual(self._rows("SELECT COUNT(*) FROM account WHERE name='player1'")[0][0], 0)
+        self.assertEqual(self._ban_row("player1")[:2], ("player1", "cheating"))
+
+    def test_reason_is_capped_at_500_characters(self):
+        status, _ = self._call("POST", "/api/admin/accounts/ban", {"username": "player1", "reason": "x" * 500})
+        self.assertEqual(status, 200)
+        self.assertEqual(len(self._ban_row("player1")[1]), 500)
+
+        for reason in ("y" * 501, 42, ["cheating"]):
+            with self.subTest(reason=reason):
+                status, body = self._call("POST", "/api/admin/accounts/ban", {"username": "player2", "reason": reason})
+                self.assertEqual(status, 400)
+                self.assertEqual(body["error"], "The reason must be text of up to 500 characters")
+                self.assertIsNone(self._ban_row("player2"))
+        status, body = self._call("POST", "/api/admin/accounts/ban", {"username": "player2", "reason": "y" * 501}, lang="es")
+        self.assertEqual(body["error"], "El motivo debe ser texto de hasta 500 caracteres")
 
     def test_unban_deletes_the_row_and_audits(self):
         self._call("POST", "/api/admin/accounts/ban", {"username": "player1", "reason": "cheating"})
