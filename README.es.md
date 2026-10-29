@@ -173,6 +173,13 @@ Solo se leen columnas relacionales, tal como las define `ro3emu-server` (`Accoun
 
 ---
 
+## Proyectos Relacionados
+
+- **[ro3emu-server](https://github.com/aethai/ro3emu-server)** — Emulador de servidor open-source para Ragnarok Online 3.
+- **[ro3-emu-launcher](https://github.com/soyerno/ro3-emu-launcher)** — Lanzador de escritorio y auto-parcheador para servidores RO3Emu.
+
+---
+
 ## Contribuir
 
 ¡Las contribuciones son bienvenidas! Consulta [AGENTS.md](AGENTS.md) y [CONTRIBUTING.md](CONTRIBUTING.md) para conocer las pautas de estilo, la regla de cero dependencias y el flujo de Pull Requests.
