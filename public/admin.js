@@ -52,7 +52,23 @@
     auctionView: 'lots',
     auctionsPage: 1,
     auctionsPages: 1,
-    auctionsTotal: 0
+    auctionsTotal: 0,
+    market: {
+      status: 'active',
+      query: '',
+      page: 1,
+      pages: 1,
+      total: 0,
+      request: 0
+    },
+    // Shared account vault shown in the account detail modal (read-only).
+    vault: {
+      account: '',
+      page: 1,
+      pages: 1,
+      loaded: false,
+      request: 0
+    }
   };
 
   // DOM Elements
@@ -166,6 +182,22 @@
     modalGiftCode: document.getElementById('modal-giftcode'),
     giftCodeItems: document.getElementById('giftcode-items'),
     giftCodeError: document.getElementById('giftcode-error'),
+
+    tabViewMarket: document.getElementById('tab-view-market'),
+    marketForm: document.getElementById('market-filter-form'),
+    marketStatusSelect: document.getElementById('market-status-select'),
+    marketSearchInput: document.getElementById('market-search-input'),
+    marketUnavailable: document.getElementById('market-unavailable'),
+    marketSummary: document.getElementById('market-summary'),
+    marketTableWrap: document.getElementById('market-table-wrap'),
+    marketTbody: document.getElementById('market-tbody'),
+    marketPager: document.getElementById('market-pager'),
+    marketPagerPrev: document.getElementById('market-pager-prev'),
+    marketPagerNext: document.getElementById('market-pager-next'),
+    marketPagerInfo: document.getElementById('market-pager-info'),
+
+    btnViewVault: document.getElementById('btn-view-vault'),
+    detailVault: document.getElementById('detail-vault'),
 
     // Modals
     modalDetail: document.getElementById('modal-detail'),
@@ -867,6 +899,7 @@
         var notesField = document.getElementById('detail-acc-notes');
         if (notesField) notesField.value = acc.notes || '';
         resetGmPanel();
+        resetAccountVault(acc.name);
 
         var charsContainer = document.getElementById('detail-chars-list');
         if (charsContainer) {
@@ -1057,6 +1090,152 @@
       html += '</tbody></table></div>';
     });
     html += '</div>';
+    return html;
+  }
+
+  // --- Account Vault (read-only) ---
+  var VAULT_PAGE_SIZE = 20;
+
+  function resetAccountVault(account) {
+    state.vault.account = account;
+    state.vault.page = 1;
+    state.vault.pages = 1;
+    state.vault.loaded = false;
+    // Invalidates any response still in flight for the previous account.
+    state.vault.request += 1;
+    if (els.detailVault) {
+      els.detailVault.hidden = true;
+      els.detailVault.innerHTML = '';
+    }
+    if (els.btnViewVault) {
+      els.btnViewVault.disabled = false;
+      els.btnViewVault.textContent = t('Vault');
+      els.btnViewVault.setAttribute('aria-expanded', 'false');
+    }
+  }
+
+  function toggleAccountVault() {
+    if (!els.detailVault || !els.btnViewVault || !state.vault.account) return;
+    if (!els.detailVault.hidden) {
+      els.detailVault.hidden = true;
+      els.btnViewVault.textContent = t('Vault');
+      els.btnViewVault.setAttribute('aria-expanded', 'false');
+      return;
+    }
+    // First open loads page 1; reopening reloads the page the admin was on.
+    loadAccountVault(state.vault.loaded ? state.vault.page : 1);
+  }
+
+  function goToVaultPage(page) {
+    if (page < 1 || page > state.vault.pages || page === state.vault.page) return;
+    loadAccountVault(page);
+  }
+
+  function loadAccountVault(page) {
+    var account = state.vault.account;
+    if (!account || !els.detailVault || !els.btnViewVault) return;
+    var requestId = state.vault.request + 1;
+    state.vault.request = requestId;
+
+    els.btnViewVault.disabled = true;
+    els.btnViewVault.textContent = t('Loading...');
+    apiFetch('/api/admin/accounts/' + encodeURIComponent(account) + '/vault?page=' + encodeURIComponent(String(page)) +
+      '&page_size=' + VAULT_PAGE_SIZE)
+      .then(function (data) {
+        if (requestId !== state.vault.request) return;
+        state.vault.page = data.page || 1;
+        state.vault.pages = data.pages || 1;
+        state.vault.loaded = true;
+        els.detailVault.innerHTML = renderAccountVault(data);
+        els.detailVault.hidden = false;
+        els.btnViewVault.textContent = t('Hide vault');
+        els.btnViewVault.setAttribute('aria-expanded', 'true');
+      })
+      .catch(function (err) {
+        if (requestId !== state.vault.request) return;
+        var message = t('Error loading vault: {message}', { message: err.message });
+        if (state.vault.loaded) {
+          els.detailVault.innerHTML = '<p class="vault-empty">' + escapeHtml(message) + '</p>';
+          els.detailVault.hidden = false;
+          els.btnViewVault.textContent = t('Hide vault');
+        } else {
+          els.btnViewVault.textContent = t('Vault');
+        }
+        showToast(message, 'error');
+      })
+      .finally(function () {
+        if (requestId === state.vault.request) els.btnViewVault.disabled = false;
+      });
+  }
+
+  function vaultVipBadge(vip) {
+    var info = vip || {};
+    var source = info.source;
+    var label;
+    var cls;
+    if (source === 'gm') {
+      label = t('GM');
+      cls = 'badge-admin';
+    } else if (source === 'vip') {
+      label = t('VIP');
+      cls = 'badge-active';
+    } else if (source === 'note') {
+      label = t('VIP (note)');
+      cls = 'badge-active';
+    } else {
+      label = t('Not VIP');
+      cls = 'badge-neutral';
+    }
+    var html = '<span class="badge ' + cls + '">' + escapeHtml(label) + '</span>';
+    if (info.vip_until) {
+      html += ' <span class="vault-meta">' + escapeHtml(t('Until {date}', { date: formatDate(info.vip_until) })) + '</span>';
+    }
+    return html;
+  }
+
+  function renderAccountVault(data) {
+    var vipLine = '<div class="vault-vip"><span class="vault-meta">' + escapeHtml(t('VIP status:')) + '</span> ' +
+      vaultVipBadge(data ? data.vip : null) + '</div>';
+    if (!data || data.available === false) {
+      var reason = data && data.reason ? data.reason : t('The vault is not available in this database.');
+      return vipLine + '<div class="readonly-notice" role="status">' + escapeHtml(reason) + '</div>';
+    }
+    var items = data.items || [];
+    if (!items.length) {
+      return vipLine + '<p class="vault-empty">' + escapeHtml(t('The vault is empty.')) + '</p>';
+    }
+
+    var html = vipLine +
+      '<div class="table-container"><table class="data-table"><thead><tr>' +
+        '<th>' + escapeHtml(t('Item')) + '</th>' +
+        '<th>' + escapeHtml(t('Quantity')) + '</th>' +
+        '<th>' + escapeHtml(t('Bag')) + '</th>' +
+        '<th>' + escapeHtml(t('Locked')) + '</th>' +
+        '<th>' + escapeHtml(t('Deposited by')) + '</th>' +
+        '<th>' + escapeHtml(t('Deposited')) + '</th>' +
+      '</tr></thead><tbody>';
+    items.forEach(function (item) {
+      var name = item.name ? escapeHtml(item.name) : '#' + escapeHtml(String(item.entry));
+      var depositor = item.deposited_by_name ? escapeHtml(item.deposited_by_name) :
+        (item.deposited_by_role_id === null || item.deposited_by_role_id === undefined ? '—' : '#' + escapeHtml(String(item.deposited_by_role_id)));
+      html += '<tr>' +
+        '<td><strong class="vault-item">' + name + '</strong></td>' +
+        '<td>' + formatNumber(item.stack) + '</td>' +
+        '<td>' + (item.pack_name ? escapeHtml(item.pack_name) : '—') + '</td>' +
+        '<td>' + escapeHtml(item.locked ? t('Yes') : t('No')) + '</td>' +
+        '<td>' + depositor + '</td>' +
+        '<td class="vault-meta">' + formatDate(item.deposited_utc) + '</td>' +
+      '</tr>';
+    });
+    html += '</tbody></table></div>';
+
+    var page = data.page || 1;
+    var pages = data.pages || 1;
+    html += '<div class="pager" role="navigation" aria-label="' + escapeHtml(t('Vault pagination')) + '">' +
+      '<button type="button" class="btn btn-secondary btn-sm btn-vault-page" data-page="' + escapeHtml(String(page - 1)) + '"' + (page <= 1 ? ' disabled' : '') + '>' + escapeHtml(t('Previous')) + '</button>' +
+      '<span class="pager-info" aria-live="polite">' + escapeHtml(t('Page {page} of {pages} · {total} items', { page: page, pages: pages, total: formatNumber(data.total) })) + '</span>' +
+      '<button type="button" class="btn btn-secondary btn-sm btn-vault-page" data-page="' + escapeHtml(String(page + 1)) + '"' + (page >= pages ? ' disabled' : '') + '>' + escapeHtml(t('Next')) + '</button>' +
+    '</div>';
     return html;
   }
 
@@ -1958,6 +2137,134 @@
       });
   }
 
+  // --- Web Market (read-only) ---
+  var MARKET_PAGE_SIZE = 50;
+
+  function marketStatusBadge(status) {
+    if (status === 'active') return '<span class="badge badge-active">' + escapeHtml(t('Active')) + '</span>';
+    if (status === 'sold') return '<span class="badge badge-admin">' + escapeHtml(t('Sold')) + '</span>';
+    if (status === 'cancelled') return '<span class="badge badge-banned">' + escapeHtml(t('Cancelled')) + '</span>';
+    return status ? escapeHtml(String(status)) : '—';
+  }
+
+  function renderMarketSummary(summary) {
+    var s = summary || {};
+    function set(el, value) {
+      if (el) el.textContent = formatNumber(value);
+    }
+    set(document.getElementById('market-stat-active'), s.active);
+    set(document.getElementById('market-stat-sold'), s.sold);
+    set(document.getElementById('market-stat-active-zeny'), s.active_zeny);
+    set(document.getElementById('market-stat-pending-zeny'), s.pending_zeny);
+    var sub = t('{count} pending claims', { count: formatNumber(s.pending_claims) });
+    var subEl = document.getElementById('market-stat-pending-sub');
+    if (subEl) subEl.textContent = sub;
+    var card = document.getElementById('market-card-pending');
+    if (card) card.title = sub;
+  }
+
+  // Seller and buyer cells: account on top, character underneath.
+  function marketPartyCell(account, character) {
+    if (!account) return '—';
+    var html = '<strong class="market-account">' + escapeHtml(account) + '</strong>';
+    if (character) html += '<div class="economy-sub" title="' + escapeHtml(character) + '">' + escapeHtml(character) + '</div>';
+    return html;
+  }
+
+  function renderMarketTable(listings) {
+    if (!els.marketTbody) return;
+    if (!listings.length) {
+      els.marketTbody.innerHTML = emptyRow(8, t('No market listings found.'));
+      return;
+    }
+    var html = '';
+    listings.forEach(function (l) {
+      var name = l.name ? escapeHtml(l.name) : '#' + escapeHtml(String(l.entry));
+      var lockedBadge = l.locked ? ' <span class="badge badge-banned">' + escapeHtml(t('Locked')) + '</span>' : '';
+      var pack = l.pack_name ? '<div class="economy-sub" title="' + escapeHtml(l.pack_name) + '">' + escapeHtml(l.pack_name) + '</div>' : '';
+      html += '<tr>' +
+        '<td><strong class="market-item">' + name + '</strong>' + lockedBadge + pack + '</td>' +
+        '<td>' + formatNumber(l.stack) + '</td>' +
+        '<td><span class="market-price">' + formatNumber(l.price_zeny) + ' Z</span></td>' +
+        '<td>' + marketPartyCell(l.seller_account, l.seller_role_name) + '</td>' +
+        '<td>' + marketStatusBadge(l.status) + '</td>' +
+        '<td>' + marketPartyCell(l.buyer_account, l.buyer_role_name) + '</td>' +
+        '<td class="market-date">' + formatDate(l.created_utc) + '</td>' +
+        '<td class="market-date">' + formatDate(l.updated_utc) + '</td>' +
+      '</tr>';
+    });
+    els.marketTbody.innerHTML = html;
+  }
+
+  function loadMarket() {
+    var market = state.market;
+    var requestId = market.request + 1;
+    market.request = requestId;
+    var params = new URLSearchParams();
+    params.set('status', market.status);
+    if (market.query) params.set('q', market.query);
+    params.set('page', String(market.page));
+    params.set('page_size', String(MARKET_PAGE_SIZE));
+
+    return apiFetch('/api/admin/market?' + params.toString())
+      .then(function (data) {
+        // A newer filter or page request supersedes this response.
+        if (requestId !== market.request) return;
+        var listings = data.listings || [];
+        market.pages = data.pages || 1;
+        market.total = data.total || 0;
+        var unavailable = data.available === false;
+        if (els.marketUnavailable) {
+          els.marketUnavailable.hidden = !unavailable;
+          els.marketUnavailable.textContent = unavailable ? (data.reason || t('The web market is not available in this database.')) : '';
+        }
+        if (els.marketSummary) els.marketSummary.hidden = unavailable;
+        if (els.marketTableWrap) els.marketTableWrap.hidden = unavailable;
+        if (unavailable) {
+          renderPager(els.marketPager, els.marketPagerInfo, els.marketPagerPrev, els.marketPagerNext, 1, 1, 0, 'records');
+          return;
+        }
+        // Listings were removed since the last load: land on the last page instead of an empty one.
+        if (!listings.length && market.total > 0 && market.page > market.pages) {
+          market.page = market.pages;
+          return loadMarket();
+        }
+        renderMarketSummary(data.summary);
+        renderMarketTable(listings);
+        renderPager(els.marketPager, els.marketPagerInfo, els.marketPagerPrev, els.marketPagerNext,
+          market.page, market.pages, market.total, 'records');
+      })
+      .catch(function (err) {
+        if (requestId !== market.request) return;
+        var message = t('Error loading market: {message}', { message: err.message });
+        if (els.marketTbody) els.marketTbody.innerHTML = emptyRow(8, message);
+        showToast(message, 'error');
+      });
+  }
+
+  function applyMarketFilters(e) {
+    if (e && e.preventDefault) e.preventDefault();
+    state.market.status = els.marketStatusSelect ? els.marketStatusSelect.value : 'active';
+    state.market.query = els.marketSearchInput ? els.marketSearchInput.value.trim() : '';
+    state.market.page = 1;
+    loadMarket();
+  }
+
+  function resetMarketFilters() {
+    if (els.marketStatusSelect) els.marketStatusSelect.value = 'active';
+    if (els.marketSearchInput) els.marketSearchInput.value = '';
+    state.market.status = 'active';
+    state.market.query = '';
+    state.market.page = 1;
+    loadMarket();
+  }
+
+  function goToMarketPage(page) {
+    if (page < 1 || page > state.market.pages || page === state.market.page) return;
+    state.market.page = page;
+    loadMarket();
+  }
+
   // --- Tabs Switching ---
   function switchTab(tabId) {
     var previousTab = state.activeTab;
@@ -1974,6 +2281,7 @@
     if (els.tabViewGuilds) els.tabViewGuilds.hidden = (tabId !== 'guilds');
     if (els.tabViewAuctions) els.tabViewAuctions.hidden = (tabId !== 'auctions');
     if (els.tabViewGiftCodes) els.tabViewGiftCodes.hidden = (tabId !== 'giftcodes');
+    if (els.tabViewMarket) els.tabViewMarket.hidden = (tabId !== 'market');
 
     if (tabId === 'audit') {
       // Entering the tab starts on the newest page; a language reload of the open tab keeps its page.
@@ -1989,6 +2297,8 @@
       loadAuctions();
     } else if (tabId === 'giftcodes') {
       loadGiftCodes();
+    } else if (tabId === 'market') {
+      loadMarket();
     } else if (tabId === 'dashboard') {
       loadStats();
       loadServerMetrics();
@@ -2184,6 +2494,21 @@
       });
     }
 
+    if (els.marketForm) els.marketForm.addEventListener('submit', applyMarketFilters);
+    if (els.marketStatusSelect) els.marketStatusSelect.addEventListener('change', applyMarketFilters);
+    var btnMarketClear = document.getElementById('market-clear');
+    if (btnMarketClear) btnMarketClear.addEventListener('click', resetMarketFilters);
+    if (els.marketPagerPrev) {
+      els.marketPagerPrev.addEventListener('click', function () {
+        goToMarketPage(state.market.page - 1);
+      });
+    }
+    if (els.marketPagerNext) {
+      els.marketPagerNext.addEventListener('click', function () {
+        goToMarketPage(state.market.page + 1);
+      });
+    }
+
     var btnNewAccount = document.getElementById('btn-new-account');
     if (btnNewAccount) btnNewAccount.addEventListener('click', showCreateAccount);
 
@@ -2244,6 +2569,15 @@
       detailCharsList.addEventListener('click', function (e) {
         var btn = e.target.closest('.btn-view-inventory');
         if (btn) toggleCharacterInventory(btn);
+      });
+    }
+
+    if (els.btnViewVault) els.btnViewVault.addEventListener('click', toggleAccountVault);
+    if (els.detailVault) {
+      els.detailVault.addEventListener('click', function (e) {
+        var target = e.target.closest('button.btn-vault-page');
+        if (!target || target.disabled) return;
+        goToVaultPage(parseInt(target.getAttribute('data-page'), 10) || 1);
       });
     }
 

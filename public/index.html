@@ -111,6 +111,9 @@
     <button class="tab-btn" data-tab="giftcodes">
       <span data-i18n="🎁 Gift Codes">🎁 Gift Codes</span>
     </button>
+    <button class="tab-btn" data-tab="market">
+      <span data-i18n="🏪 Market">🏪 Market</span>
+    </button>
   </nav>
 
   <!-- 4. Main container -->
@@ -554,6 +557,100 @@
       </div>
     </section>
 
+    <!-- View 9: Web market (read-only) -->
+    <section id="tab-view-market" hidden>
+      <div class="toolbar-card market-toolbar">
+        <div>
+          <h3 style="font-size: 15px; font-weight: 700; color: #fff; margin-bottom: 4px;" data-i18n="Web Market">Web Market</h3>
+          <span style="font-size: 12px; color: var(--text-muted);" data-i18n="Player-to-player listings of the web marketplace (read-only).">Player-to-player listings of the web marketplace (read-only).</span>
+        </div>
+
+        <form id="market-filter-form" class="economy-filters">
+          <div class="economy-field">
+            <label class="form-label" for="market-status-select" data-i18n="Status">Status</label>
+            <select id="market-status-select" class="select-filter">
+              <option value="active" selected data-i18n="Active">Active</option>
+              <option value="sold" data-i18n="Sold">Sold</option>
+              <option value="cancelled" data-i18n="Cancelled">Cancelled</option>
+              <option value="all" data-i18n="All">All</option>
+            </select>
+          </div>
+          <div class="economy-field">
+            <label class="form-label" for="market-search-input" data-i18n="Search">Search</label>
+            <input type="text" id="market-search-input" class="select-filter" placeholder="Search listings..." data-i18n-placeholder="Search listings..." autocomplete="off">
+          </div>
+          <div class="economy-actions">
+            <button type="submit" class="btn btn-primary" data-i18n="🔍 Filter">🔍 Filter</button>
+            <button type="button" id="market-clear" class="btn btn-secondary" data-i18n="Clear">Clear</button>
+          </div>
+        </form>
+      </div>
+
+      <div id="market-unavailable" class="readonly-notice" role="status" hidden></div>
+
+      <div id="market-summary" class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-icon online">🏪</div>
+          <div>
+            <div id="market-stat-active" class="stat-val">0</div>
+            <div class="stat-lbl" data-i18n="Active listings">Active listings</div>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon chars">✅</div>
+          <div>
+            <div id="market-stat-sold" class="stat-val">0</div>
+            <div class="stat-lbl" data-i18n="Sold">Sold</div>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon accounts">💰</div>
+          <div>
+            <div id="market-stat-active-zeny" class="stat-val">0</div>
+            <div class="stat-lbl" data-i18n="Zeny in active listings">Zeny in active listings</div>
+          </div>
+        </div>
+        <div class="stat-card" id="market-card-pending">
+          <div class="stat-icon banned">⏳</div>
+          <div>
+            <div id="market-stat-pending-zeny" class="stat-val">0</div>
+            <div class="stat-lbl" data-i18n="Zeny pending to claim">Zeny pending to claim</div>
+            <div id="market-stat-pending-sub" class="stat-lbl"></div>
+          </div>
+        </div>
+      </div>
+
+      <div id="market-table-wrap" class="table-container">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th data-i18n="Item">Item</th>
+              <th data-i18n="Qty">Qty</th>
+              <th data-i18n="Price (Zeny)">Price (Zeny)</th>
+              <th data-i18n="Seller">Seller</th>
+              <th data-i18n="Status">Status</th>
+              <th data-i18n="Buyer">Buyer</th>
+              <th data-i18n="Listed">Listed</th>
+              <th data-i18n="Updated">Updated</th>
+            </tr>
+          </thead>
+          <tbody id="market-tbody">
+            <tr>
+              <td colspan="8" style="text-align: center; color: var(--text-muted); padding: 32px;" data-i18n="Loading listings...">
+                Loading listings...
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <nav id="market-pager" class="pager" aria-label="Market pagination" data-i18n-aria-label="Market pagination" hidden>
+        <button id="market-pager-prev" type="button" class="btn btn-secondary btn-sm" data-i18n="← Previous">← Previous</button>
+        <span id="market-pager-info" class="pager-info" aria-live="polite"></span>
+        <button id="market-pager-next" type="button" class="btn btn-secondary btn-sm" data-i18n="Next →">Next →</button>
+      </nav>
+    </section>
+
   </main>
 
   <!-- ================= MODALS ================= -->
@@ -580,6 +677,14 @@
           Characters on the Account
         </h4>
         <div id="detail-chars-list"></div>
+
+        <div class="vault-section">
+          <div class="vault-header">
+            <h4 style="font-size: 13px; font-weight: 700; color: #fff; text-transform: uppercase; letter-spacing: 0.5px;" data-i18n="Account vault">Account vault</h4>
+            <button type="button" id="btn-view-vault" class="btn btn-secondary btn-sm" aria-expanded="false" aria-controls="detail-vault" title="View the shared account vault (read-only)" data-i18n-title="View the shared account vault (read-only)" data-i18n="Vault">Vault</button>
+          </div>
+          <div id="detail-vault" class="vault-panel" hidden></div>
+        </div>
 
         <div style="margin-top: 16px;">
           <label class="form-label" for="detail-acc-notes" data-i18n="GM Administrative Notes">GM Administrative Notes</label>
