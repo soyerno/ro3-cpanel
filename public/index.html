@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="es">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -9,42 +9,46 @@
 </head>
 <body>
 
-  <!-- 1. Pantalla de Acceso (Login Ragnarok) -->
+  <!-- 1. Login screen -->
   <div id="login-screen" class="login-screen-wrapper">
     <div class="login-card">
+      <div id="lang-switch-login" class="lang-switch lang-switch-login" role="group" aria-label="Language" data-i18n-aria-label="Language">
+        <button type="button" class="lang-btn" data-lang="en" aria-pressed="true">EN</button>
+        <button type="button" class="lang-btn" data-lang="es" aria-pressed="false">ES</button>
+      </div>
       <div class="login-logo" data-brand-logo>RO3</div>
       <h2 class="login-title" data-brand-title>RO3 Control Panel</h2>
-      <p class="login-subtitle" data-brand-subtitle>Gestión de Cuentas y Servidor</p>
+      <p class="login-subtitle" data-brand-subtitle>Account and Server Management</p>
 
       <div class="login-notice">
-        <strong>Acceso restringido:</strong> Exclusivo para administradores y Game Masters autorizados.
+        <strong data-i18n="Restricted access:">Restricted access:</strong> <span data-i18n="Exclusively for authorized administrators and Game Masters.">Exclusively for authorized administrators and Game Masters.</span>
       </div>
 
       <form id="login-form">
         <div class="form-group" style="text-align: left;">
-          <label class="form-label" for="login-user">Usuario Administrador</label>
-          <input type="text" id="login-user" class="form-input" placeholder="Usuario GM" autocomplete="username" required autofocus>
+          <label class="form-label" for="login-user" data-i18n="Administrator Username">Administrator Username</label>
+          <input type="text" id="login-user" class="form-input" placeholder="GM username" data-i18n-placeholder="GM username" autocomplete="username" required autofocus>
         </div>
 
         <div class="form-group" style="text-align: left;">
-          <label class="form-label" for="login-pass">Contraseña</label>
+          <label class="form-label" for="login-pass" data-i18n="Password">Password</label>
           <input type="password" id="login-pass" class="form-input" placeholder="••••••••" autocomplete="current-password" required>
         </div>
 
         <div id="login-error" style="color: var(--danger); font-size: 12px; margin-bottom: 16px; text-align: left;" hidden></div>
 
-        <button type="submit" id="login-submit" class="btn btn-primary" style="width: 100%; padding: 12px;">
-          Acceder al Panel
+        <button type="submit" id="login-submit" class="btn btn-primary" style="width: 100%; padding: 12px;" data-i18n="Access Panel">
+          Access Panel
         </button>
       </form>
 
-      <div class="login-footer">
-        RO3 CPanel &copy; 2026. Panel de Administración de Servidores RO3.
+      <div class="login-footer" data-i18n="RO3 CPanel © 2026. RO3 Server Administration Panel.">
+        RO3 CPanel © 2026. RO3 Server Administration Panel.
       </div>
     </div>
   </div>
 
-  <!-- 2. Barra Superior (Header) -->
+  <!-- 2. Top bar (header) -->
   <header id="app-header" class="admin-header" hidden>
     <div class="brand-section">
       <div class="brand-logo" data-brand-logo>RO3</div>
@@ -55,11 +59,16 @@
     </div>
 
     <div class="header-status-area">
-      <div class="server-pill" title="Estado del emulador de juego RO3Emu">
+      <div class="server-pill" title="RO3Emu game emulator status" data-i18n-title="RO3Emu game emulator status">
         <span id="server-status-dot" class="status-dot"></span>
-        <span id="server-status-text">Conectando...</span>
+        <span id="server-status-text" data-i18n="Connecting...">Connecting...</span>
         <span style="color: var(--text-dim);">|</span>
-        <span>Online: <strong id="server-online-count" style="color: var(--gold);">0</strong></span>
+        <span><span data-i18n="Online:">Online:</span> <strong id="server-online-count" style="color: var(--gold);">0</strong></span>
+      </div>
+
+      <div id="lang-switch-app" class="lang-switch" role="group" aria-label="Language" data-i18n-aria-label="Language">
+        <button type="button" class="lang-btn" data-lang="en" aria-pressed="true">EN</button>
+        <button type="button" class="lang-btn" data-lang="es" aria-pressed="false">ES</button>
       </div>
 
       <div class="user-profile">
@@ -67,68 +76,68 @@
           <span>👑</span>
           <span id="admin-name">Admin</span>
         </div>
-        <button id="btn-logout" class="btn-logout">Cerrar Sesión</button>
+        <button id="btn-logout" class="btn-logout" data-i18n="Log Out">Log Out</button>
       </div>
     </div>
   </header>
 
-  <!-- 3. Navegación por Pestañas (Subnav) -->
+  <!-- 3. Tab navigation (subnav) -->
   <nav id="app-subnav" class="subnav-tabs" hidden>
     <button class="tab-btn active" data-tab="accounts">
-      <span>👥 Cuentas</span>
+      <span data-i18n="👥 Accounts">👥 Accounts</span>
       <span id="tab-accounts-count" class="tab-counter">0</span>
     </button>
     <button class="tab-btn" data-tab="dashboard">
-      <span>📊 Dashboard</span>
+      <span data-i18n="📊 Dashboard">📊 Dashboard</span>
     </button>
     <button class="tab-btn" data-tab="rankings">
-      <span>🏆 Rankings</span>
+      <span data-i18n="🏆 Rankings">🏆 Rankings</span>
     </button>
     <button class="tab-btn" data-tab="guilds">
-      <span>🛡️ Gremios</span>
+      <span data-i18n="🛡️ Guilds">🛡️ Guilds</span>
     </button>
     <button class="tab-btn" data-tab="auctions">
-      <span>💰 Subastas</span>
+      <span data-i18n="💰 Auctions">💰 Auctions</span>
     </button>
     <button class="tab-btn" data-tab="audit">
-      <span>📜 Registro de Auditoría</span>
+      <span data-i18n="📜 Audit Log">📜 Audit Log</span>
     </button>
     <button class="tab-btn" data-tab="economy">
-      <span>💰 Economía</span>
+      <span data-i18n="💰 Economy">💰 Economy</span>
     </button>
   </nav>
 
-  <!-- 4. Contenedor Principal -->
+  <!-- 4. Main container -->
   <main id="main-content" class="main-content" hidden>
 
-    <!-- Vista 1: Gestión de Cuentas (Por Defecto) -->
+    <!-- View 1: Account management (default) -->
     <section id="tab-view-accounts">
       <div class="toolbar-card">
         <div class="search-box">
           <span style="color: var(--text-muted);">🔍</span>
-          <input type="text" id="search-input" placeholder="Buscar por usuario o nombre de personaje...">
+          <input type="text" id="search-input" placeholder="Search by username or character name..." data-i18n-placeholder="Search by username or character name...">
         </div>
 
         <div class="filter-group">
           <select id="status-select" class="select-filter">
-            <option value="all">Todas las cuentas</option>
-            <option value="active">Solo Activas</option>
-            <option value="banned">Solo Baneadas / Suspendidas</option>
+            <option value="all" data-i18n="All accounts">All accounts</option>
+            <option value="active" data-i18n="Active only">Active only</option>
+            <option value="banned" data-i18n="Banned / Suspended only">Banned / Suspended only</option>
           </select>
 
           <select id="sort-select" class="select-filter">
-            <option value="created_desc">Más recientes primero</option>
-            <option value="created_asc">Más antiguas primero</option>
-            <option value="name_asc">Nombre (A - Z)</option>
-            <option value="chars_desc">Mayor cant. personajes</option>
+            <option value="created_desc" data-i18n="Newest first">Newest first</option>
+            <option value="created_asc" data-i18n="Oldest first">Oldest first</option>
+            <option value="name_asc" data-i18n="Name (A - Z)">Name (A - Z)</option>
+            <option value="chars_desc" data-i18n="Most characters">Most characters</option>
           </select>
 
-          <button id="btn-refresh" class="btn btn-secondary" title="Actualizar datos">
-            <span>🔄</span> Refrescar
+          <button id="btn-refresh" class="btn btn-secondary" title="Refresh data" data-i18n-title="Refresh data">
+            <span>🔄</span> <span data-i18n="Refresh">Refresh</span>
           </button>
 
           <button id="btn-new-account" class="btn btn-primary">
-            <span>➕</span> Crear Cuenta
+            <span>➕</span> <span data-i18n="Create Account">Create Account</span>
           </button>
         </div>
       </div>
@@ -137,39 +146,39 @@
         <table class="data-table">
           <thead>
             <tr>
-              <th style="width: 18%;">Cuenta</th>
-              <th style="width: 12%;">Estado</th>
-              <th>Personajes Asociados</th>
-              <th style="width: 18%;">Fecha de Registro</th>
-              <th style="width: 18%;">Última Conexión</th>
-              <th style="width: 16%;">Acciones</th>
+              <th style="width: 18%;" data-i18n="Account">Account</th>
+              <th style="width: 12%;" data-i18n="Status">Status</th>
+              <th data-i18n="Associated Characters">Associated Characters</th>
+              <th style="width: 18%;" data-i18n="Registration Date">Registration Date</th>
+              <th style="width: 18%;" data-i18n="Last Login">Last Login</th>
+              <th style="width: 16%;" data-i18n="Actions">Actions</th>
             </tr>
           </thead>
           <tbody id="accounts-tbody">
             <tr>
-              <td colspan="6" style="text-align: center; color: var(--text-muted); padding: 32px;">
-                Cargando listado de cuentas...
+              <td colspan="6" style="text-align: center; color: var(--text-muted); padding: 32px;" data-i18n="Loading account list...">
+                Loading account list...
               </td>
             </tr>
           </tbody>
         </table>
       </div>
 
-      <nav id="accounts-pager" class="pager" aria-label="Paginación de cuentas" hidden>
-        <button id="pager-prev" type="button" class="btn btn-secondary btn-sm">← Anterior</button>
+      <nav id="accounts-pager" class="pager" aria-label="Accounts pagination" data-i18n-aria-label="Accounts pagination" hidden>
+        <button id="pager-prev" type="button" class="btn btn-secondary btn-sm" data-i18n="← Previous">← Previous</button>
         <span id="pager-info" class="pager-info" aria-live="polite"></span>
-        <button id="pager-next" type="button" class="btn btn-secondary btn-sm">Siguiente →</button>
+        <button id="pager-next" type="button" class="btn btn-secondary btn-sm" data-i18n="Next →">Next →</button>
       </nav>
     </section>
 
-    <!-- Vista 2: Dashboard / Métricas -->
+    <!-- View 2: Dashboard / metrics -->
     <section id="tab-view-dashboard" hidden>
       <div class="stats-grid">
         <div class="stat-card">
           <div class="stat-icon accounts">👥</div>
           <div>
             <div id="stat-accounts" class="stat-val">0</div>
-            <div class="stat-lbl">Cuentas Registradas</div>
+            <div class="stat-lbl" data-i18n="Registered Accounts">Registered Accounts</div>
           </div>
         </div>
 
@@ -177,7 +186,7 @@
           <div class="stat-icon chars">⚔️</div>
           <div>
             <div id="stat-chars" class="stat-val">0</div>
-            <div class="stat-lbl">Personajes Creados</div>
+            <div class="stat-lbl" data-i18n="Characters Created">Characters Created</div>
           </div>
         </div>
 
@@ -185,7 +194,7 @@
           <div class="stat-icon online">⚡</div>
           <div>
             <div id="stat-online" class="stat-val">0</div>
-            <div class="stat-lbl">Jugadores en Línea</div>
+            <div class="stat-lbl" data-i18n="Players Online">Players Online</div>
           </div>
         </div>
 
@@ -193,7 +202,7 @@
           <div class="stat-icon banned">🚫</div>
           <div>
             <div id="stat-banned" class="stat-val">0</div>
-            <div class="stat-lbl">Cuentas Suspendidas</div>
+            <div class="stat-lbl" data-i18n="Suspended Accounts">Suspended Accounts</div>
           </div>
         </div>
       </div>
@@ -201,52 +210,52 @@
       <!-- RO3Emu diagnostics (loopback only): hidden values until /api/admin/metrics answers -->
       <div id="metrics-panel" class="toolbar-card diag-card">
         <div class="diag-head">
-          <h3 class="diag-title">Métricas de RO3Emu</h3>
+          <h3 class="diag-title" data-i18n="RO3Emu Metrics">RO3Emu Metrics</h3>
           <span id="metrics-captured" class="diag-note"></span>
         </div>
-        <p id="metrics-unavailable" class="diag-unavailable" hidden>No disponible</p>
+        <p id="metrics-unavailable" class="diag-unavailable" hidden data-i18n="Not available">Not available</p>
         <div id="metrics-grid" class="diag-grid" hidden>
           <div class="diag-cell">
             <div id="metric-uptime" class="diag-val">—</div>
-            <div class="diag-lbl" title="Tiempo desde el inicio (o el último reinicio) de las métricas de RO3Emu">Tiempo activo</div>
+            <div class="diag-lbl" title="Time since RO3Emu metrics started (or last reset)" data-i18n-title="Time since RO3Emu metrics started (or last reset)" data-i18n="Uptime">Uptime</div>
           </div>
           <div class="diag-cell">
             <div id="metric-connections" class="diag-val">—</div>
-            <div class="diag-lbl">Conexiones</div>
+            <div class="diag-lbl" data-i18n="Connections">Connections</div>
           </div>
           <div class="diag-cell">
             <div id="metric-in-world" class="diag-val">—</div>
-            <div class="diag-lbl">En el mundo</div>
+            <div class="diag-lbl" data-i18n="In world">In world</div>
           </div>
           <div class="diag-cell">
             <div id="metric-memory" class="diag-val">—</div>
-            <div class="diag-lbl">Memoria (working set)</div>
+            <div class="diag-lbl" data-i18n="Memory (working set)">Memory (working set)</div>
           </div>
           <div class="diag-cell">
             <div id="metric-db" class="diag-val">—</div>
-            <div class="diag-lbl">Sentencias BD / commits</div>
+            <div class="diag-lbl" data-i18n="DB statements / commits">DB statements / commits</div>
           </div>
           <div class="diag-cell">
             <div id="metric-errors" class="diag-val">—</div>
-            <div class="diag-lbl">Excepciones / errores</div>
+            <div class="diag-lbl" data-i18n="Exceptions / errors">Exceptions / errors</div>
           </div>
         </div>
       </div>
 
       <div class="toolbar-card diag-card">
         <div class="diag-head">
-          <h3 class="diag-title">En línea</h3>
+          <h3 class="diag-title" data-i18n="Online">Online</h3>
           <span id="online-count-label" class="diag-note"></span>
         </div>
-        <p id="online-unavailable" class="diag-unavailable" hidden>No disponible</p>
+        <p id="online-unavailable" class="diag-unavailable" hidden data-i18n="Not available">Not available</p>
         <div id="online-table-wrap" class="table-container" hidden>
           <table class="data-table">
             <thead>
               <tr>
-                <th>Cuenta</th>
-                <th>Personaje</th>
-                <th>Mapa</th>
-                <th>Posición (x, z)</th>
+                <th data-i18n="Account">Account</th>
+                <th data-i18n="Character">Character</th>
+                <th data-i18n="Map">Map</th>
+                <th data-i18n="Position (x, z)">Position (x, z)</th>
                 <th id="online-ip-th" hidden>IP</th>
               </tr>
             </thead>
@@ -257,47 +266,47 @@
 
       <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 20px;">
         <div class="toolbar-card" style="display: block;">
-          <h3 style="font-size: 15px; font-weight: 700; color: #fff; margin-bottom: 12px;">Acciones Rápidas del Administrador</h3>
-          <p style="color: var(--text-muted); font-size: 13px; margin-bottom: 16px;">
-            Desde este panel puede registrar nuevas cuentas de prueba, restablecer contraseñas de jugadores que olvidaron sus claves o aplicar suspensiones preventivas.
+          <h3 style="font-size: 15px; font-weight: 700; color: #fff; margin-bottom: 12px;" data-i18n="Quick Administrator Actions">Quick Administrator Actions</h3>
+          <p style="color: var(--text-muted); font-size: 13px; margin-bottom: 16px;" data-i18n="From this panel you can register new test accounts, reset passwords for players who forgot their credentials, or apply preventive suspensions.">
+            From this panel you can register new test accounts, reset passwords for players who forgot their credentials, or apply preventive suspensions.
           </p>
           <div style="display: flex; gap: 10px;">
-            <button id="btn-new-account-dash" class="btn btn-primary">➕ Registrar Nueva Cuenta</button>
-            <button class="btn btn-secondary" onclick="document.querySelector('[data-tab=\'accounts\']').click()">🔍 Explorar Todas las Cuentas</button>
+            <button id="btn-new-account-dash" class="btn btn-primary" data-i18n="➕ Register New Account">➕ Register New Account</button>
+            <button class="btn btn-secondary" onclick="document.querySelector('[data-tab=\'accounts\']').click()" data-i18n="🔍 Browse All Accounts">🔍 Browse All Accounts</button>
           </div>
         </div>
 
         <div class="toolbar-card" style="display: block;">
-          <h3 style="font-size: 15px; font-weight: 700; color: #fff; margin-bottom: 12px;">Información del Servidor</h3>
+          <h3 style="font-size: 15px; font-weight: 700; color: #fff; margin-bottom: 12px;" data-i18n="Server Information">Server Information</h3>
           <ul style="list-style: none; font-size: 12px; color: var(--text-muted); line-height: 2;">
-            <li><strong>Motor:</strong> RO3Emu Native</li>
-            <li><strong>Base de Datos:</strong> SQLite WAL Mode</li>
-            <li><strong>Seguridad:</strong> PBKDF2 SHA-256 (100k iters)</li>
-            <li><strong>Panel:</strong> RO3 CPanel (White-Label)</li>
+            <li><strong data-i18n="Engine:">Engine:</strong> RO3Emu Native</li>
+            <li><strong data-i18n="Database:">Database:</strong> SQLite WAL Mode</li>
+            <li><strong data-i18n="Security:">Security:</strong> PBKDF2 SHA-256 (100k iters)</li>
+            <li><strong data-i18n="Panel:">Panel:</strong> RO3 CPanel (White-Label)</li>
           </ul>
         </div>
       </div>
     </section>
 
-    <!-- Vista 3: Rankings (solo lectura) -->
+    <!-- View 3: Rankings (read-only) -->
     <section id="tab-view-rankings" hidden>
       <div class="toolbar-card">
         <div>
-          <h3 style="font-size: 15px; font-weight: 700; color: #fff;">Rankings del Servidor</h3>
-          <span style="font-size: 12px; color: var(--text-muted);">Personajes eliminados excluidos</span>
+          <h3 style="font-size: 15px; font-weight: 700; color: #fff;" data-i18n="Server Rankings">Server Rankings</h3>
+          <span style="font-size: 12px; color: var(--text-muted);" data-i18n="Deleted characters excluded">Deleted characters excluded</span>
         </div>
 
         <div class="filter-group">
-          <select id="ranking-type-select" class="select-filter" aria-label="Tipo de ranking">
-            <option value="level">Por Nivel</option>
-            <option value="zeny">Por Zeny</option>
-            <option value="power">Por Poder</option>
-            <option value="guilds">Clanes</option>
+          <select id="ranking-type-select" class="select-filter" aria-label="Ranking type" data-i18n-aria-label="Ranking type">
+            <option value="level" data-i18n="By Level">By Level</option>
+            <option value="zeny" data-i18n="By Zeny">By Zeny</option>
+            <option value="power" data-i18n="By Power">By Power</option>
+            <option value="guilds" data-i18n="Clans">Clans</option>
           </select>
 
-          <button id="ranking-prev" class="btn btn-secondary" title="Página anterior">◀ Anterior</button>
-          <span id="ranking-page-label" style="font-size: 12px; color: var(--text-muted);">Página 1</span>
-          <button id="ranking-next" class="btn btn-secondary" title="Página siguiente">Siguiente ▶</button>
+          <button id="ranking-prev" class="btn btn-secondary" title="Previous page" data-i18n-title="Previous page" data-i18n="◀ Previous">◀ Previous</button>
+          <span id="ranking-page-label" style="font-size: 12px; color: var(--text-muted);" data-i18n="Page 1">Page 1</span>
+          <button id="ranking-next" class="btn btn-secondary" title="Next page" data-i18n-title="Next page" data-i18n="Next ▶">Next ▶</button>
         </div>
       </div>
 
@@ -306,8 +315,8 @@
           <thead id="rankings-thead"></thead>
           <tbody id="rankings-tbody">
             <tr>
-              <td colspan="6" style="text-align: center; color: var(--text-muted); padding: 32px;">
-                Cargando rankings...
+              <td colspan="6" style="text-align: center; color: var(--text-muted); padding: 32px;" data-i18n="Loading rankings...">
+                Loading rankings...
               </td>
             </tr>
           </tbody>
@@ -315,18 +324,18 @@
       </div>
     </section>
 
-    <!-- Vista 4: Gremios (solo lectura) -->
+    <!-- View 4: Guilds (read-only) -->
     <section id="tab-view-guilds" hidden>
       <div class="toolbar-card">
         <div class="search-box">
           <span style="color: var(--text-muted);">🔍</span>
-          <input type="text" id="guild-search-input" placeholder="Buscar gremio por nombre..." aria-label="Buscar gremio por nombre">
+          <input type="text" id="guild-search-input" placeholder="Search guild by name..." data-i18n-placeholder="Search guild by name..." aria-label="Search guild by name" data-i18n-aria-label="Search guild by name">
         </div>
-        <span style="font-size: 12px; color: var(--text-muted);">Vista de solo lectura</span>
+        <span style="font-size: 12px; color: var(--text-muted);" data-i18n="Read-only view">Read-only view</span>
       </div>
 
-      <div id="guilds-unavailable" class="readonly-notice" hidden>
-        La base de datos de RO3Emu no contiene tablas de gremios.
+      <div id="guilds-unavailable" class="readonly-notice" hidden data-i18n="The RO3Emu database contains no guild tables.">
+        The RO3Emu database contains no guild tables.
       </div>
 
       <div class="table-container">
@@ -334,44 +343,44 @@
           <thead>
             <tr>
               <th style="width: 10%;">ID</th>
-              <th>Gremio</th>
-              <th style="width: 12%;">Nivel</th>
-              <th style="width: 14%;">Miembros</th>
-              <th style="width: 16%;">Nivel total</th>
-              <th style="width: 12%;">Acciones</th>
+              <th data-i18n="Guild">Guild</th>
+              <th style="width: 12%;" data-i18n="Level">Level</th>
+              <th style="width: 14%;" data-i18n="Members">Members</th>
+              <th style="width: 16%;" data-i18n="Total level">Total level</th>
+              <th style="width: 12%;" data-i18n="Actions">Actions</th>
             </tr>
           </thead>
           <tbody id="guilds-tbody">
             <tr>
-              <td colspan="6" style="text-align: center; color: var(--text-muted); padding: 32px;">
-                Cargando gremios...
+              <td colspan="6" style="text-align: center; color: var(--text-muted); padding: 32px;" data-i18n="Loading guilds...">
+                Loading guilds...
               </td>
             </tr>
           </tbody>
         </table>
       </div>
 
-      <nav id="guilds-pager" class="pager" aria-label="Paginación de gremios" hidden>
-        <button id="guilds-pager-prev" type="button" class="btn btn-secondary btn-sm">← Anterior</button>
+      <nav id="guilds-pager" class="pager" aria-label="Guilds pagination" data-i18n-aria-label="Guilds pagination" hidden>
+        <button id="guilds-pager-prev" type="button" class="btn btn-secondary btn-sm" data-i18n="← Previous">← Previous</button>
         <span id="guilds-pager-info" class="pager-info" aria-live="polite"></span>
-        <button id="guilds-pager-next" type="button" class="btn btn-secondary btn-sm">Siguiente →</button>
+        <button id="guilds-pager-next" type="button" class="btn btn-secondary btn-sm" data-i18n="Next →">Next →</button>
       </nav>
     </section>
 
-    <!-- Vista 5: Subastas (solo lectura) -->
+    <!-- View 5: Auctions (read-only) -->
     <section id="tab-view-auctions" hidden>
       <div class="toolbar-card">
         <div class="filter-group">
-          <select id="auction-view-select" class="select-filter" aria-label="Tipo de registro de subasta">
-            <option value="lots">Lotes en subasta</option>
-            <option value="prebuy">Pedidos de precompra</option>
+          <select id="auction-view-select" class="select-filter" aria-label="Auction record type" data-i18n-aria-label="Auction record type">
+            <option value="lots" data-i18n="Auction lots">Auction lots</option>
+            <option value="prebuy" data-i18n="Pre-buy orders">Pre-buy orders</option>
           </select>
         </div>
-        <span style="font-size: 12px; color: var(--text-muted);">Vista de solo lectura</span>
+        <span style="font-size: 12px; color: var(--text-muted);" data-i18n="Read-only view">Read-only view</span>
       </div>
 
-      <div id="auctions-unavailable" class="readonly-notice" hidden>
-        La base de datos de RO3Emu no contiene esta tabla de subastas.
+      <div id="auctions-unavailable" class="readonly-notice" hidden data-i18n="The RO3Emu database does not contain this auction table.">
+        The RO3Emu database does not contain this auction table.
       </div>
 
       <div class="table-container">
@@ -379,43 +388,43 @@
           <thead id="auctions-thead"></thead>
           <tbody id="auctions-tbody">
             <tr>
-              <td style="text-align: center; color: var(--text-muted); padding: 32px;">
-                Cargando subastas...
+              <td style="text-align: center; color: var(--text-muted); padding: 32px;" data-i18n="Loading auctions...">
+                Loading auctions...
               </td>
             </tr>
           </tbody>
         </table>
       </div>
 
-      <nav id="auctions-pager" class="pager" aria-label="Paginación de subastas" hidden>
-        <button id="auctions-pager-prev" type="button" class="btn btn-secondary btn-sm">← Anterior</button>
+      <nav id="auctions-pager" class="pager" aria-label="Auctions pagination" data-i18n-aria-label="Auctions pagination" hidden>
+        <button id="auctions-pager-prev" type="button" class="btn btn-secondary btn-sm" data-i18n="← Previous">← Previous</button>
         <span id="auctions-pager-info" class="pager-info" aria-live="polite"></span>
-        <button id="auctions-pager-next" type="button" class="btn btn-secondary btn-sm">Siguiente →</button>
+        <button id="auctions-pager-next" type="button" class="btn btn-secondary btn-sm" data-i18n="Next →">Next →</button>
       </nav>
     </section>
 
-    <!-- Vista 6: Registro de Auditoría -->
+    <!-- View 6: Audit log -->
     <section id="tab-view-audit" hidden>
       <div class="toolbar-card">
-        <h3 style="font-size: 15px; font-weight: 700; color: #fff;">Historial de Acciones de Administración</h3>
-        <span style="font-size: 12px; color: var(--text-muted);">Registro inmutable de cambios de contraseñas, baneos y creaciones</span>
+        <h3 style="font-size: 15px; font-weight: 700; color: #fff;" data-i18n="Administration Action History">Administration Action History</h3>
+        <span style="font-size: 12px; color: var(--text-muted);" data-i18n="Immutable log of password changes, bans and creations">Immutable log of password changes, bans and creations</span>
       </div>
 
       <div class="table-container">
         <table class="data-table">
           <thead>
             <tr>
-              <th style="width: 20%;">Fecha (UTC)</th>
-              <th style="width: 15%;">Administrador</th>
-              <th style="width: 18%;">Acción</th>
-              <th style="width: 20%;">Cuenta Objetivo</th>
-              <th>Detalles</th>
+              <th style="width: 20%;" data-i18n="Date (UTC)">Date (UTC)</th>
+              <th style="width: 15%;" data-i18n="Administrator">Administrator</th>
+              <th style="width: 18%;" data-i18n="Action">Action</th>
+              <th style="width: 20%;" data-i18n="Target Account">Target Account</th>
+              <th data-i18n="Details">Details</th>
             </tr>
           </thead>
           <tbody id="audit-tbody">
             <tr>
-              <td colspan="5" style="text-align: center; color: var(--text-muted); padding: 32px;">
-                Cargando registros...
+              <td colspan="5" style="text-align: center; color: var(--text-muted); padding: 32px;" data-i18n="Loading records...">
+                Loading records...
               </td>
             </tr>
           </tbody>
@@ -423,37 +432,37 @@
       </div>
     </section>
 
-    <!-- Vista 7: Registro de Economía (solo lectura) -->
+    <!-- View 7: Economy log (read-only) -->
     <section id="tab-view-economy" hidden>
       <div class="toolbar-card" style="display: block;">
-        <h3 style="font-size: 15px; font-weight: 700; color: #fff; margin-bottom: 4px;">Registro de Economía</h3>
-        <span style="font-size: 12px; color: var(--text-muted);">Movimientos de zeny, ítems y recursos registrados por el emulador (solo lectura). Útil para auditar duplicaciones y disputas.</span>
+        <h3 style="font-size: 15px; font-weight: 700; color: #fff; margin-bottom: 4px;" data-i18n="Economy Log">Economy Log</h3>
+        <span style="font-size: 12px; color: var(--text-muted);" data-i18n="Zeny, item and resource movements recorded by the emulator (read-only). Useful for auditing duplications and disputes.">Zeny, item and resource movements recorded by the emulator (read-only). Useful for auditing duplications and disputes.</span>
 
         <form id="economy-filter-form" class="economy-filters">
           <div class="economy-field">
-            <label class="form-label" for="economy-account">Cuenta</label>
-            <input type="text" id="economy-account" class="select-filter" placeholder="Nombre exacto de cuenta" autocomplete="off">
+            <label class="form-label" for="economy-account" data-i18n="Account">Account</label>
+            <input type="text" id="economy-account" class="select-filter" placeholder="Exact account name" data-i18n-placeholder="Exact account name" autocomplete="off">
           </div>
           <div class="economy-field">
-            <label class="form-label" for="economy-character">Personaje</label>
-            <input type="text" id="economy-character" class="select-filter" placeholder="Nombre exacto de personaje" autocomplete="off">
+            <label class="form-label" for="economy-character" data-i18n="Character">Character</label>
+            <input type="text" id="economy-character" class="select-filter" placeholder="Exact character name" data-i18n-placeholder="Exact character name" autocomplete="off">
           </div>
           <div class="economy-field">
-            <label class="form-label" for="economy-from">Desde (UTC)</label>
+            <label class="form-label" for="economy-from" data-i18n="From (UTC)">From (UTC)</label>
             <input type="date" id="economy-from" class="select-filter">
           </div>
           <div class="economy-field">
-            <label class="form-label" for="economy-to">Hasta (UTC)</label>
+            <label class="form-label" for="economy-to" data-i18n="To (UTC)">To (UTC)</label>
             <input type="date" id="economy-to" class="select-filter">
           </div>
           <div class="economy-actions">
-            <button type="submit" class="btn btn-primary">🔍 Filtrar</button>
-            <button type="button" id="economy-reset" class="btn btn-secondary">Limpiar</button>
+            <button type="submit" class="btn btn-primary" data-i18n="🔍 Filter">🔍 Filter</button>
+            <button type="button" id="economy-reset" class="btn btn-secondary" data-i18n="Clear">Clear</button>
           </div>
         </form>
 
-        <div id="economy-unavailable" class="economy-notice" hidden>
-          La base de datos no contiene las tablas de economía (<code>economy_entry</code> / <code>operation_receipt</code>). Actualice el emulador RO3Emu para habilitar este registro.
+        <div id="economy-unavailable" class="economy-notice" hidden data-i18n="The database does not contain the economy tables (economy_entry / operation_receipt). Update the RO3Emu emulator to enable this log.">
+          The database does not contain the economy tables (economy_entry / operation_receipt). Update the RO3Emu emulator to enable this log.
         </div>
       </div>
 
@@ -461,19 +470,19 @@
         <table class="data-table">
           <thead>
             <tr>
-              <th style="width: 15%;">Fecha (UTC)</th>
-              <th style="width: 17%;">Operación</th>
-              <th style="width: 15%;">Actor</th>
-              <th style="width: 15%;">Dueño</th>
-              <th style="width: 15%;">Activo</th>
-              <th style="width: 11%;">Delta</th>
-              <th>Razón</th>
+              <th style="width: 15%;" data-i18n="Date (UTC)">Date (UTC)</th>
+              <th style="width: 17%;" data-i18n="Operation">Operation</th>
+              <th style="width: 15%;" data-i18n="Actor">Actor</th>
+              <th style="width: 15%;" data-i18n="Owner">Owner</th>
+              <th style="width: 15%;" data-i18n="Asset">Asset</th>
+              <th style="width: 11%;" data-i18n="Delta">Delta</th>
+              <th data-i18n="Reason">Reason</th>
             </tr>
           </thead>
           <tbody id="economy-tbody">
             <tr>
-              <td colspan="7" style="text-align: center; color: var(--text-muted); padding: 32px;">
-                Cargando movimientos...
+              <td colspan="7" style="text-align: center; color: var(--text-muted); padding: 32px;" data-i18n="Loading movements...">
+                Loading movements...
               </td>
             </tr>
           </tbody>
@@ -481,9 +490,9 @@
       </div>
 
       <div class="economy-pager">
-        <button type="button" id="economy-prev" class="btn btn-secondary btn-sm" disabled>‹ Anterior</button>
-        <span id="economy-page-info">Página 1 de 1</span>
-        <button type="button" id="economy-next" class="btn btn-secondary btn-sm" disabled>Siguiente ›</button>
+        <button type="button" id="economy-prev" class="btn btn-secondary btn-sm" disabled data-i18n="‹ Previous">‹ Previous</button>
+        <span id="economy-page-info" data-i18n="Page 1 of 1">Page 1 of 1</span>
+        <button type="button" id="economy-next" class="btn btn-secondary btn-sm" disabled data-i18n="Next ›">Next ›</button>
       </div>
     </section>
 
@@ -491,12 +500,12 @@
 
   <!-- ================= MODALS ================= -->
 
-  <!-- Modal 1: Ficha Detallada de Cuenta y Personajes -->
+  <!-- Modal 1: Account record and characters -->
   <div id="modal-detail" class="modal-backdrop" hidden>
     <div class="modal-dialog">
       <div class="modal-header">
         <div class="modal-title">
-          <span>📋 Ficha de Cuenta:</span>
+          <span data-i18n="📋 Account Record:">📋 Account Record:</span>
           <span id="detail-acc-name" style="color: var(--gold);">—</span>
         </div>
         <button class="modal-close" data-close-modal>&times;</button>
@@ -504,37 +513,37 @@
 
       <div class="modal-body">
         <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; background: #0c1018; padding: 12px; border-radius: var(--radius-sm); margin-bottom: 16px; border: 1px solid var(--border-color); font-size: 12px;">
-          <div><strong style="color: var(--text-muted);">Registro:</strong> <div id="detail-acc-created">—</div></div>
-          <div><strong style="color: var(--text-muted);">Estado:</strong> <div id="detail-acc-status">—</div></div>
-          <div><strong style="color: var(--text-muted);">Sesiones:</strong> <div id="detail-acc-tokens">—</div></div>
+          <div><strong style="color: var(--text-muted);" data-i18n="Registered:">Registered:</strong> <div id="detail-acc-created">—</div></div>
+          <div><strong style="color: var(--text-muted);" data-i18n="Status:">Status:</strong> <div id="detail-acc-status">—</div></div>
+          <div><strong style="color: var(--text-muted);" data-i18n="Sessions:">Sessions:</strong> <div id="detail-acc-tokens">—</div></div>
         </div>
 
-        <h4 style="font-size: 13px; font-weight: 700; color: #fff; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.5px;">
-          Personajes en la Cuenta
+        <h4 style="font-size: 13px; font-weight: 700; color: #fff; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.5px;" data-i18n="Characters on the Account">
+          Characters on the Account
         </h4>
         <div id="detail-chars-list"></div>
 
         <div style="margin-top: 16px;">
-          <label class="form-label" for="detail-acc-notes">Notas Administrativas del GM</label>
-          <textarea id="detail-acc-notes" class="form-textarea" rows="3" placeholder="Anotaciones privadas sobre la cuenta (advertencias, contacto, etc.)..."></textarea>
+          <label class="form-label" for="detail-acc-notes" data-i18n="GM Administrative Notes">GM Administrative Notes</label>
+          <textarea id="detail-acc-notes" class="form-textarea" rows="3" placeholder="Private notes about the account (warnings, contact, etc.)..." data-i18n-placeholder="Private notes about the account (warnings, contact, etc.)..."></textarea>
           <div style="display: flex; justify-content: flex-end; margin-top: 6px;">
-            <button id="btn-save-notes" class="btn btn-secondary btn-sm">Guardar Notas</button>
+            <button id="btn-save-notes" class="btn btn-secondary btn-sm" data-i18n="Save Notes">Save Notes</button>
           </div>
         </div>
       </div>
 
       <div class="modal-footer">
-        <button class="btn btn-secondary" data-close-modal>Cerrar</button>
+        <button class="btn btn-secondary" data-close-modal data-i18n="Close">Close</button>
       </div>
     </div>
   </div>
 
-  <!-- Modal: Ficha de Gremio (solo lectura) -->
+  <!-- Modal: Guild record (read-only) -->
   <div id="modal-guild" class="modal-backdrop" hidden>
     <div class="modal-dialog">
       <div class="modal-header">
         <div class="modal-title">
-          <span>🛡️ Gremio:</span>
+          <span data-i18n="🛡️ Guild:">🛡️ Guild:</span>
           <span id="guild-detail-name" style="color: var(--gold);">—</span>
         </div>
         <button class="modal-close" data-close-modal>&times;</button>
@@ -543,17 +552,17 @@
       <div class="modal-body">
         <div id="guild-detail-summary" class="guild-summary"></div>
 
-        <h4 style="font-size: 13px; font-weight: 700; color: #fff; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.5px;">
-          Miembros
+        <h4 style="font-size: 13px; font-weight: 700; color: #fff; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.5px;" data-i18n="Members">
+          Members
         </h4>
         <div class="table-container">
           <table class="data-table">
             <thead>
               <tr>
-                <th>Personaje</th>
-                <th>Cuenta</th>
-                <th>Clase</th>
-                <th style="width: 14%;">Nivel</th>
+                <th data-i18n="Character">Character</th>
+                <th data-i18n="Account">Account</th>
+                <th data-i18n="Class">Class</th>
+                <th style="width: 14%;" data-i18n="Level">Level</th>
               </tr>
             </thead>
             <tbody id="guild-members-tbody"></tbody>
@@ -562,130 +571,124 @@
       </div>
 
       <div class="modal-footer">
-        <button class="btn btn-secondary" data-close-modal>Cerrar</button>
+        <button class="btn btn-secondary" data-close-modal data-i18n="Close">Close</button>
       </div>
     </div>
   </div>
 
-  <!-- Modal 2: Cambiar Contraseña -->
+  <!-- Modal 2: Change password -->
   <div id="modal-password" class="modal-backdrop" hidden>
     <div class="modal-dialog" style="max-width: 440px;">
       <div class="modal-header">
-        <div class="modal-title">🔑 Cambiar Contraseña</div>
+        <div class="modal-title" data-i18n="🔑 Change Password">🔑 Change Password</div>
         <button class="modal-close" data-close-modal>&times;</button>
       </div>
 
       <form id="form-password">
         <div class="modal-body">
-          <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 16px;">
-            Establecer nueva contraseña para la cuenta <strong id="pw-acc-name" style="color: #fff;">—</strong>. Las sesiones activas de juego serán revocadas.
-          </p>
+          <p id="pw-intro" class="modal-intro" style="font-size: 13px; color: var(--text-muted); margin-bottom: 16px;"></p>
 
           <div class="form-group">
-            <label class="form-label" for="pw-new-pass">Nueva Contraseña</label>
-            <input type="password" id="pw-new-pass" class="form-input" placeholder="Mínimo 6 caracteres" required minlength="6">
+            <label class="form-label" for="pw-new-pass" data-i18n="New Password">New Password</label>
+            <input type="password" id="pw-new-pass" class="form-input" placeholder="Minimum 6 characters" data-i18n-placeholder="Minimum 6 characters" required minlength="6">
           </div>
         </div>
 
         <div class="modal-footer">
-          <button type="button" class="btn btn-secondary" data-close-modal>Cancelar</button>
-          <button type="submit" class="btn btn-primary">Actualizar Contraseña</button>
+          <button type="button" class="btn btn-secondary" data-close-modal data-i18n="Cancel">Cancel</button>
+          <button type="submit" class="btn btn-primary" data-i18n="Update Password">Update Password</button>
         </div>
       </form>
     </div>
   </div>
 
-  <!-- Modal 3: Crear Nueva Cuenta -->
+  <!-- Modal 3: Create new account -->
   <div id="modal-create" class="modal-backdrop" hidden>
     <div class="modal-dialog" style="max-width: 460px;">
       <div class="modal-header">
-        <div class="modal-title">➕ Crear Nueva Cuenta</div>
+        <div class="modal-title" data-i18n="➕ Create New Account">➕ Create New Account</div>
         <button class="modal-close" data-close-modal>&times;</button>
       </div>
 
       <form id="form-create">
         <div class="modal-body">
           <div class="form-group">
-            <label class="form-label" for="create-username">Nombre de Usuario</label>
-            <input type="text" id="create-username" class="form-input" placeholder="Ej: jugador01" required minlength="3" maxlength="32">
+            <label class="form-label" for="create-username" data-i18n="Username">Username</label>
+            <input type="text" id="create-username" class="form-input" placeholder="E.g.: player01" data-i18n-placeholder="E.g.: player01" required minlength="3" maxlength="32">
           </div>
 
           <div class="form-group">
-            <label class="form-label" for="create-password">Contraseña Inicial</label>
-            <input type="password" id="create-password" class="form-input" placeholder="Mínimo 6 caracteres" required minlength="6">
+            <label class="form-label" for="create-password" data-i18n="Initial Password">Initial Password</label>
+            <input type="password" id="create-password" class="form-input" placeholder="Minimum 6 characters" data-i18n-placeholder="Minimum 6 characters" required minlength="6">
           </div>
 
           <div class="form-group">
-            <label class="form-label" for="create-notes">Notas (Opcional)</label>
-            <input type="text" id="create-notes" class="form-input" placeholder="Ej: Cuenta de prueba interna">
+            <label class="form-label" for="create-notes" data-i18n="Notes (Optional)">Notes (Optional)</label>
+            <input type="text" id="create-notes" class="form-input" placeholder="E.g.: Internal test account" data-i18n-placeholder="E.g.: Internal test account">
           </div>
         </div>
 
         <div class="modal-footer">
-          <button type="button" class="btn btn-secondary" data-close-modal>Cancelar</button>
-          <button type="submit" class="btn btn-primary">Crear Cuenta</button>
+          <button type="button" class="btn btn-secondary" data-close-modal data-i18n="Cancel">Cancel</button>
+          <button type="submit" class="btn btn-primary" data-i18n="Create Account">Create Account</button>
         </div>
       </form>
     </div>
   </div>
 
-  <!-- Modal 4: Suspender / Banear Cuenta -->
+  <!-- Modal 4: Suspend / ban account -->
   <div id="modal-ban" class="modal-backdrop" hidden>
     <div class="modal-dialog" style="max-width: 440px;">
       <div class="modal-header">
-        <div class="modal-title" style="color: var(--danger);">🚫 Suspender Cuenta</div>
+        <div class="modal-title" style="color: var(--danger);" data-i18n="🚫 Suspend Account">🚫 Suspend Account</div>
         <button class="modal-close" data-close-modal>&times;</button>
       </div>
 
       <form id="form-ban">
         <div class="modal-body">
-          <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 16px;">
-            Suspender la cuenta <strong id="ban-acc-name" style="color: #fff;">—</strong> la marcará como suspendida en el panel y revocará sus sesiones activas. RO3Emu aún no consulta esta suspensión al iniciar sesión, por lo que el jugador podría volver a entrar.
-          </p>
+          <p id="ban-intro" class="modal-intro" style="font-size: 13px; color: var(--text-muted); margin-bottom: 16px;"></p>
 
           <div class="form-group">
-            <label class="form-label" for="ban-reason">Motivo de la Suspensión</label>
-            <input type="text" id="ban-reason" class="form-input" placeholder="Ej: Uso de programas no autorizados" required>
+            <label class="form-label" for="ban-reason" data-i18n="Suspension Reason">Suspension Reason</label>
+            <input type="text" id="ban-reason" class="form-input" placeholder="E.g.: Use of unauthorized programs" data-i18n-placeholder="E.g.: Use of unauthorized programs" required>
           </div>
         </div>
 
         <div class="modal-footer">
-          <button type="button" class="btn btn-secondary" data-close-modal>Cancelar</button>
-          <button type="submit" class="btn btn-danger">Confirmar Suspensión</button>
+          <button type="button" class="btn btn-secondary" data-close-modal data-i18n="Cancel">Cancel</button>
+          <button type="submit" class="btn btn-danger" data-i18n="Confirm Suspension">Confirm Suspension</button>
         </div>
       </form>
     </div>
   </div>
 
-  <!-- Modal 5: Eliminar Cuenta -->
+  <!-- Modal 5: Delete account -->
   <div id="modal-delete" class="modal-backdrop" hidden>
     <div class="modal-dialog" style="max-width: 440px;">
       <div class="modal-header">
-        <div class="modal-title" style="color: var(--danger);">⚠️ Eliminar Cuenta</div>
+        <div class="modal-title" style="color: var(--danger);" data-i18n="⚠️ Delete Account">⚠️ Delete Account</div>
         <button class="modal-close" data-close-modal>&times;</button>
       </div>
 
       <form id="form-delete">
         <div class="modal-body">
-          <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 16px;">
-            Esta acción eliminará permanentemente la cuenta <strong id="del-acc-name" style="color: #fff;">—</strong>. Para confirmar, escriba el nombre de la cuenta a continuación:
-          </p>
+          <p id="del-intro" class="modal-intro" style="font-size: 13px; color: var(--text-muted); margin-bottom: 16px;"></p>
 
           <div class="form-group">
-            <label class="form-label" for="del-confirm-name">Confirmar Nombre</label>
-            <input type="text" id="del-confirm-name" class="form-input" placeholder="Escriba el nombre exacto" required>
+            <label class="form-label" for="del-confirm-name" data-i18n="Confirm Name">Confirm Name</label>
+            <input type="text" id="del-confirm-name" class="form-input" placeholder="Type the exact name" data-i18n-placeholder="Type the exact name" required>
           </div>
         </div>
 
         <div class="modal-footer">
-          <button type="button" class="btn btn-secondary" data-close-modal>Cancelar</button>
-          <button type="submit" class="btn btn-danger">Eliminar Definitivamente</button>
+          <button type="button" class="btn btn-secondary" data-close-modal data-i18n="Cancel">Cancel</button>
+          <button type="submit" class="btn btn-danger" data-i18n="Delete Permanently">Delete Permanently</button>
         </div>
       </form>
     </div>
   </div>
 
-  <!-- Contenedor de Notificaciones Toast -->
+  <!-- Toast notifications container -->
   <div id="toast-container" class="toast-container"></div>
 
   <script src="admin.js"></script>
