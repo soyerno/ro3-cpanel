@@ -776,6 +776,20 @@ def delete_session(token):
     except sqlite3.Error as e:
         print(f"[Session Warning] Could not delete session: {e}", file=sys.stderr)
 
+def revoke_admin_sessions(con, user, keep_token_hash=None):
+    """Ends every panel session of `user` (letter case ignored) except the one whose hash is `keep_token_hash`.
+
+    Runs on the caller's connection so it commits or rolls back with the password change.
+    """
+    wanted = str(user).strip().lower()
+    for key in [k for k, s in list(ACTIVE_SESSIONS.items()) if str(s.get("user", "")).lower() == wanted and k != keep_token_hash]:
+        ACTIVE_SESSIONS.pop(key, None)
+    con.execute(ADMIN_SESSION_TABLE_SQL)
+    con.execute(
+        "DELETE FROM admin_session WHERE LOWER(admin_user) = ? AND token_hash IS NOT ?",
+        (wanted, keep_token_hash),
+    )
+
 def insert_audit(con, admin_user, action, target="", details="", ip_address=""):
     """Writes an audit row on an open connection, inside the caller's transaction."""
     con.execute(
@@ -1526,35 +1540,93 @@ def verify_admin_password_hash(password, encoded):
     return hmac.compare_digest(derived, expected)
 
 
+def _usable_credential(value):
+    return isinstance(value, (bytes, bytearray)) and len(value) > 0
+
+
+def lookup_game_account(clean_user, identity_names):
+    """Returns (game account row or None, database_ok).
+
+    The account of an admin is the one named exactly like the admin (`identity_names`: the spelling in
+    admin_users or admin_gm). Accounts that differ only by letter case are other people, so they are
+    ignored. A row without a usable password hash or salt counts as no account.
+    database_ok is False when the read failed for a reason other than "no database / no account
+    table", so the caller can refuse instead of falling back to a stale config password.
+    """
+    try:
+        with get_db() as con:
+            rows = con.execute(
+                "SELECT name, password_hash, salt FROM account WHERE LOWER(name)=?", (clean_user,)
+            ).fetchall()
+    except FileNotFoundError:
+        return None, True
+    except sqlite3.OperationalError as e:
+        return None, "no such table" in str(e).lower()
+    except Exception:
+        return None, False
+    for row in rows:
+        if row["name"] in identity_names and _usable_credential(row["password_hash"]) and _usable_credential(row["salt"]):
+            return row, True
+    return None, True
+
+
 def authenticate_admin(username, password=None, password_hash=None):
     """
-    Checks if username & password match any configured admin,
-    OR verifies against ro3emu.db account if user is in admin list or admin_gm table.
+    Checks whether `username` is an admin (listed in admin_users or in the admin_gm table) and
+    whether the credential is right.
 
-    A config entry may hold `password_hash` (preferred, see make_admin_password_hash)
-    or a plain `password`. When `password_hash` is present, `password` is ignored.
-    Also accepts client-side derived PBKDF2 `password_hash` matching account.password_hash.
+    The game account is the single source of truth: when `username` is also an account in the RO3Emu
+    database (named exactly like the admin), only that account's password signs in to the panel (the
+    game, the web and the panel then share one password, and changing it from the panel replaces it
+    everywhere). The `password` / `password_hash` of an admin_users entry only applies to an admin that
+    has no game account, or while there is no RO3Emu database or `account` table. If the database
+    cannot be read for any other reason (locked, corrupt), the login is refused.
+
+    A config entry may hold `password_hash` (preferred, see make_admin_password_hash) or a plain
+    `password`; when `password_hash` is present, `password` is ignored. `password_hash` passed to this
+    function is the client-side derived PBKDF2 key, compared with account.password_hash.
     """
     clean_user = username.strip().lower()
     admin_list = CONFIG.get("admin_users", [])
 
-    is_admin = any(clean_user == a.get("username", "").strip().lower() for a in admin_list)
-    if not is_admin:
+    identity_names = {
+        a.get("username", "").strip() for a in admin_list if a.get("username", "").strip().lower() == clean_user
+    }
+    if not identity_names:
         try:
             with get_db() as con:
                 if con.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='admin_gm'").fetchone():
-                    if con.execute("SELECT 1 FROM admin_gm WHERE LOWER(account)=?", (clean_user,)).fetchone():
-                        is_admin = True
+                    identity_names = {
+                        r["account"] for r in con.execute("SELECT account FROM admin_gm WHERE LOWER(account)=?", (clean_user,))
+                    }
         except Exception:
             pass
-
-    if not is_admin:
+    if not identity_names:
         return False, None
 
+    account, db_ok = lookup_game_account(clean_user, identity_names)
+    if not db_ok:
+        return False, None
+    if account is not None:
+        try:
+            expected_hash = account["password_hash"]
+            if password_hash:
+                try:
+                    client_hash = bytes.fromhex(password_hash)
+                    if len(client_hash) == len(expected_hash) and secrets.compare_digest(client_hash, expected_hash):
+                        return True, account["name"]
+                except ValueError:
+                    pass
+            if password and verify_ro3_password(password, expected_hash, account["salt"]):
+                return True, account["name"]
+        except (TypeError, ValueError):
+            pass
+        return False, None
+
+    # No game account (or no database): the credential configured for this admin.
     for admin_entry in admin_list:
         entry_user = admin_entry.get("username", "").strip().lower()
         if clean_user == entry_user:
-            # 1. Direct credential check in config
             if admin_entry.get("password_hash") and password:
                 if verify_admin_password_hash(password, admin_entry["password_hash"]):
                     return True, admin_entry.get("username", username)
@@ -1566,25 +1638,6 @@ def authenticate_admin(username, password=None, password_hash=None):
                     and hmac.compare_digest(password.encode('utf-8'), stored.encode('utf-8'))
                 ):
                     return True, admin_entry.get("username", username)
-
-    # 2. Check in database account table using PBKDF2
-    try:
-        with get_db() as con:
-            row = con.execute("SELECT name, password_hash, salt FROM account WHERE LOWER(name)=?", (clean_user,)).fetchone()
-            if row:
-                expected_hash = row["password_hash"]
-                if password_hash:
-                    try:
-                        client_hash = bytes.fromhex(password_hash)
-                        if len(client_hash) == len(expected_hash) and secrets.compare_digest(client_hash, expected_hash):
-                            return True, row["name"]
-                    except ValueError:
-                        pass
-                if password:
-                    if verify_ro3_password(password, expected_hash, row["salt"]):
-                        return True, row["name"]
-    except Exception:
-        pass
 
     return False, None
 
@@ -2726,6 +2779,10 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
             pw_hash, salt = hash_ro3_password(new_password)
             con.execute("UPDATE account SET password_hash=?, salt=? WHERE name=?", (pw_hash, salt, username))
             con.execute("DELETE FROM auth_token WHERE account=?", (username,))
+            # The same account signs in to the panel, so its panel sessions end too; an admin changing
+            # their own password keeps the session they are using.
+            current = self.get_session_token() if username.lower() == str(admin_user).lower() else None
+            revoke_admin_sessions(con, username, hash_session_token(current) if current else None)
             con.commit()
 
         log_audit(admin_user, "update_password", username, "Password changed by admin", client_ip)

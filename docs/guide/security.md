@@ -110,6 +110,18 @@ The command asks for the password twice and prints a single line in the format `
 - Plain `password` keeps working, but the server prints a `[Security Warning]` on startup for each entry that has no `password_hash`.
 - All secret comparisons use constant-time `hmac.compare_digest`.
 
+### One password for the game, the web and the panel
+
+The game account (the `account` table of the RO3Emu database) is the single source of truth for an admin's password:
+
+- If an admin's username is also a game account, **only that account's password** signs in to the panel. The `password` / `password_hash` in `admin_users` is ignored for that admin, so the game, the web and the panel always share one password.
+- The admin's game account is the one named **exactly** like the admin (the spelling in `admin_users` or `admin_gm`). An account that differs only by letter case (for example `Admin` next to the admin `admin`) is another person: it cannot sign in as the admin and does not lock the admin out.
+- The password in `admin_users` applies only to an admin that has **no** game account (for example the first `admin` before any account exists), to an account row with no usable password hash or salt, and while there is no RO3Emu database or `account` table.
+- If the database exists but cannot be read (locked, corrupt), the login is **refused** instead of falling back to the config password.
+- Admins that come from the `admin_gm` table sign in with their game account password.
+- Changing a password in the panel (Accounts, Update password) writes the new hash to the `account` table, which RO3Emu and the web read. It also ends the account's game sessions and its panel sessions. An admin changing their own password keeps the session they are using; their other sessions end.
+- **Recovery:** because the config password no longer works for an admin that has a game account, an admin who forgets the game password cannot use the config as a back door. Another admin resets it from the panel, or it is reset directly in the database.
+
 ## 5. Audit Logging
 
 Every state-modifying action is permanently recorded in the `admin_audit_log` table:
