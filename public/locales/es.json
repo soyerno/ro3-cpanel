@@ -431,7 +431,7 @@
   "Currencies": "Monedas",
   "Currency {id}": "Moneda {id}",
   "Auto mode / Bonus Time": "Modo automático / Tiempo bonus",
-  "Applies to the account's connected character: it must be online, and the result appears in the player game chat. Each command (afkunlock, afkmode, afktime) must be enabled in gm_allowed_commands.": "Se aplica al personaje conectado de la cuenta: debe estar en línea y el resultado aparece en el chat del juego del jugador. Cada comando (afkunlock, afkmode, afktime) debe estar habilitado en gm_allowed_commands.",
+  "Applies to the character connected on this account: it must be online, and the result appears in the player game chat. Each command (afkunlock, afkmode, afktime) must be enabled in gm_allowed_commands.": "Se aplica al personaje conectado de la cuenta: debe estar en línea y el resultado aparece en el chat del juego del jugador. Cada comando (afkunlock, afkmode, afktime) debe estar habilitado en gm_allowed_commands.",
   "Unlock auto mode": "Desbloquear modo automático",
   "Lock auto mode": "Bloquear modo automático",
   "Bonus Time on": "Activar tiempo bonus",

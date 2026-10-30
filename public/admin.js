@@ -1946,7 +1946,7 @@
       '</form>' +
       '<form id="gm-afk-form" class="gm-warp-form gm-tools-section" novalidate>' +
         '<h4 class="gm-tools-title" data-i18n="Auto mode / Bonus Time">Auto mode / Bonus Time</h4>' +
-        '<p id="gm-afk-note" class="gm-tools-note" data-i18n="Applies to the account's connected character: it must be online, and the result appears in the player game chat. Each command (afkunlock, afkmode, afktime) must be enabled in gm_allowed_commands.">Applies to the account's connected character: it must be online, and the result appears in the player game chat. Each command (afkunlock, afkmode, afktime) must be enabled in gm_allowed_commands.</p>' +
+        '<p id="gm-afk-note" class="gm-tools-note" data-i18n="Applies to the character connected on this account: it must be online, and the result appears in the player game chat. Each command (afkunlock, afkmode, afktime) must be enabled in gm_allowed_commands.">Applies to the character connected on this account: it must be online, and the result appears in the player game chat. Each command (afkunlock, afkmode, afktime) must be enabled in gm_allowed_commands.</p>' +
         '<div class="gm-warp-actions">' +
           '<button type="button" id="gm-afk-unlock" class="btn btn-secondary btn-sm" data-i18n="Unlock auto mode">Unlock auto mode</button>' +
           '<button type="button" id="gm-afk-lock" class="btn btn-secondary btn-sm" data-i18n="Lock auto mode">Lock auto mode</button>' +

@@ -7,6 +7,8 @@ public/locales/es.json; they do not start the server.
 import json
 import os
 import re
+import shutil
+import subprocess
 import unittest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -423,6 +425,14 @@ class TestGmAfkTools(unittest.TestCase):
         self.assertIn('id="gm-afk-form"', self.panel)
         self.assertIn('id="gm-afk-minutes"', self.panel)
         self.assertIn('data-i18n="Auto mode / Bonus Time"', self.panel)
+
+    def test_admin_js_parses(self):
+        # The other checks read admin.js as text; only a parser catches a broken string literal.
+        node = shutil.which("node")
+        if node is None:
+            self.skipTest("node is not installed")
+        result = subprocess.run([node, "--check", os.path.join(PUBLIC, "admin.js")], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_note_says_the_character_must_be_online_and_the_result_is_in_game_chat(self):
         note = re.search(r'id="gm-afk-note"[^>]*data-i18n="([^"]+)"', self.panel)
