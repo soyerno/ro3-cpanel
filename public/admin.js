@@ -334,7 +334,7 @@
     updateLangButtons();
     if (state.authenticated) {
       updateStatsUI();
-      switchTab(state.activeTab);
+      switchTab(state.activeTab, { history: 'none' });
       // The open account follows the language too (server labels are localized); notes in progress are kept.
       if (isAccountScreenOpen()) loadAccountScreen(state.accountScreen.name, true);
     }
@@ -559,7 +559,8 @@
     if (els.mainContent) els.mainContent.hidden = false;
 
     loadStats();
-    loadAccounts();
+    // The path names the tab (/admin/market); an unknown or empty one opens the default tab and is corrected.
+    switchTab(tabFromLocation() || DEFAULT_TAB, { history: 'replace' });
     // A deep link (#/accounts/<name>) opens its account once the session is known.
     handleRouteChange();
   }
@@ -1164,7 +1165,8 @@
     if (state.activeTab === 'accounts') {
       renderAccountsViews();
     } else {
-      switchTab('accounts');
+      // The hash navigation already added the history entry; only move it onto the Accounts path.
+      switchTab('accounts', { history: 'replace' });
     }
     setAccountTab(tab, { updateUrl: false });
     globalThis.scrollTo(0, 0);
@@ -3860,7 +3862,193 @@
     market: loadMarket
   };
 
+  // --- Tab URLs ---
+  // Every top tab has its own path under the panel base: <base><slug>, e.g. /admin/market or /market when the
+  // panel is served at the root. The slug defaults to the tab id (data-tab of its sidebar button); an overlay can
+  // add aliases, choose the slug written to the URL and hook its own views through globalThis.CPANEL_ROUTES.
+  // The account screen keeps its hash route on top of the Accounts path: /admin/accounts#/accounts/<name>.
+  var DEFAULT_TAB = 'accounts';
+  var BUILTIN_TAB_VIEWS = ['dashboard', 'accounts', 'rankings', 'guilds', 'economy', 'auctions', 'giftcodes',
+    'market', 'audit'];
+  var routeAliases = {};
+  var routePreferredSlugs = {};
+  var routeShowHooks = {};
+  var routeBase = null;
+
+  function hasOwn(obj, key) {
+    return Object.prototype.hasOwnProperty.call(obj, key);
+  }
+
+  function normalizeRouteSlug(slug) {
+    return String(slug === undefined || slug === null ? '' : slug).trim().toLowerCase();
+  }
+
+  function decodeRouteSegment(segment) {
+    try {
+      return decodeURIComponent(segment);
+    } catch (e) {
+      return segment;
+    }
+  }
+
+  // The panel base from a path: the prefix before a known slug or a file name (/admin/market, /admin/index.html
+  // -> /admin/), the path itself when it ends with a slash (/admin/ -> /admin/), else the prefix before the last
+  // segment, which is then an unknown slug (/admin/old -> /admin/).
+  function detectRouteBase(pathname, isSlug) {
+    var path = pathname || '/';
+    var trimmed = path.replace(/\/+$/, '');
+    var cut = trimmed.lastIndexOf('/');
+    var last = decodeRouteSegment(trimmed.slice(cut + 1));
+    if (!last) return '/';
+    if (isSlug(last) || last.indexOf('.') !== -1 || path.charAt(path.length - 1) !== '/') {
+      return trimmed.slice(0, cut + 1);
+    }
+    return trimmed + '/';
+  }
+
+  // The single segment after the base ('' for the base itself), or null when the path is outside it or deeper.
+  function routeSlugFromPath(pathname, base) {
+    var path = pathname || '/';
+    if (path + '/' === base) return '';
+    if (path.indexOf(base) !== 0) return null;
+    var rest = path.slice(base.length).replace(/\/+$/, '');
+    if (rest.indexOf('/') !== -1) return null;
+    return decodeRouteSegment(rest);
+  }
+
+  function tabButtonIds() {
+    var ids = [];
+    document.querySelectorAll('.tab-btn[data-tab]').forEach(function (btn) {
+      ids.push(btn.getAttribute('data-tab'));
+    });
+    return ids;
+  }
+
+  function tabForSlug(slug) {
+    var key = normalizeRouteSlug(slug);
+    if (!key) return null;
+    if (hasOwn(routeAliases, key)) return routeAliases[key];
+    return tabButtonIds().indexOf(key) !== -1 ? key : null;
+  }
+
+  function slugForTab(tabId) {
+    return hasOwn(routePreferredSlugs, tabId) ? routePreferredSlugs[tabId] : tabId;
+  }
+
+  // Detected on first use, after overlays had the chance to register their slugs.
+  function currentRouteBase() {
+    if (routeBase === null) {
+      routeBase = detectRouteBase(globalThis.location.pathname, function (slug) {
+        return tabForSlug(slug) !== null;
+      });
+    }
+    return routeBase;
+  }
+
+  // The tab the address bar names: any account hash means Accounts, else the slug after the base (null if none).
+  function tabFromLocation() {
+    if (globalThis.location.hash.indexOf('#/accounts') === 0) return 'accounts';
+    var slug = routeSlugFromPath(globalThis.location.pathname, currentRouteBase());
+    return slug ? tabForSlug(slug) : null;
+  }
+
+  function tabUrl(tabId) {
+    var loc = globalThis.location;
+    var keepHash = tabId === 'accounts' && loc.hash.indexOf('#/accounts') === 0;
+    return currentRouteBase() + encodeURIComponent(slugForTab(tabId)) + loc.search + (keepHash ? loc.hash : '');
+  }
+
+  // mode: 'push' (a new history entry, the default), 'replace' (fix the current entry) or 'none'.
+  function writeTabUrl(tabId, mode) {
+    if (mode === 'none') return;
+    var loc = globalThis.location;
+    var url = tabUrl(tabId);
+    if (url === loc.pathname + loc.search + loc.hash) return;
+    if (mode === 'replace') {
+      globalThis.history.replaceState(null, '', url);
+    } else {
+      globalThis.history.pushState(null, '', url);
+    }
+  }
+
+  // Views an overlay adds (<section id="tab-view-<id>">) are shown only on their own tab.
+  function syncExtraTabViews(tabId) {
+    document.querySelectorAll('[id^="tab-view-"]').forEach(function (view) {
+      var id = view.id.slice('tab-view-'.length);
+      if (BUILTIN_TAB_VIEWS.indexOf(id) !== -1) return;
+      view.hidden = id !== tabId;
+    });
+  }
+
+  function runRouteShowHooks(tabId) {
+    (hasOwn(routeShowHooks, tabId) ? routeShowHooks[tabId] : []).forEach(function (hook) {
+      try {
+        hook(tabId);
+      } catch (e) {
+        // A broken overlay hook must not block the tab switch; rethrow later so the browser still reports it.
+        setTimeout(function () { throw e; }, 0);
+      }
+    });
+  }
+
+  // Back/forward (and a typed account hash) switch to the tab of the entry without adding another one.
+  function handleTabPopState() {
+    if (!state.authenticated) return;
+    var tab = tabFromLocation() || DEFAULT_TAB;
+    if (tab === state.activeTab) return;
+    if (state.activeTab === 'accounts' && !confirmDiscardNotes()) {
+      var screen = state.accountScreen;
+      globalThis.history.pushState(null, '', currentRouteBase() + encodeURIComponent(slugForTab('accounts')) +
+        globalThis.location.search + accountRouteHash(screen.name, screen.tab));
+      return;
+    }
+    switchTab(tab, { history: 'replace' });
+  }
+
+  // Re-reads the address bar (after an overlay changed slugs or the base) and opens its tab.
+  function refreshTabRoute() {
+    if (!state.authenticated) return;
+    switchTab(tabFromLocation() || DEFAULT_TAB, { history: 'replace' });
+  }
+
+  globalThis.CPANEL_ROUTES = {
+    // registerRoute('funciones', 'features', showFeatures): the slug opens that tab; onShow(tabId) runs each
+    // time the tab is shown (click, back/forward or deep link).
+    registerRoute: function (slug, tabId, onShow) {
+      var key = normalizeRouteSlug(slug);
+      if (key) routeAliases[key] = tabId;
+      if (typeof onShow === 'function') {
+        if (!hasOwn(routeShowHooks, tabId)) routeShowHooks[tabId] = [];
+        routeShowHooks[tabId].push(onShow);
+      }
+      return globalThis.CPANEL_ROUTES;
+    },
+    // setPreferredSlug('market', 'mercado'): the slug written to the URL for that tab (also accepted on load).
+    setPreferredSlug: function (tabId, slug) {
+      var key = normalizeRouteSlug(slug);
+      if (!key) return globalThis.CPANEL_ROUTES;
+      routeAliases[key] = tabId;
+      routePreferredSlugs[tabId] = key;
+      return globalThis.CPANEL_ROUTES;
+    },
+    // setBase('/admin/'): skip base detection when the host knows where the panel is mounted.
+    setBase: function (base) {
+      var path = String(base || '/');
+      if (path.charAt(0) !== '/') path = '/' + path;
+      if (path.charAt(path.length - 1) !== '/') path += '/';
+      routeBase = path;
+      return globalThis.CPANEL_ROUTES;
+    },
+    tabForSlug: tabForSlug,
+    slugForTab: slugForTab,
+    base: currentRouteBase,
+    refresh: refreshTabRoute
+  };
+
+  // An optional second argument { history: 'push' (default) | 'replace' | 'none' } says how the tab URL is
+  // written (see writeTabUrl).
   function switchTab(tabId) {
+    var opts = arguments[1] || {};
     var previousTab = state.activeTab;
     state.activeTab = tabId;
     openSidebarGroupOf(tabId);
@@ -3877,6 +4065,8 @@
     if (els.tabViewDashboard) els.tabViewDashboard.hidden = (tabId !== 'dashboard');
     if (tabId !== 'accounts' && state.accountScreen.open) resetAccountScreen();
     renderAccountsViews();
+    syncExtraTabViews(tabId);
+    writeTabUrl(tabId, opts.history);
     if (els.tabViewAudit) els.tabViewAudit.hidden = (tabId !== 'audit');
     if (els.tabViewEconomy) els.tabViewEconomy.hidden = (tabId !== 'economy');
     if (els.tabViewRankings) els.tabViewRankings.hidden = (tabId !== 'rankings');
@@ -3908,9 +4098,11 @@
     } else if (tabId === 'accounts') {
       loadAccounts();
     }
+    runRouteShowHooks(tabId);
   }
 
   function setupAccountScreenListeners() {
+    globalThis.addEventListener('popstate', handleTabPopState);
     globalThis.addEventListener('hashchange', handleRouteChange);
     document.addEventListener('keydown', handleAccountEscape);
     globalThis.addEventListener('beforeunload', function (e) {
