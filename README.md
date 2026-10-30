@@ -201,6 +201,7 @@ Only relational columns are read, as defined in `ro3emu-server` (`Accounts/Persi
 
 - [Hosting & Deployment Guide](docs/guide/hosting.md) (Windows Scheduled Tasks, Linux systemd, Docker, Nginx, Cloudflare)
 - [White-Label Customization Guide](docs/guide/white-label.md) (Theming, server branding, logo customization)
+- [Panel URLs](docs/guide/tab-urls.md) (Every tab has its own address; the `CPANEL_ROUTES` hook for custom routes)
 - [Account Screen](docs/guide/account-screen.md) (Manage an account on its own screen: characters, vault, security and moderation)
 - [Account Vault and Web Market](docs/guide/vault-market.md) (Read-only views of the web portal's vault and market)
 - [Gift Codes](docs/guide/gift-codes.md) (Create and manage redeemable codes from the panel)

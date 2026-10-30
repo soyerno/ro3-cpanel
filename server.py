@@ -348,6 +348,20 @@ SESSION_TTL_SECONDS = int(CONFIG.get("session_ttl_hours", 24)) * 3600
 SESSION_SLIDE_MIN_SECONDS = 300
 STATIC_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "public"))
 
+# Top panel tabs that have their own URL (<base><slug>, see CPANEL_ROUTES in public/admin.js). The panel is served
+# both at the root and under /admin, so /market and /admin/market both open the Market tab.
+TAB_ROUTE_SLUGS = frozenset((
+    "dashboard", "accounts", "rankings", "guilds", "economy", "auctions", "giftcodes", "market", "audit",
+))
+
+
+def tab_route_slug(path):
+    """The tab slug a deep link names (`/market`, `/admin/audit`), or None for any other path (API, files, ...)."""
+    if path.startswith('/admin/'):
+        path = path[len('/admin'):]
+    slug = path[1:] if path.startswith('/') else ''
+    return slug if slug in TAB_ROUTE_SLUGS else None
+
 # Fallback session store, used only while the RO3Emu database file is missing or
 # unusable. Sessions normally live in the `admin_session` table so they survive a
 # restart. Keyed by the SHA-256 hash of the token, never by the raw token.
@@ -2634,6 +2648,18 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
             return self.serve_static_file('favicon.svg', 'image/svg+xml')
         if raw_path == '/locales/es.json':
             return self.serve_static_file(os.path.join('locales', 'es.json'), 'application/json; charset=utf-8')
+
+        # 1b. Tab deep links (/market, /admin/audit, ...) get the app shell; admin.js picks the tab from the path.
+        if tab_route_slug(raw_path) is not None:
+            if url_parts[0].endswith('/'):
+                # Relative assets (admin.js, admin.css) only resolve from the panel base without the trailing slash.
+                target = raw_path + ('?' + query_str if query_str else '')
+                self.send_response(301)
+                self.send_header('Location', target)
+                self.send_header('Content-Length', '0')
+                self.end_headers()
+                return
+            return self.serve_static_file('index.html', 'text/html; charset=utf-8')
 
         # 2. Public Config API (Branding)
         if raw_path == '/api/admin/config':
