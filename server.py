@@ -430,9 +430,13 @@ CHARACTER_DELETE_MAX_PER_MINUTE = _positive_int_config("character_delete_max_per
 CHARACTER_DELETE_THROTTLE = LoginThrottle(max_failures=CHARACTER_DELETE_MAX_PER_MINUTE, window_seconds=60)
 
 # RO Class & Map Dictionaries
-# Only ids with an upstream source are verified: careers 1310, 1400, 2400, 4400 and 6100 (aethai/ro3emu-server
-# tests/Ro3Emu.Tests CareerSpecialTests.cs, CombatTableRulesTests.cs) and the scenes cited below. Every other entry
-# is UNVERIFIED: the names live in the game client's localization data, not in the server repository (issue #16).
+# Careers 1000-6400 and the town/field scenes come from the game's own data: job_id -> job_name of the skill trees
+# (konsor-ro3 data/ro3base/skill_trees.json) and id -> name_en of the scene list (data/ro3base/maps.json). Careers
+# 2210, 3210, 3211, 4210, 5210 and 5400 have no skill tree there and stay UNVERIFIED, as does anything else that is
+# not listed. aethai/ro3emu-server tests/Ro3Emu.Tests CombatTableRulesTests.cs (cited for 1310, 2400 and 6100) calls
+# 1400 "Lord Knight" and 4400 "High Priest" in comments, but the same test asserts that every resonance job (1400, 4400,
+# 2400) is job rank 5, the third job, which is the game data's Rune Knight (1400) and Arch Bishop (4400); the
+# transcended second jobs Lord Knight and High Priest are 1300 and 4300.
 # Operators can correct or extend any of them with `names_file` (docs/guide/names.md).
 CAREER_MAP = {
     1000: 'Novice',
@@ -440,7 +444,8 @@ CAREER_MAP = {
     1200: 'Knight',
     1210: 'Crusader',
     1310: 'Paladin',
-    1400: 'Lord Knight',     # aethai/ro3emu-server tests/Ro3Emu.Tests/CombatTableRulesTests.cs:36
+    1300: 'Lord Knight',     # skill_trees.json: Swordsman, Trans 2-1
+    1400: 'Rune Knight',     # skill_trees.json: Swordsman, 3rd Job (3-1); CombatTableRulesTests.cs:36 asserts job rank 5
     1410: 'Royal Guard',
     2100: 'Magician',
     2200: 'Wizard',
@@ -456,7 +461,8 @@ CAREER_MAP = {
     4100: 'Acolyte',
     4200: 'Priest',
     4210: 'Monk',
-    4400: 'High Priest',     # CombatTableRulesTests.cs:41
+    4300: 'High Priest',     # skill_trees.json: Acolyte, Trans 2-1
+    4400: 'Arch Bishop',     # skill_trees.json: Acolyte, 3rd Job (3-1); CombatTableRulesTests.cs:41 asserts job rank 5
     5100: 'Thief',
     5200: 'Assassin',
     5210: 'Rogue',
@@ -469,22 +475,79 @@ CAREER_MAP = {
 }
 
 SCENE_MAP = {
-    # Town and field scenes below (ids 10100-10800) are UNVERIFIED, except 10101 (see its source).
+    # Town, field and dungeon-entrance scenes: id -> name_en of the game's scene list (konsor-ro3 data/ro3base/maps.json).
+    101: 'Garden of Time',
+    10001: 'Tritura Academy',
     10100: 'Prontera',
-    10101: 'Izlude',         # tests/Ro3Emu.Tests/DungeonTests.Return.cs:534
-    10102: 'Prontera West',
-    10103: 'Prontera East',
-    10104: 'Prontera South',
+    10101: 'Izlude',  # tests/Ro3Emu.Tests/DungeonTests.Return.cs:534
+    10102: 'Byalan Island',
+    10103: 'Inn',
+    10104: 'Library',
+    10105: 'Grand Cathedral',
+    10106: 'Royal Palace',
+    10107: 'Tavern',
+    10110: 'Prontera East Gate',
+    10111: 'Prontera South Gate',
+    10112: 'Prontera West Gate',
+    10113: 'Prontera North Gate',
+    10141: 'Undersea Tunnel 1F',
+    10150: 'Culvert 1F',
     10200: 'Payon',
-    10201: 'Payon Forest',
+    10201: 'Archer Village',
+    10213: 'Southern Payon',
+    10214: 'Poring Island',
+    10217: 'Southeast Payon',
+    10218: 'Eastern Payon',
+    10219: 'Deep Forest',
+    10220: 'Payon Forest',
+    10240: 'Payon Cave',
+    10241: 'Abandoned Village',
     10300: 'Geffen',
-    10301: 'Geffen Dungeon',
-    10400: 'Alberta',
-    10401: 'Sunken Ship',
+    10310: 'Orc Village',
+    10312: 'Kordt Forest',
+    10314: 'Geffen North Gate',
+    10315: 'Geffen Outskirts',
+    10317: 'Geffen West Gate',
+    10318: 'Geffen Field',
+    10321: 'Goblin Forest',
+    10330: 'Geffen East Gate',
+    10340: 'Orc Cave',
+    10350: 'Geffen Tower 1F',
+    10414: 'Mjolnir Garden',
+    10415: 'Mt. Mjolnir',
+    10420: 'Larva Canyon',
+    10440: 'Hidden Forest',
+    10450: 'Abandoned Mine',
     10500: 'Morroc',
-    10514: 'Morroc Field',
-    10700: 'Al De Baran',
-    10800: 'Lutie',
+    10510: 'Desert Crossroad',
+    10512: 'Bridge of Desert',
+    10514: 'Sograt Desert',
+    10522: 'South Morroc',
+    10527: 'Southern Sograt',
+    10529: 'Western Morroc',
+    10531: 'Papuchicha Forest',
+    10537: 'Pharos Lighthouse',
+    10540: 'Ant Hell',
+    10550: 'Pyramid 1F',
+    10560: 'Sphinx Dungeon 1F',
+    10600: 'Alberta',
+    10601: 'Amatsu',
+    10602: 'Gonryun',
+    10603: 'Luoyang',
+    10604: 'Ayothaya',
+    10605: 'Dewata Village',
+    10606: 'Port Malaya',
+    10610: 'Sunken Ship',
+    10641: 'Shipwreck Labyrinth 1F',
+    10700: 'Glast Heim the Ancient City',
+    10740: 'Glast Heim Monastery',
+    10742: 'Glast Heim Aboveground 1F',
+    10751: 'Glast Heim Culvert 1F',
+    10761: 'Glast Heim Chivalry 1F',
+    10771: 'Glast Heim Underground Cave 1F',
+    10781: 'Glast Heim Underground Cemetery',
+    10791: 'Glast Heim Underground Prison 1F',
+    30399: "Producer's Lair",
     # Story/tutorial dungeon scenes (DungeonConfig scene entries), ids and names as listed in
     # aethai/ro3emu-server docs/systems/dungeon-inventory.md. Entries named "Unknown Area",
     # placeholder names ("@{1}") and test scenes are left out.
@@ -1160,7 +1223,7 @@ def format_mail(letter, resolve=None):
     if isinstance(raw_currency, dict):
         for key, amount in raw_currency.items():
             if POSITIVE_INT.match(str(key)) and isinstance(amount, int) and not isinstance(amount, bool):
-                currency.append({"entry": int(key), "amount": amount})
+                currency.append({"entry": int(key), "amount": amount, **resolve(int(key))})
         currency.sort(key=lambda c: c["entry"])
     created = _json_int(letter, "CreatedTime")
     remove = _json_int(letter, "RemoveTime")
@@ -1185,7 +1248,8 @@ def format_mail(letter, resolve=None):
     }
 
 def format_role(r, include_progress=False):
-    """Formats a role row; include_progress adds exp/job_exp/bonus_points for the detail view."""
+    """Formats a role row; include_progress adds exp/job_exp/bonus_points for the detail view, and the name, image
+    and quality of every currency (currency ids are item ids, item 1 is Zeny)."""
     career_id = r.get("career") or 1000
     scene_id = r.get("scene_entry") or 0
     data = {
@@ -1201,6 +1265,11 @@ def format_role(r, include_progress=False):
         data["exp"] = r.get("exp", 0)
         data["job_exp"] = r.get("job_exp", 0)
     data["currency"] = parse_currency(r.get("currency"))
+    if include_progress:
+        resolve = item_resolver()
+        data["currency"]["zeny_item"] = resolve(ZENY_CURRENCY_ITEM_ID)
+        for entry in data["currency"]["others"]:
+            entry.update(resolve(entry["id"]))
     data["stats"] = parse_stats(r.get("stats"))
     if include_progress:
         data["bonus_points"] = r.get("bonus_points", 0)
@@ -1335,18 +1404,22 @@ def query_economy(account, character, from_ms, to_ms, page, page_size):
             if row["owner_kind"] == ECONOMY_OWNER_KIND_ROLE and owner_id.isdigit():
                 role_ids.add(int(owner_id))
         role_names = {}
+        role_accounts = {}
         if has_role and role_ids:
             ids = sorted(role_ids)
             placeholders = ",".join("?" for _ in ids)
-            for role_row in con.execute("SELECT id, name FROM role WHERE id IN (" + placeholders + ")", ids):
+            for role_row in con.execute("SELECT id, name, account FROM role WHERE id IN (" + placeholders + ")", ids):
                 role_names[role_row["id"]] = role_row["name"]
+                role_accounts[role_row["id"]] = role_row["account"]
 
         entries = []
         for row in rows:
             owner_id = str(row["owner_id"] or "")
             owner_name = None
+            owner_account = None
             if row["owner_kind"] == ECONOMY_OWNER_KIND_ROLE and owner_id.isdigit():
                 owner_name = role_names.get(int(owner_id))
+                owner_account = role_accounts.get(int(owner_id))
             asset_kind = row["asset_kind"]
             if asset_kind == ECONOMY_ASSET_KIND_CURRENCY and row["asset_id"] == ZENY_CURRENCY_ID:
                 asset_label = "Zeny"
@@ -1365,6 +1438,7 @@ def query_economy(account, character, from_ms, to_ms, page, page_size):
                 "owner_kind_label": tr(ECONOMY_OWNER_KIND_LABELS[row["owner_kind"]]) if row["owner_kind"] in ECONOMY_OWNER_KIND_LABELS else tr("Type {kind}", kind=row["owner_kind"]),
                 "owner_id": owner_id,
                 "owner_name": owner_name,
+                "owner_account": owner_account,
                 "asset_kind": asset_kind,
                 "asset_id": row["asset_id"],
                 "asset_label": asset_label,
@@ -2925,7 +2999,7 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
             select_sql = ", ".join(f"t.{c}" if c in present else f"NULL AS {c}" for c in spec['columns'])
             join_sql = ""
             if view == 'prebuy':
-                select_sql += ", r.name AS role_name"
+                select_sql += ", r.name AS role_name, r.account AS role_account"
                 join_sql = "LEFT JOIN role r ON r.id = t.role_id"
 
             total = con.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]

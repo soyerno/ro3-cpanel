@@ -192,6 +192,53 @@ class MailAndGiftCodeItemsTest(CatalogCase):
         self.assertEqual(reward, {"entry": 5002, "count": 4, "name": "Blue Gem", "icon": "gem_blue.webp", "quality": "mythic"})
 
 
+class CurrencyNamesTest(CatalogCase):
+    """Currency ids are item ids (item 1 is Zeny), so the item catalog names them and gives them an image."""
+
+    CURRENCY_CATALOG = [
+        {"id": 1, "n": "Zeny", "ic": "item_1.png", "q": "Common"},
+        {"id": 2, "n": "Minted Coin", "ic": "item_2.png", "q": "Rare"},
+        {"id": 100, "n": "Base EXP", "ic": "item_100.png", "q": ""},
+    ]
+
+    def role(self, currency, **extra):
+        row = {"id": 7, "name": "Hero", "account": "alpha", "currency": currency}
+        row.update(extra)
+        return server.format_role(row, include_progress=True)
+
+    def test_every_non_zeny_currency_carries_name_icon_and_quality(self):
+        self.write_catalog(self.CURRENCY_CATALOG)
+        others = self.role("1:500,2:30,100:9,99999:7")["currency"]["others"]
+        self.assertEqual(others[0], {"id": 2, "amount": 30, "name": "Minted Coin", "icon": "item_2.png", "quality": "rare"})
+        self.assertEqual((others[1]["id"], others[1]["name"], others[1]["icon"], others[1]["quality"]), (100, "Base EXP", "item_100.png", None))
+        self.assertEqual(others[2], {"id": 99999, "amount": 7, "name": None, "icon": None, "quality": None})
+
+    def test_zeny_keeps_its_amount_and_gets_its_own_name_and_icon(self):
+        self.write_catalog(self.CURRENCY_CATALOG)
+        currency = self.role("1:500,2:30")["currency"]
+        self.assertEqual(currency["zeny"], 500)
+        self.assertEqual(currency["zeny_item"], {"name": "Zeny", "icon": "item_1.png", "quality": "common"})
+
+    def test_without_a_catalog_the_currency_fields_are_what_they_were_plus_empty_names(self):
+        currency = self.role("1:500,2:30")["currency"]
+        self.assertEqual(currency["zeny"], 500)
+        self.assertEqual(currency["others"], [{"id": 2, "amount": 30, "name": None, "icon": None, "quality": None}])
+        self.assertEqual(currency["zeny_item"], {"name": None, "icon": None, "quality": None})
+        self.assertEqual(currency["raw"], "1:500,2:30")
+
+    def test_the_account_list_does_not_pay_for_names_it_does_not_show(self):
+        self.write_catalog(self.CURRENCY_CATALOG)
+        row = server.format_role({"id": 7, "name": "Hero", "account": "alpha", "currency": "2:30"})
+        self.assertEqual(row["currency"]["others"], [{"id": 2, "amount": 30}])
+        self.assertNotIn("zeny_item", row["currency"])
+
+    def test_mail_currency_attachments_get_names_and_icons_too(self):
+        self.write_catalog(self.CURRENCY_CATALOG)
+        mail = server.format_mail({"Id": "m", "Currency": {"2": 1000, "99999": 5}})
+        self.assertEqual(mail["currency"][0], {"entry": 2, "amount": 1000, "name": "Minted Coin", "icon": "item_2.png", "quality": "rare"})
+        self.assertEqual(mail["currency"][1], {"entry": 99999, "amount": 5, "name": None, "icon": None, "quality": None})
+
+
 class VaultMarketCatalogTest(tvm.VaultMarketTestCase):
     def setUp(self):
         super().setUp()
