@@ -190,7 +190,9 @@ class TestMarketAndVaultScript(unittest.TestCase):
             with self.subTest(field=field):
                 self.assertIn("l.%s" % field, market)
         party = _function_body(self.js, "marketPartyCell")
-        self.assertIn("escapeHtml(account)", party)
+        # The names are escaped inside accountLinkHtml (see test_player_links_ui); the title attribute is escaped here.
+        self.assertIn("accountLinkHtml(account)", party)
+        self.assertIn("accountLinkHtml(account, character)", party)
         self.assertIn("escapeHtml(character)", party)
         vault = _function_body(self.js, "renderAccountVault")
         self.assertIn("itemChipHtml(item)", vault)

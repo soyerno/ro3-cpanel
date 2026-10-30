@@ -290,14 +290,14 @@ class GuildsAuctionsTest(unittest.TestCase):
         self.assertEqual([r["id"] for r in paged["rows"]], [4, 3, 2])
         self.assertEqual(paged["pages"], 3)
 
-    def test_auction_prebuy_view_joins_role_name(self):
+    def test_auction_prebuy_view_joins_role_name_and_its_account(self):
         data = self.get_ok("/api/admin/auctions", view="prebuy")
         self.assertEqual(data["view"], "prebuy")
         self.assertEqual(data["total"], 2)
         self.assertEqual(data["rows"], [
-            {"id": 2, "role_id": 777, "role_name": None, "auction_type": 1, "src_type": 1, "item_id": 6001,
+            {"id": 2, "role_id": 777, "role_name": None, "role_account": None, "auction_type": 1, "src_type": 1, "item_id": 6001,
              "quantity": 1, "unit_price": 99, "currency": 1, "processed": True, "paused": False},
-            {"id": 1, "role_id": 10, "role_name": "Leader", "auction_type": 2, "src_type": 3, "item_id": 5001,
+            {"id": 1, "role_id": 10, "role_name": "Leader", "role_account": "alpha", "auction_type": 2, "src_type": 3, "item_id": 5001,
              "quantity": 4, "unit_price": 250, "currency": 2, "processed": False, "paused": True},
         ])
 

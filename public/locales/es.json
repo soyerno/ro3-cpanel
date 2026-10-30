@@ -181,14 +181,12 @@
   "Active": "Activa",
   "This account has no characters yet.": "Esta cuenta no posee personajes creados aún.",
   "Level {level} / Job {job}": "Nivel {level} / Job {job}",
-  "Other currencies:": "Otras monedas:",
   "Location:": "Ubicación:",
   "Last login:": "Último ingreso:",
   "View character items": "Ver objetos del personaje",
   "View inventory": "Ver inventario",
   "View character mail (read-only)": "Ver correo del personaje (solo lectura)",
   "View mail": "Ver correo",
-  "Currency {entry}: {amount}": "Moneda {entry}: {amount}",
   "No attachments": "Sin adjuntos",
   "The mailbox could not be decoded.": "El buzón no se pudo decodificar.",
   "There are no mails on this page.": "No hay correos en esta página.",
@@ -428,5 +426,8 @@
   "Apply rate": "Aplicar tasa",
   "Remove rate": "Quitar tasa",
   "Back to configuration": "Volver a la configuración",
-  "Enter both levels and a percent from 1 to 10000, with the first level not above the second.": "Ingrese ambos niveles y un porcentaje de 1 a 10000, sin que el primer nivel supere al segundo."
+  "Enter both levels and a percent from 1 to 10000, with the first level not above the second.": "Ingrese ambos niveles y un porcentaje de 1 a 10000, sin que el primer nivel supere al segundo.",
+  "Hide mail": "Ocultar correo",
+  "Currencies": "Monedas",
+  "Currency {id}": "Moneda {id}"
 }

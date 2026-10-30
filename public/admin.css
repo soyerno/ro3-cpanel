@@ -1011,26 +1011,107 @@ body {
   color: #fff;
 }
 
-.stats-grid-mini {
+.char-card-body {
   display: grid;
-  grid-template-columns: repeat(6, 1fr);
-  gap: 6px;
-  background: rgba(0, 0, 0, 0.2);
-  padding: 8px;
-  border-radius: var(--radius-sm);
-  text-align: center;
+  grid-template-columns: minmax(0, 1fr) 150px;
+  gap: 16px;
+  align-items: start;
   margin-top: 8px;
 }
 
-.stat-box-lbl {
+.char-card-main {
+  min-width: 0;
+}
+
+.char-subtitle {
+  margin: 4px 0 6px;
   font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.char-currencies {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.char-currencies--inline {
+  display: inline-flex;
+  max-height: none;
+  overflow: visible;
+  vertical-align: middle;
+}
+
+.char-currency {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.char-currency .item-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+}
+
+.char-currency__name {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.char-currency__amount {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  color: var(--text-strong);
+}
+
+.char-stats {
+  margin: 0;
+  padding: 6px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: var(--radius-sm);
+}
+
+.char-stat {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.char-stat dt {
   color: var(--text-muted);
   font-weight: 600;
 }
 
-.stat-box-val {
-  font-size: 13px;
+.char-stat dd {
+  margin: 0;
   font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Player names link to the account screen: plain text until hovered, the shared focus ring does the rest. */
+.player-link {
+  color: inherit;
+  text-decoration: none;
+}
+
+.player-link:hover {
+  text-decoration: underline;
   color: var(--gold);
 }
 
@@ -1405,6 +1486,10 @@ body {
 @media (max-width: 560px) {
   .giftcode-row {
     grid-template-columns: 1fr;
+  }
+
+  .char-card-body {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 

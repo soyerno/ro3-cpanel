@@ -110,10 +110,10 @@ class ItemWiringTest(unittest.TestCase):
         for name in ("renderInventory", "renderAccountVault", "renderMarketTable", "giftCodeRewardsHtml"):
             self.assertIn("itemChipHtml(", function_body(self.js, name), name)
 
-    def test_mail_attachments_and_items_use_the_chip_and_currency_stays_text(self):
+    def test_mail_attachments_and_items_use_the_chip_and_currency_the_currency_row(self):
         body = function_body(self.js, "renderMailAttachments")
         self.assertIn("itemChipHtml(", body)
-        self.assertIn("Currency {entry}: {amount}", body)
+        self.assertIn("currencyRowHtml(", body)
 
     def test_the_icon_base_url_comes_from_the_branding_config(self):
         self.assertIn("state.branding.item_icons_url", function_body(self.js, "itemIconSrc"))
@@ -130,7 +130,7 @@ class ItemCssTest(unittest.TestCase):
             self.assertIn(".quality--%s" % quality, self.css)
 
     def test_the_icon_has_a_fixed_box_so_loading_does_not_move_the_table(self):
-        body = re.search(r"\.item-icon \{([^}]*)\}", self.css).group(1)
+        body = re.search(r"(?m)^\.item-icon \{([^}]*)\}", self.css).group(1)
         for prop in ("width:", "height:", "flex-shrink: 0"):
             self.assertIn(prop, body)
 
