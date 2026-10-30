@@ -3508,15 +3508,24 @@
 
     var items = [];
     var itemsValid = true;
+    var unpickedSearch = null;
     els.giftCodeItems.querySelectorAll('.giftcode-item-row').forEach(function (row) {
       var entry = parseWholeNumber(row.querySelector('.giftcode-item-entry').value);
       var count = parseWholeNumber(row.querySelector('.giftcode-item-count').value);
       if (!entry || !count) {
         itemsValid = false;
+        // Text typed in the search box without picking a result leaves the row without an item.
+        var search = row.querySelector('.item-combobox__input');
+        if (!entry && !unpickedSearch && search && search.value.trim()) unpickedSearch = search;
         return;
       }
       items.push({ entry: entry, count: count });
     });
+    if (unpickedSearch) {
+      setGiftCodeError(t('Pick an item from the list for every reward, or type its numeric ID.'));
+      unpickedSearch.focus();
+      return;
+    }
     if (!itemsValid || !items.length) {
       setGiftCodeError(t('Every reward needs a positive item ID and a positive quantity.'));
       return;

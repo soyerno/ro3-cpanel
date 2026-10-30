@@ -169,6 +169,14 @@ class TestGiftCodeItemTypeahead(unittest.TestCase):
         self.assertIn("row.querySelector('.giftcode-item-entry').value", submit)
         self.assertIn("items.push({ entry: entry, count: count })", submit)
 
+    def test_unpicked_search_text_blocks_submit(self):
+        # Typing a name without picking a result must not silently send a row without an item.
+        submit = self.js[self.js.index("function handleCreateGiftCode("):]
+        submit = submit[:submit.index("var maxUses")]
+        self.assertIn("row.querySelector('.item-combobox__input')", submit)
+        self.assertIn("t('Pick an item from the list for every reward, or type its numeric ID.')", submit)
+        self.assertIn("unpickedSearch.focus()", submit)
+
     def test_results_show_icon_and_escaped_name(self):
         self.assertIn("itemIconHtml(item)", self.block)
         self.assertIn("escapeHtml(item.name || '#' + item.entry)", self.block)
@@ -196,7 +204,8 @@ class TestGiftCodesLocale(unittest.TestCase):
             es = json.load(f)
         for key in ("Gift Codes", "Create Gift Code", "Rewards", "Scheduled", "Exhausted", "unlimited",
                     "Search item by name or ID", "Searching items...", "No items found",
-                    "Error searching items: {message}", "Items"):
+                    "Error searching items: {message}", "Items",
+                    "Pick an item from the list for every reward, or type its numeric ID."):
             with self.subTest(key=key):
                 self.assertIn(key, es)
 

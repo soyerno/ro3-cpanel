@@ -321,6 +321,7 @@
   "Remove reward": "Quitar recompensa",
   "The code must be between 1 and 64 characters.": "El código debe tener entre 1 y 64 caracteres.",
   "Every reward needs a positive item ID and a positive quantity.": "Cada recompensa necesita un ID de ítem y una cantidad positivos.",
+  "Pick an item from the list for every reward, or type its numeric ID.": "Elige un ítem de la lista en cada recompensa, o escribe su ID numérico.",
   "Max uses must be 0 (unlimited) or a positive whole number.": "Los usos máximos deben ser 0 (ilimitados) o un número entero positivo.",
   "Uses per account must be a positive whole number.": "Los usos por cuenta deben ser un número entero positivo.",
   "Enter valid start and expiry dates.": "Ingresá fechas de inicio y vencimiento válidas.",
