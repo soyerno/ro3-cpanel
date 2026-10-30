@@ -3259,6 +3259,11 @@
     return escapeHtml(formatDate(seconds * 1000));
   }
 
+  // Codes from the last list load, by code, so "Edit" can prefill the modal without another request.
+  var giftCodesByCode = {};
+  // The code being edited, or null while the modal creates a new code.
+  var giftCodeEditing = null;
+
   function renderGiftCodesTable(codes) {
     if (!els.giftCodesTbody) return;
     if (!codes.length) {
@@ -3266,7 +3271,9 @@
       return;
     }
     var html = '';
+    giftCodesByCode = {};
     codes.forEach(function (c) {
+      giftCodesByCode[c.code] = c;
       var limit = c.max_uses > 0 ? formatNumber(c.max_uses) : t('unlimited');
       var isDisabled = c.status === 'disabled' || c.disabled === true;
       var toggleLabel = isDisabled ? t('Enable') : t('Disable');
@@ -3281,7 +3288,10 @@
         '<td>' + giftCodeStatusBadge(c.status) + '</td>' +
         '<td>' + (c.created_by ? escapeHtml(c.created_by) : '—') + '</td>' +
         '<td>' + (c.note ? escapeHtml(c.note) : '—') + '</td>' +
-        '<td><button type="button" class="btn ' + toggleClass + ' btn-sm btn-giftcode-toggle" data-code="' + escapeHtml(c.code) + '" data-action="' + (isDisabled ? 'enable' : 'disable') + '">' + escapeHtml(toggleLabel) + '</button></td>' +
+        '<td><div class="giftcode-actions">' +
+          '<button type="button" class="btn btn-secondary btn-sm btn-giftcode-edit" data-code="' + escapeHtml(c.code) + '">' + escapeHtml(t('Edit')) + '</button>' +
+          '<button type="button" class="btn ' + toggleClass + ' btn-sm btn-giftcode-toggle" data-code="' + escapeHtml(c.code) + '" data-action="' + (isDisabled ? 'enable' : 'disable') + '">' + escapeHtml(toggleLabel) + '</button>' +
+        '</div></td>' +
       '</tr>';
     });
     els.giftCodesTbody.innerHTML = html;
@@ -3339,20 +3349,230 @@
     });
   }
 
-  function addGiftCodeItemRow() {
+  // --- Reward item typeahead ---
+  // Each reward row searches GET /api/admin/items by name or id. The chosen id lives in the hidden
+  // .giftcode-item-entry field, so the create request keeps sending {entry, count}. A plain numeric id typed
+  // without picking a result is used as it is.
+  var ITEM_SEARCH_DEBOUNCE_MS = 200;
+  var itemComboboxSeq = 0;
+
+  function itemSearchQueryReady(text) {
+    return /^\d+$/.test(text) || text.length >= 2;
+  }
+
+  function initItemCombobox(row) {
+    var input = row.querySelector('.item-combobox__input');
+    var entryField = row.querySelector('.giftcode-item-entry');
+    var popup = row.querySelector('.item-combobox__popup');
+    var list = row.querySelector('.item-combobox__list');
+    var status = row.querySelector('.item-combobox__status');
+    var chosen = row.querySelector('.item-combobox__chosen');
+    var results = [];
+    var active = -1;
+    var timer = null;
+    var seq = 0;
+    var controller = null;
+
+    function setActive(index) {
+      active = index;
+      var options = list.querySelectorAll('.item-combobox__option');
+      options.forEach(function (option, i) {
+        var on = i === index;
+        option.setAttribute('aria-selected', on ? 'true' : 'false');
+        option.classList.toggle('is-active', on);
+        if (on && typeof option.scrollIntoView === 'function') option.scrollIntoView({ block: 'nearest' });
+      });
+      if (index >= 0 && options[index]) input.setAttribute('aria-activedescendant', options[index].id);
+      else input.removeAttribute('aria-activedescendant');
+    }
+
+    function setOpen(open) {
+      popup.hidden = !open;
+      input.setAttribute('aria-expanded', open ? 'true' : 'false');
+      if (!open) setActive(-1);
+    }
+
+    function showStatus(text) {
+      status.textContent = text || '';
+      status.hidden = !text;
+    }
+
+    // Drops the queued search and makes any request still in flight stale.
+    function cancelPending() {
+      if (timer) clearTimeout(timer);
+      timer = null;
+      seq += 1;
+      if (controller) controller.abort();
+      controller = null;
+    }
+
+    function renderResults(items) {
+      results = items;
+      list.innerHTML = items.map(function (item, i) {
+        return '<li id="' + list.id + '-opt-' + i + '" class="item-combobox__option" role="option" aria-selected="false" data-index="' + i + '">' +
+          itemIconHtml(item) +
+          '<span class="item-combobox__name">' + escapeHtml(item.name || '#' + item.entry) + '</span>' +
+          '<span class="item-combobox__id text-dim">#' + escapeHtml(String(item.entry)) + '</span>' +
+        '</li>';
+      }).join('');
+      showStatus(items.length ? '' : t('No items found'));
+      setActive(-1);
+    }
+
+    function search(text) {
+      cancelPending();
+      var mySeq = seq;
+      controller = typeof AbortController === 'function' ? new AbortController() : null;
+      list.innerHTML = '';
+      results = [];
+      showStatus(t('Searching items...'));
+      setOpen(true);
+      apiFetch('/api/admin/items?q=' + encodeURIComponent(text) + '&limit=20', controller ? { signal: controller.signal } : {})
+        .then(function (data) {
+          if (mySeq !== seq) return;
+          renderResults((data && data.items) || []);
+        })
+        .catch(function (err) {
+          if (mySeq !== seq || (err && err.name === 'AbortError')) return;
+          list.innerHTML = '';
+          results = [];
+          showStatus(t('Error searching items: {message}', { message: err.message }));
+        });
+    }
+
+    function setChosen(item) {
+      chosen.innerHTML = item ? itemChipHtml(item) : '';
+      chosen.hidden = !item;
+    }
+
+    function choose(index) {
+      var item = results[index];
+      if (!item) return;
+      cancelPending();
+      entryField.value = String(item.entry);
+      input.value = item.name || String(item.entry);
+      setChosen(item);
+      setOpen(false);
+    }
+
+    input.addEventListener('input', function () {
+      var text = input.value.trim();
+      // Typing replaces any earlier pick; a bare number still counts as the item id.
+      entryField.value = /^\d+$/.test(text) ? text : '';
+      setChosen(null);
+      cancelPending();
+      if (!itemSearchQueryReady(text)) {
+        setOpen(false);
+        return;
+      }
+      timer = setTimeout(function () {
+        timer = null;
+        search(text);
+      }, ITEM_SEARCH_DEBOUNCE_MS);
+    });
+
+    input.addEventListener('keydown', function (e) {
+      var open = !popup.hidden;
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        if (!open) {
+          var text = input.value.trim();
+          if (itemSearchQueryReady(text)) search(text);
+          return;
+        }
+        if (!results.length) return;
+        var next = e.key === 'ArrowDown' ? active + 1 : active - 1;
+        if (next >= results.length) next = 0;
+        if (next < 0) next = results.length - 1;
+        setActive(next);
+      } else if (e.key === 'Enter') {
+        if (open && active >= 0) {
+          e.preventDefault();
+          choose(active);
+        }
+      } else if (e.key === 'Escape' && open) {
+        // Close only the list, not the whole dialog.
+        e.preventDefault();
+        e.stopPropagation();
+        cancelPending();
+        setOpen(false);
+      }
+    });
+
+    // mousedown keeps the focus in the input, so the list does not close before the click lands.
+    // Covers the popup's own scrollbar too.
+    popup.addEventListener('mousedown', function (e) {
+      e.preventDefault();
+    });
+    list.addEventListener('click', function (e) {
+      var option = e.target.closest('.item-combobox__option');
+      if (!option) return;
+      choose(Number(option.getAttribute('data-index')));
+      input.focus();
+    });
+    // Leaving the field (Tab, a click anywhere else) closes the list.
+    input.addEventListener('blur', function () {
+      cancelPending();
+      setOpen(false);
+    });
+  }
+
+  // prefill is an optional reward from the list ({entry, count, name, icon, quality}) shown as already picked.
+  function addGiftCodeItemRow(prefill) {
     if (!els.giftCodeItems) return;
+    var listId = 'giftcode-item-listbox-' + (++itemComboboxSeq);
     var row = document.createElement('div');
     row.className = 'giftcode-item-row';
     row.innerHTML =
-      '<input type="number" class="form-input giftcode-item-entry" min="1" step="1" inputmode="numeric" placeholder="Item ID" data-i18n-placeholder="Item ID" aria-label="Item ID" data-i18n-aria-label="Item ID">' +
+      '<div class="item-combobox">' +
+        '<input type="text" class="form-input item-combobox__input" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="' + listId + '" autocomplete="off" spellcheck="false" placeholder="Search item by name or ID" data-i18n-placeholder="Search item by name or ID" aria-label="Search item by name or ID" data-i18n-aria-label="Search item by name or ID">' +
+        '<input type="hidden" class="giftcode-item-entry" value="">' +
+        '<div class="item-combobox__popup" hidden>' +
+          '<ul class="item-combobox__list" id="' + listId + '" role="listbox" aria-label="Items" data-i18n-aria-label="Items"></ul>' +
+          '<div class="item-combobox__status text-dim" role="status" aria-live="polite" hidden></div>' +
+        '</div>' +
+        '<div class="item-combobox__chosen" hidden></div>' +
+      '</div>' +
       '<input type="number" class="form-input giftcode-item-count" min="1" step="1" value="1" inputmode="numeric" placeholder="Quantity" data-i18n-placeholder="Quantity" aria-label="Quantity" data-i18n-aria-label="Quantity">' +
       '<button type="button" class="btn btn-secondary btn-sm btn-giftcode-remove-item" title="Remove reward" data-i18n-title="Remove reward" aria-label="Remove reward" data-i18n-aria-label="Remove reward">&times;</button>';
     els.giftCodeItems.appendChild(row);
     applyI18n(row);
+    if (prefill) {
+      row.querySelector('.giftcode-item-entry').value = String(prefill.entry);
+      row.querySelector('.item-combobox__input').value = prefill.name || String(prefill.entry);
+      row.querySelector('.giftcode-item-count').value = String(prefill.count);
+      var chosen = row.querySelector('.item-combobox__chosen');
+      chosen.innerHTML = itemChipHtml(prefill);
+      chosen.hidden = false;
+    }
+    initItemCombobox(row);
     updateGiftCodeRemoveButtons();
   }
 
+  // One modal serves both modes. The title and submit keep their data-i18n key so a language switch
+  // re-translates the label of the current mode.
+  function setGiftCodeModalMode(code) {
+    giftCodeEditing = code;
+    var editing = code !== null;
+    var codeInput = document.getElementById('giftcode-code');
+    codeInput.readOnly = editing;
+    codeInput.setAttribute('aria-readonly', editing ? 'true' : 'false');
+    var hint = document.getElementById('giftcode-code-hint');
+    if (hint) hint.hidden = !editing;
+    var title = document.getElementById('giftcode-modal-title');
+    var submit = document.getElementById('btn-giftcode-submit');
+    if (title) {
+      title.setAttribute('data-i18n', editing ? '🎁 Edit Gift Code' : '🎁 Create Gift Code');
+      title.textContent = editing ? t('🎁 Edit Gift Code') : t('🎁 Create Gift Code');
+    }
+    if (submit) {
+      submit.setAttribute('data-i18n', editing ? 'Save changes' : 'Create Gift Code');
+      submit.textContent = editing ? t('Save changes') : t('Create Gift Code');
+    }
+  }
+
   function showCreateGiftCode() {
+    setGiftCodeModalMode(null);
     document.getElementById('giftcode-code').value = '';
     document.getElementById('giftcode-max-uses').value = '0';
     document.getElementById('giftcode-per-account').value = '1';
@@ -3361,6 +3581,26 @@
     document.getElementById('giftcode-note').value = '';
     els.giftCodeItems.innerHTML = '';
     addGiftCodeItemRow();
+    setGiftCodeError('');
+    openModal(els.modalGiftCode);
+  }
+
+  function showEditGiftCode(code) {
+    var c = Object.prototype.hasOwnProperty.call(giftCodesByCode, code) ? giftCodesByCode[code] : null;
+    if (!c) return;
+    setGiftCodeModalMode(c.code);
+    document.getElementById('giftcode-code').value = c.code;
+    document.getElementById('giftcode-max-uses').value = String(c.max_uses || 0);
+    document.getElementById('giftcode-per-account').value = String(c.per_account || 1);
+    document.getElementById('giftcode-starts').value = unixToDatetimeLocal(c.starts_utc);
+    document.getElementById('giftcode-expires').value = unixToDatetimeLocal(c.expires_utc);
+    document.getElementById('giftcode-note').value = c.note || '';
+    els.giftCodeItems.innerHTML = '';
+    if (c.items && c.items.length) {
+      c.items.forEach(function (item) { addGiftCodeItemRow(item); });
+    } else {
+      addGiftCodeItemRow();
+    }
     setGiftCodeError('');
     openModal(els.modalGiftCode);
   }
@@ -3378,6 +3618,17 @@
     return isNaN(date.getTime()) ? NaN : Math.floor(date.getTime() / 1000);
   }
 
+  // Inverse of datetimeLocalToUnix: unix seconds to the local "YYYY-MM-DDTHH:MM" a datetime-local field shows.
+  function unixToDatetimeLocal(seconds) {
+    if (seconds === null || seconds === undefined) return '';
+    var date = new Date(seconds * 1000);
+    if (isNaN(date.getTime())) return '';
+    function pad(n) { return (n < 10 ? '0' : '') + n; }
+    return date.getFullYear() + '-' + pad(date.getMonth() + 1) + '-' + pad(date.getDate()) +
+      'T' + pad(date.getHours()) + ':' + pad(date.getMinutes());
+  }
+
+  // Creates a code, or saves the one being edited: same fields and checks; the code itself never changes.
   function handleCreateGiftCode(e) {
     e.preventDefault();
     var pending = document.getElementById('btn-giftcode-submit');
@@ -3390,15 +3641,24 @@
 
     var items = [];
     var itemsValid = true;
+    var unpickedSearch = null;
     els.giftCodeItems.querySelectorAll('.giftcode-item-row').forEach(function (row) {
       var entry = parseWholeNumber(row.querySelector('.giftcode-item-entry').value);
       var count = parseWholeNumber(row.querySelector('.giftcode-item-count').value);
       if (!entry || !count) {
         itemsValid = false;
+        // Text typed in the search box without picking a result leaves the row without an item.
+        var search = row.querySelector('.item-combobox__input');
+        if (!entry && !unpickedSearch && search && search.value.trim()) unpickedSearch = search;
         return;
       }
       items.push({ entry: entry, count: count });
     });
+    if (unpickedSearch) {
+      setGiftCodeError(t('Pick an item from the list for every reward, or type its numeric ID.'));
+      unpickedSearch.focus();
+      return;
+    }
     if (!itemsValid || !items.length) {
       setGiftCodeError(t('Every reward needs a positive item ID and a positive quantity.'));
       return;
@@ -3431,10 +3691,11 @@
 
     var submit = document.getElementById('btn-giftcode-submit');
     setSubmitting(submit, true);
-    apiFetch('/api/admin/gift-codes', {
+    var editing = giftCodeEditing !== null;
+    apiFetch(editing ? '/api/admin/gift-codes/update' : '/api/admin/gift-codes', {
       method: 'POST',
       body: {
-        code: code,
+        code: editing ? giftCodeEditing : code,
         items: items,
         max_uses: maxUses,
         per_account: perAccount,
@@ -3895,7 +4156,7 @@
     }
     if (els.btnNewGiftCode) els.btnNewGiftCode.addEventListener('click', showCreateGiftCode);
     var btnGiftCodeAddItem = document.getElementById('btn-giftcode-add-item');
-    if (btnGiftCodeAddItem) btnGiftCodeAddItem.addEventListener('click', addGiftCodeItemRow);
+    if (btnGiftCodeAddItem) btnGiftCodeAddItem.addEventListener('click', function () { addGiftCodeItemRow(); });
     if (els.giftCodeItems) {
       els.giftCodeItems.addEventListener('click', function (e) {
         var target = e.target.closest('button.btn-giftcode-remove-item');
@@ -3911,6 +4172,12 @@
     if (formGiftCode) formGiftCode.addEventListener('submit', handleCreateGiftCode);
     if (els.giftCodesTbody) {
       els.giftCodesTbody.addEventListener('click', function (e) {
+        var edit = e.target.closest('button.btn-giftcode-edit');
+        if (edit) {
+          var editCode = edit.getAttribute('data-code');
+          if (editCode) showEditGiftCode(editCode);
+          return;
+        }
         var target = e.target.closest('button.btn-giftcode-toggle');
         if (!target) return;
         var code = target.getAttribute('data-code');

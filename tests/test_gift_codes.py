@@ -321,6 +321,94 @@ class TestToggleGiftCode(GiftCodeTestCase):
         self.assertEqual(status, 400)
 
 
+class TestUpdateGiftCode(GiftCodeTestCase):
+    def update(self, **overrides):
+        body = {"code": "SPRING25", "items": [{"entry": 10001, "count": 5}], "max_uses": 100, "per_account": 1}
+        body.update(overrides)
+        return self.call("POST", "/api/admin/gift-codes/update", body)
+
+    def test_updates_editable_fields_and_audits(self):
+        self.insert("Spring25", [[10001, 5]], max_uses=10, per_account=1, note="old", created_by="seed", created_utc=NOW - 50)
+        start, end = NOW + HOUR, NOW + 2 * HOUR
+        status, body = self.update(code="  spring25 ", items=[{"entry": 20003, "count": 2}, {"entry": 10001, "count": 1}],
+                                   max_uses=3, per_account=2, starts_utc=start, expires_utc=end, note="  new  ")
+        self.assertEqual(status, 200, body)
+        self.assertEqual((body["success"], body["code"]), (True, "Spring25"))
+        [row] = self.rows("SELECT * FROM gift_code")
+        self.assertEqual(json.loads(row["items"]), [[20003, 2], [10001, 1]])
+        self.assertEqual((row["max_uses"], row["per_account"]), (3, 2))
+        self.assertEqual((row["starts_utc"], row["expires_utc"], row["note"]), (start, end, "new"))
+        self.assertEqual(self.audit()[-1], {"admin_user": "boss", "action": "gift_code_update", "target": "Spring25"})
+
+    def test_code_and_creation_metadata_stay_unchanged(self):
+        self.insert("Spring25", created_by="seed", created_utc=NOW - 50, disabled=1)
+        status, _ = self.update(code="SPRING25")
+        self.assertEqual(status, 200)
+        [row] = self.rows("SELECT code, created_by, created_utc, disabled FROM gift_code")
+        self.assertEqual(row, {"code": "Spring25", "created_by": "seed", "created_utc": NOW - 50, "disabled": 1})
+
+    def test_clearing_optional_fields_stores_null(self):
+        self.insert("SPRING25", starts_utc=NOW, expires_utc=NOW + HOUR, note="old")
+        status, _ = self.call("POST", "/api/admin/gift-codes/update", {"code": "SPRING25", "items": [{"entry": 1, "count": 1}]})
+        self.assertEqual(status, 200)
+        [row] = self.rows("SELECT max_uses, per_account, starts_utc, expires_utc, note FROM gift_code")
+        self.assertEqual(row, {"max_uses": 0, "per_account": 1, "starts_utc": None, "expires_utc": None, "note": None})
+
+    def test_max_uses_below_redemptions_is_allowed(self):
+        self.insert("SPRING25", max_uses=10)
+        self.redeem("SPRING25", "alice")
+        self.redeem("SPRING25", "bob")
+        status, _ = self.update(max_uses=1)
+        self.assertEqual(status, 200)
+        _, body = self.call("GET", "/api/admin/gift-codes")
+        self.assertEqual((body["codes"][0]["uses"], body["codes"][0]["status"]), (2, "exhausted"))
+
+    def test_redemptions_are_untouched(self):
+        self.insert("SPRING25")
+        self.redeem("SPRING25", "alice")
+        before = self.rows("SELECT * FROM gift_code_redemption")
+        self.assertEqual(self.update(items=[{"entry": 20003, "count": 1}])[0], 200)
+        self.assertEqual(self.rows("SELECT * FROM gift_code_redemption"), before)
+
+    def test_unknown_code_is_404_and_writes_nothing(self):
+        self.insert("OTHER")
+        before = self.rows("SELECT * FROM gift_code")
+        status, body = self.update(code="NOPE")
+        self.assertEqual(status, 404)
+        self.assertEqual(body["error"], "The gift code 'NOPE' does not exist")
+        self.assertEqual(self.rows("SELECT * FROM gift_code"), before)
+        self.assertEqual([a for a in self.audit() if a["action"].startswith("gift_code")], [])
+
+    def test_rejects_invalid_input_and_writes_nothing(self):
+        self.insert("SPRING25", [[10001, 5]], max_uses=7)
+        before = self.rows("SELECT * FROM gift_code")
+        cases = {
+            "empty code": {"code": "   "},
+            "code not a string": {"code": 12345},
+            "no items": {"items": []},
+            "entry zero": {"items": [{"entry": 0, "count": 5}]},
+            "max uses negative": {"max_uses": -1},
+            "per account zero": {"per_account": 0},
+            "expiry before start": {"starts_utc": NOW + HOUR, "expires_utc": NOW},
+            "note too long": {"note": "x" * 501},
+        }
+        for name, override in cases.items():
+            with self.subTest(name):
+                status, body = self.update(**override)
+                self.assertEqual(status, 400, body)
+                self.assertIn("error", body)
+        status, _ = self.call("POST", "/api/admin/gift-codes/update", [])
+        self.assertEqual(status, 400)
+        self.assertEqual(self.rows("SELECT * FROM gift_code"), before)
+
+    def test_messages_follow_the_request_language(self):
+        self.insert("SPRING25")
+        status, body = self.call("POST", "/api/admin/gift-codes/update",
+                                 {"code": "SPRING25", "items": [{"entry": 1, "count": 1}]}, lang="es")
+        self.assertEqual(status, 200)
+        self.assertEqual(body["message"], "Código de regalo 'SPRING25' actualizado exitosamente.")
+
+
 class TestMissingTableToggle(GiftCodeTestCase):
     with_gift_tables = False
 
@@ -329,6 +417,12 @@ class TestMissingTableToggle(GiftCodeTestCase):
             status, body = self.call("POST", "/api/admin/gift-codes/" + action, {"code": "X"})
             self.assertEqual(status, 503)
             self.assertEqual(body["error"], "Update RO3Emu: this server does not support gift codes")
+        self.assertNotIn("gift_code", self.tables())
+
+    def test_update_without_tables_is_503(self):
+        status, body = self.call("POST", "/api/admin/gift-codes/update", {"code": "X", "items": [{"entry": 1, "count": 1}]})
+        self.assertEqual(status, 503)
+        self.assertEqual(body["error"], "Update RO3Emu: this server does not support gift codes")
         self.assertNotIn("gift_code", self.tables())
 
 
@@ -340,12 +434,14 @@ class TestGiftCodeAuth(GiftCodeTestCase):
             ("POST", "/api/admin/gift-codes", {"code": "A", "items": [{"entry": 1, "count": 1}]}),
             ("POST", "/api/admin/gift-codes/disable", {"code": "SPRING25"}),
             ("POST", "/api/admin/gift-codes/enable", {"code": "SPRING25"}),
+            ("POST", "/api/admin/gift-codes/update", {"code": "SPRING25", "items": [{"entry": 2, "count": 9}]}),
         ):
             with self.subTest(path=path):
                 status, _ = self.call(method, path, payload, token=False)
                 self.assertEqual(status, 401)
         self.assertEqual(self.rows("SELECT disabled FROM gift_code")[0]["disabled"], 0)
         self.assertEqual(len(self.rows("SELECT * FROM gift_code")), 1)
+        self.assertEqual(json.loads(self.rows("SELECT items FROM gift_code")[0]["items"]), [[10001, 5]])
 
 
 if __name__ == "__main__":

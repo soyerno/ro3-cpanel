@@ -304,6 +304,7 @@ ES_MESSAGES = {
     "Gift code '{code}' created successfully.": "Código de regalo '{code}' creado exitosamente.",
     "Gift code '{code}' disabled.": "Código de regalo '{code}' desactivado.",
     "Gift code '{code}' enabled.": "Código de regalo '{code}' activado.",
+    "Gift code '{code}' updated successfully.": "Código de regalo '{code}' actualizado exitosamente.",
     "Invalid VIP value: it must be true or false": "Valor de VIP inválido: debe ser true o false",
     "VIP granted to account '{username}'.": "VIP activado para la cuenta '{username}'.",
     "VIP revoked from account '{username}'.": "VIP desactivado para la cuenta '{username}'.",
@@ -752,6 +753,48 @@ def item_resolver(names=None):
 
 def item_info(entry):
     return item_resolver()(entry)
+
+
+ITEM_SEARCH_LIMIT_DEFAULT = 20
+ITEM_SEARCH_LIMIT_MAX = 50
+ITEM_SEARCH_MIN_TEXT = 2
+
+
+def search_items(query, limit, names=None, catalog=None):
+    """Items whose id or name matches 'query', best first: exact id, name prefix, id prefix, name substring.
+
+    A numeric query needs one character, any other at least two (shorter gives []). Ties sort by name, then id.
+    'names' is the merged {entry: name} map and 'catalog' the {entry: {"icon", "quality"}} map; both load when None.
+    """
+    text = query.strip() if isinstance(query, str) else ""
+    numeric = text.isascii() and text.isdigit()
+    if not text or (not numeric and len(text) < ITEM_SEARCH_MIN_TEXT):
+        return []
+    names = (load_item_names() or {}) if names is None else names
+    catalog = (load_item_catalog() or {}) if catalog is None else catalog
+    needle = text.casefold()
+    ranked = []
+    for entry, name in names.items():
+        if not (isinstance(entry, str) and entry.isascii() and entry.isdigit()) or not isinstance(name, str):
+            continue
+        folded = name.casefold()
+        if numeric and entry == text.lstrip("0"):
+            rank = 0
+        elif folded.startswith(needle):
+            rank = 1
+        elif numeric and entry.startswith(text):
+            rank = 2
+        elif needle in folded:
+            rank = 3
+        else:
+            continue
+        ranked.append((rank, folded, int(entry), name))
+    ranked.sort()
+    items = []
+    for _, _, entry, name in ranked[:limit]:
+        found = catalog.get(str(entry)) or NO_ITEM_INFO
+        items.append({"entry": entry, "name": name, "icon": found["icon"], "quality": found["quality"]})
+    return items
 
 
 def normalized_item_icons_url(value):
@@ -2347,7 +2390,10 @@ def gift_code_status(disabled, starts_utc, expires_utc, max_uses, uses, now):
 
 
 def validate_gift_code_body(body):
-    """Returns (fields, None) for a valid create request or (None, error message)."""
+    """Returns (fields, None) for a valid create or update request or (None, error message).
+
+    Create and update share every rule; on update "code" only identifies the row and is never rewritten.
+    """
     code = body.get("code")
     if not isinstance(code, str) or not (1 <= len(code.strip()) <= GIFT_CODE_MAX_LEN) or not code.strip().isprintable():
         return None, tr("The code must be between 1 and 64 characters")
@@ -2661,9 +2707,13 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
         if raw_path == '/api/admin/economy':
             return self.handle_economy(params)
 
-        # 10b. Gift codes (RO3Emu's gift_code table; the panel creates and toggles codes)
+        # 10b. Gift codes (RO3Emu's gift_code table; the panel creates, edits and toggles codes)
         if raw_path == '/api/admin/gift-codes':
             return self.handle_gift_codes_list()
+
+        # 10c. Item search (catalog + item names) for the gift code reward rows
+        if raw_path == '/api/admin/items':
+            return self.handle_item_search(params)
 
         # 11. Rankings (read-only)
         if raw_path == '/api/admin/rankings':
@@ -2741,6 +2791,8 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
             return self.handle_gift_code_toggle(session['user'], client_ip, disabled=True)
         if raw_path == '/api/admin/gift-codes/enable':
             return self.handle_gift_code_toggle(session['user'], client_ip, disabled=False)
+        if raw_path == '/api/admin/gift-codes/update':
+            return self.handle_gift_code_update(session['user'], client_ip)
 
         self.send_json(404, {"error": tr("Endpoint not found")})
 
@@ -3683,6 +3735,10 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
             entry["details"] = localize_audit_details(entry.get("details"))
         return self.send_json(200, {"logs": logs, **paging(total, page, page_size)})
 
+    def handle_item_search(self, params):
+        limit = parse_int_param(params, 'limit', ITEM_SEARCH_LIMIT_DEFAULT, minimum=1, maximum=ITEM_SEARCH_LIMIT_MAX)
+        return self.send_json(200, {"items": search_items(params.get('q', [''])[0], limit)})
+
     def handle_gift_codes_list(self):
         with get_db() as con:
             if not _table_exists(con, "gift_code"):
@@ -3744,6 +3800,36 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
             "success": True,
             "code": code,
             "message": tr("Gift code '{code}' created successfully.", code=code),
+        })
+
+    def handle_gift_code_update(self, admin_user, client_ip):
+        # The code string is the key redemption rows reference, so it is matched but never rewritten. Lowering
+        # max_uses below the current redemption count is allowed: the code simply stops accepting redemptions.
+        body = self.read_json_body()
+        if not body or not isinstance(body, dict):
+            return self.send_json(400, {"error": tr("Invalid request body")})
+        fields, error = validate_gift_code_body(body)
+        if error:
+            return self.send_json(400, {"error": error})
+        code = fields["code"]
+        with get_db() as con:
+            if not _table_exists(con, "gift_code"):
+                return self.send_json(503, {"error": gift_codes_unsupported()})
+            row = con.execute("SELECT code FROM gift_code WHERE code = ?", (code,)).fetchone()
+            if not row:
+                return self.send_json(404, {"error": tr("The gift code '{code}' does not exist", code=code)})
+            stored = row["code"]
+            con.execute(
+                "UPDATE gift_code SET items = ?, max_uses = ?, per_account = ?, starts_utc = ?, expires_utc = ?,"
+                " note = ? WHERE code = ?",
+                (fields["items"], fields["max_uses"], fields["per_account"], fields["starts_utc"],
+                 fields["expires_utc"], fields["note"], stored),
+            )
+        log_audit(admin_user, "gift_code_update", stored, "Gift code updated", client_ip)
+        return self.send_json(200, {
+            "success": True,
+            "code": stored,
+            "message": tr("Gift code '{code}' updated successfully.", code=stored),
         })
 
     def handle_gift_code_toggle(self, admin_user, client_ip, disabled):

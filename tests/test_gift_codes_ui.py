@@ -131,11 +131,161 @@ class TestGiftCodesScript(unittest.TestCase):
         self.assertNotRegex(self.js[start:end], r"#[0-9a-fA-F]{3,8}\b")
 
 
+class TestGiftCodeItemTypeahead(unittest.TestCase):
+    """Each reward row searches items by name or id; the chosen id still goes out as {entry, count}."""
+
+    def setUp(self):
+        self.js = _read("admin.js")
+        start = self.js.index("// --- Reward item typeahead ---")
+        self.block = self.js[start:self.js.index("function showCreateGiftCode(")]
+
+    def test_row_has_an_aria_combobox_with_a_listbox(self):
+        for needle in ('role="combobox"', 'aria-autocomplete="list"', 'aria-expanded="false"', 'aria-controls="',
+                       'role="listbox"', 'role="option"', 'aria-selected=', 'role="status"', "aria-activedescendant"):
+            with self.subTest(needle=needle):
+                self.assertIn(needle, self.block)
+
+    def test_listbox_id_matches_aria_controls(self):
+        self.assertRegex(self.block, r"aria-controls=\"' \+ listId \+ '\"")
+        self.assertRegex(self.block, r"id=\"' \+ listId \+ '\" role=\"listbox\"")
+
+    def test_searches_the_item_endpoint_with_debounce_and_drops_stale_answers(self):
+        self.assertIn("'/api/admin/items?q=' + encodeURIComponent(text)", self.block)
+        self.assertIn("setTimeout(", self.block)
+        self.assertIn("AbortController", self.block)
+        self.assertRegex(self.block, r"mySeq !== seq")
+
+    def test_keyboard_navigation(self):
+        for key in ("ArrowDown", "ArrowUp", "Enter", "Escape"):
+            with self.subTest(key=key):
+                self.assertIn("'%s'" % key, self.block)
+
+    def test_the_chosen_id_lands_in_the_field_the_create_request_reads(self):
+        self.assertIn('type="hidden" class="giftcode-item-entry"', self.block)
+        self.assertIn("entryField.value = String(item.entry)", self.block)
+        # A bare numeric id typed without picking a result still counts.
+        self.assertIn(r"entryField.value = /^\d+$/.test(text) ? text : ''", self.block)
+        submit = self.js[self.js.index("function handleCreateGiftCode("):]
+        self.assertIn("row.querySelector('.giftcode-item-entry').value", submit)
+        self.assertIn("items.push({ entry: entry, count: count })", submit)
+
+    def test_unpicked_search_text_blocks_submit(self):
+        # Typing a name without picking a result must not silently send a row without an item.
+        submit = self.js[self.js.index("function handleCreateGiftCode("):]
+        submit = submit[:submit.index("var maxUses")]
+        self.assertIn("row.querySelector('.item-combobox__input')", submit)
+        self.assertIn("t('Pick an item from the list for every reward, or type its numeric ID.')", submit)
+        self.assertIn("unpickedSearch.focus()", submit)
+
+    def test_results_show_icon_and_escaped_name(self):
+        self.assertIn("itemIconHtml(item)", self.block)
+        self.assertIn("escapeHtml(item.name || '#' + item.entry)", self.block)
+        self.assertIn("itemChipHtml(item)", self.block)
+
+    def test_searching_and_no_results_states_are_translated(self):
+        self.assertIn("t('Searching items...')", self.block)
+        self.assertIn("t('No items found')", self.block)
+
+    def test_csp_safe_no_inline_styles_or_handlers(self):
+        self.assertNotRegex(self.block, r"\bstyle=")
+        self.assertNotRegex(self.block, r"\son[a-z]+=")
+        self.assertNotIn(".style.", self.block)
+
+    def test_combobox_styles_live_in_the_stylesheet(self):
+        css = _read("admin.css")
+        for selector in (".item-combobox {", ".item-combobox__popup {", ".item-combobox__option.is-active"):
+            with self.subTest(selector=selector):
+                self.assertIn(selector, css)
+
+
+class TestGiftCodeEdit(unittest.TestCase):
+    """Edit reuses the create modal: the code is read-only and the request goes to /update."""
+
+    def setUp(self):
+        self.js = _read("admin.js")
+        self.html = _read("index.html")
+
+    def section(self, start, end):
+        i = self.js.index(start)
+        return self.js[i:self.js.index(end, i)]
+
+    def test_each_row_has_an_escaped_edit_button(self):
+        table = self.section("function renderGiftCodesTable(", "function loadGiftCodes(")
+        self.assertIn("btn-giftcode-edit\" data-code=\"' + escapeHtml(c.code) + '\"", table)
+        self.assertIn("escapeHtml(t('Edit'))", table)
+        self.assertIn("giftCodesByCode[c.code] = c", table)
+
+    def test_edit_click_is_delegated(self):
+        self.assertIn("e.target.closest('button.btn-giftcode-edit')", self.js)
+        self.assertIn("showEditGiftCode(editCode)", self.js)
+
+    def test_edit_mode_locks_the_code_and_relabels_the_modal(self):
+        mode = self.section("function setGiftCodeModalMode(", "function showCreateGiftCode(")
+        self.assertIn("codeInput.readOnly = editing", mode)
+        # Literal keys (the i18n tests forbid dynamic t() keys); data-i18n keeps a language switch in sync.
+        self.assertIn("t('🎁 Edit Gift Code')", mode)
+        self.assertIn("t('Save changes')", mode)
+        self.assertIn("title.setAttribute('data-i18n', editing ? '🎁 Edit Gift Code' : '🎁 Create Gift Code')", mode)
+        self.assertIn("submit.setAttribute('data-i18n', editing ? 'Save changes' : 'Create Gift Code')", mode)
+
+    def test_create_resets_edit_mode(self):
+        create = self.section("function showCreateGiftCode(", "function showEditGiftCode(")
+        self.assertIn("setGiftCodeModalMode(null)", create)
+
+    def test_edit_prefills_fields_and_picked_reward_rows(self):
+        edit = self.section("function showEditGiftCode(", "function parseWholeNumber(")
+        for needle in ("setGiftCodeModalMode(c.code)", "unixToDatetimeLocal(c.starts_utc)",
+                       "unixToDatetimeLocal(c.expires_utc)", "addGiftCodeItemRow(item)", "c.note || ''"):
+            with self.subTest(needle=needle):
+                self.assertIn(needle, edit)
+        row = self.section("function addGiftCodeItemRow(", "function setGiftCodeModalMode(")
+        for needle in (".giftcode-item-entry').value = String(prefill.entry)",
+                       ".item-combobox__input').value = prefill.name || String(prefill.entry)",
+                       "chosen.innerHTML = itemChipHtml(prefill)"):
+            with self.subTest(needle=needle):
+                self.assertIn(needle, row)
+        # The add-reward button must not pass its click event as a prefill.
+        self.assertIn("addEventListener('click', function () { addGiftCodeItemRow(); })", self.js)
+
+    def test_datetime_local_inverse_uses_local_time(self):
+        inverse = self.section("function unixToDatetimeLocal(", "function handleCreateGiftCode(")
+        self.assertIn("new Date(seconds * 1000)", inverse)
+        for getter in ("getFullYear()", "getMonth() + 1", "getDate()", "getHours()", "getMinutes()"):
+            with self.subTest(getter=getter):
+                self.assertIn(getter, inverse)
+        self.assertNotIn("UTC", inverse)
+
+    def test_submit_posts_to_update_with_the_original_code(self):
+        submit = self.section("function handleCreateGiftCode(", "// --- Web Market")
+        self.assertIn("editing ? '/api/admin/gift-codes/update' : '/api/admin/gift-codes'", submit)
+        self.assertIn("code: editing ? giftCodeEditing : code", submit)
+        self.assertIn("closeModal(els.modalGiftCode)", submit)
+        self.assertIn("loadGiftCodes()", submit)
+
+    def test_read_only_hint_markup_and_styles(self):
+        self.assertRegex(self.html, r'<p id="giftcode-code-hint" class="form-hint"[^>]*\bhidden\b')
+        css = _read("admin.css")
+        for selector in (".giftcode-actions {", ".form-hint {"):
+            with self.subTest(selector=selector):
+                self.assertIn(selector, css)
+
+    def test_csp_safe_no_inline_styles_or_handlers(self):
+        block = self.section("// Codes from the last list load", "// --- Web Market")
+        self.assertNotRegex(block, r"\bstyle=")
+        self.assertNotRegex(block, r"\son[a-z]+=")
+        self.assertNotIn(".style.", block)
+
+
 class TestGiftCodesLocale(unittest.TestCase):
     def test_new_strings_have_spanish_translations(self):
         with open(os.path.join(PUBLIC, "locales", "es.json"), encoding="utf-8") as f:
             es = json.load(f)
-        for key in ("Gift Codes", "Create Gift Code", "Rewards", "Scheduled", "Exhausted", "unlimited"):
+        for key in ("Gift Codes", "Create Gift Code", "Rewards", "Scheduled", "Exhausted", "unlimited",
+                    "Search item by name or ID", "Searching items...", "No items found",
+                    "Error searching items: {message}", "Items",
+                    "Pick an item from the list for every reward, or type its numeric ID.",
+                    "🎁 Edit Gift Code", "Edit", "Save changes",
+                    "The code cannot be changed: redemptions are recorded under it."):
             with self.subTest(key=key):
                 self.assertIn(key, es)
 
