@@ -116,6 +116,10 @@ The **Auto mode / Bonus Time** form sends the game server's WildAFK commands to 
 `!afkunlock on|off` (permanent auto-mode unlock), `!afkmode on|off` (Bonus Time switch) and
 `!afktime info|set <minutes>|add <minutes>` (Bonus Time bank). Each is off unless `"afkunlock"`, `"afkmode"` or
 `"afktime"` is listed, and the reply appears in the player's in-game chat.
+The **Quests** section (`"quest"`, off by default) is a debug tool: search RO3Emu's quest catalog by name or number,
+see the connected character's quests (status, progress, times completed) and accept, complete the objectives of,
+deliver, drop or repeat (drop then accept) any of them through RO3Emu's `!quest` command. RO3Emu's reply is shown
+in the panel. It needs an RO3Emu that exposes the loopback `GET /ro3emu/quests` endpoint.
 See [Security Architecture](docs/guide/security.md#5-gm-tools).
 
 ### Account bans

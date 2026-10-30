@@ -39,6 +39,7 @@ class FakeRo3Emu:
         self.delay = 0.0
         self.location = None
         self.stall_after_body = 0.0  # >0: announce Content-Length 100, send self.body, then stall this long
+        self.replies = []  # optional queue of (status, body), consumed one per request before status/body
         fake = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -60,21 +61,22 @@ class FakeRo3Emu:
                 })
                 if fake.delay:
                     time.sleep(fake.delay)
-                self.send_response(fake.status)
+                status, reply_body = fake.replies.pop(0) if fake.replies else (fake.status, fake.body)
+                self.send_response(status)
                 if fake.location:
                     self.send_header("Location", fake.location)
                 self.send_header("Content-Type", "application/json; charset=utf-8")
                 if fake.stall_after_body:
                     self.send_header("Content-Length", "100")
                     self.end_headers()
-                    self.wfile.write(fake.body)
+                    self.wfile.write(reply_body)
                     self.wfile.flush()
                     time.sleep(fake.stall_after_body)
                     self.close_connection = True
                     return
-                self.send_header("Content-Length", str(len(fake.body)))
+                self.send_header("Content-Length", str(len(reply_body)))
                 self.end_headers()
-                self.wfile.write(fake.body)
+                self.wfile.write(reply_body)
 
         self.httpd = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         self.thread = threading.Thread(target=self.httpd.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True)

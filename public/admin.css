@@ -987,6 +987,43 @@ body {
 .gm-tools-result.success { color: var(--success); }
 .gm-tools-result.error { color: var(--danger); }
 
+/* Quest tools (inside GM Tools) */
+.gm-quest-picker {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.gm-quest-select {
+  min-height: 120px;
+}
+
+.gm-quest-actions {
+  justify-content: flex-start;
+}
+
+.gm-quest-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.gm-quest-head > .gm-tools-title {
+  margin-bottom: 0;
+}
+
+.gm-quest-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.gm-quest-error {
+  color: var(--danger);
+}
+
 /* Character Card in Details Modal */
 .char-card-detail {
   background: #0b0f17;
