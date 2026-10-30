@@ -99,6 +99,11 @@
 
     appHeader: document.getElementById('app-header'),
     subnav: document.getElementById('app-subnav'),
+    appShell: document.getElementById('app-shell'),
+    sidebarOpen: document.getElementById('sidebar-open'),
+    sidebarClose: document.getElementById('sidebar-close'),
+    sidebarCollapse: document.getElementById('sidebar-collapse'),
+    sidebarBackdrop: document.getElementById('sidebar-backdrop'),
     mainContent: document.getElementById('main-content'),
     adminName: document.getElementById('admin-name'),
     btnLogout: document.getElementById('btn-logout'),
@@ -309,6 +314,8 @@
         el.setAttribute(attr, t(el.getAttribute('data-i18n-' + attr)));
       });
     });
+    // Labels that depend on the sidebar state are not static text, so they are set again here.
+    if (root === document) refreshSidebarLabels();
   }
 
   function updateLangButtons() {
@@ -564,6 +571,7 @@
   }
 
   function setUnauthenticated() {
+    closeSidebarDrawer(false);
     state.authenticated = false;
     state.adminUser = null;
     resetAccountScreen(true);
@@ -1936,6 +1944,155 @@
       });
   }
 
+  // --- Sidebar menu ---
+  // Dashboard sits on its own, the other sections live in collapsible groups. The sidebar can fold into an icon
+  // rail (the choice is remembered) and, on a phone, becomes a drawer opened from the header.
+  var SIDEBAR_PREFS_KEY = 'panel_sidebar';
+  var sidebarState = { collapsed: false, closedGroups: [] };
+  var sidebarMobile = null;
+
+  function readSidebarPrefs() {
+    try {
+      var prefs = JSON.parse(globalThis.localStorage.getItem(SIDEBAR_PREFS_KEY) || 'null');
+      if (prefs && typeof prefs === 'object') {
+        return {
+          collapsed: prefs.collapsed === true,
+          closedGroups: Array.isArray(prefs.closedGroups)
+            ? prefs.closedGroups.filter(function (g) { return typeof g === 'string'; })
+            : []
+        };
+      }
+    } catch (e) {
+      // Storage blocked or the value is not JSON: start from the defaults.
+    }
+    return { collapsed: false, closedGroups: [] };
+  }
+
+  function saveSidebarPrefs() {
+    try {
+      globalThis.localStorage.setItem(SIDEBAR_PREFS_KEY, JSON.stringify(sidebarState));
+    } catch (e) {
+      // Private mode or a full quota: the menu still works, it just forgets next time.
+    }
+  }
+
+  function sidebarGroups() {
+    return els.subnav ? Array.prototype.slice.call(els.subnav.querySelectorAll('.sidebar-group')) : [];
+  }
+
+  function toggleSidebarGroup(group, open) {
+    if (!group) return;
+    var willOpen = typeof open === 'boolean' ? open : !group.classList.contains('is-open');
+    group.classList.toggle('is-open', willOpen);
+    var toggle = group.querySelector('.sidebar-group-toggle');
+    if (toggle) toggle.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+    var name = group.getAttribute('data-group');
+    var at = sidebarState.closedGroups.indexOf(name);
+    if (willOpen && at !== -1) sidebarState.closedGroups.splice(at, 1);
+    if (!willOpen && at === -1) sidebarState.closedGroups.push(name);
+  }
+
+  // Going to a section shows it: its group opens if the admin had folded it.
+  function openSidebarGroupOf(tabId) {
+    if (!els.subnav) return;
+    Array.prototype.forEach.call(els.subnav.querySelectorAll('.tab-btn'), function (btn) {
+      if (btn.getAttribute('data-tab') !== tabId) return;
+      var group = btn.closest('.sidebar-group');
+      if (group && !group.classList.contains('is-open')) toggleSidebarGroup(group, true);
+    });
+  }
+
+  // In the icon rail the labels are hidden, so each item carries its name as tooltip and accessible name.
+  function syncSidebarTitles() {
+    if (!els.subnav) return;
+    Array.prototype.forEach.call(els.subnav.querySelectorAll('.tab-btn'), function (btn) {
+      var label = btn.querySelector('span:not(.tab-counter)');
+      var name = label ? label.textContent.trim() : '';
+      if (sidebarState.collapsed && name) {
+        btn.setAttribute('title', name);
+        btn.setAttribute('aria-label', name);
+      } else {
+        btn.removeAttribute('title');
+        btn.removeAttribute('aria-label');
+      }
+    });
+  }
+
+  function setSidebarCollapsed(collapsed, persist) {
+    sidebarState.collapsed = collapsed;
+    if (els.appShell) els.appShell.classList.toggle('is-collapsed', collapsed);
+    if (els.sidebarCollapse) {
+      els.sidebarCollapse.setAttribute('aria-pressed', collapsed ? 'true' : 'false');
+      els.sidebarCollapse.setAttribute('aria-label', collapsed ? t('Expand menu') : t('Collapse menu'));
+    }
+    syncSidebarTitles();
+    if (persist) saveSidebarPrefs();
+  }
+
+  // A language change rewrites the translated labels; the ones that depend on the state are set again.
+  function refreshSidebarLabels() {
+    if (!sidebarState) return;
+    setSidebarCollapsed(sidebarState.collapsed, false);
+  }
+
+  function openSidebarDrawer() {
+    if (!els.subnav) return;
+    els.subnav.classList.add('is-open');
+    if (els.sidebarBackdrop) els.sidebarBackdrop.hidden = false;
+    if (els.sidebarOpen) els.sidebarOpen.setAttribute('aria-expanded', 'true');
+    if (els.mainContent) els.mainContent.inert = true;
+    var target = els.subnav.querySelector('.tab-btn.active') || els.sidebarClose;
+    if (target) target.focus();
+  }
+
+  function closeSidebarDrawer(returnFocus) {
+    if (!els.subnav || !els.subnav.classList.contains('is-open')) return;
+    els.subnav.classList.remove('is-open');
+    if (els.sidebarBackdrop) els.sidebarBackdrop.hidden = true;
+    if (els.sidebarOpen) els.sidebarOpen.setAttribute('aria-expanded', 'false');
+    if (els.mainContent) els.mainContent.inert = false;
+    if (returnFocus && els.sidebarOpen) els.sidebarOpen.focus();
+  }
+
+  function handleSidebarKeydown(e) {
+    if (e.key !== 'Escape' || !els.subnav || !els.subnav.classList.contains('is-open')) return;
+    if (modalStack.length) return;
+    e.preventDefault();
+    closeSidebarDrawer(true);
+  }
+
+  function initSidebar() {
+    var prefs = readSidebarPrefs();
+    sidebarState.closedGroups = prefs.closedGroups;
+    sidebarGroups().forEach(function (group) {
+      if (prefs.closedGroups.indexOf(group.getAttribute('data-group')) !== -1) toggleSidebarGroup(group, false);
+    });
+    setSidebarCollapsed(prefs.collapsed, false);
+
+    if (els.subnav) {
+      els.subnav.addEventListener('click', function (e) {
+        var toggle = e.target.closest('.sidebar-group-toggle');
+        if (!toggle) return;
+        toggleSidebarGroup(toggle.closest('.sidebar-group'));
+        saveSidebarPrefs();
+      });
+    }
+    if (els.sidebarCollapse) {
+      els.sidebarCollapse.addEventListener('click', function () {
+        setSidebarCollapsed(!sidebarState.collapsed, true);
+      });
+    }
+    if (els.sidebarOpen) els.sidebarOpen.addEventListener('click', openSidebarDrawer);
+    if (els.sidebarClose) els.sidebarClose.addEventListener('click', function () { closeSidebarDrawer(true); });
+    if (els.sidebarBackdrop) els.sidebarBackdrop.addEventListener('click', function () { closeSidebarDrawer(true); });
+    document.addEventListener('keydown', handleSidebarKeydown);
+    // Growing past phone width turns the drawer back into the fixed sidebar.
+    if (typeof globalThis.matchMedia === 'function') {
+      sidebarMobile = globalThis.matchMedia('(max-width: 860px)');
+      sidebarMobile.addEventListener('change', function () { closeSidebarDrawer(false); });
+    }
+  }
+
   // --- Confirmation modal ---
   // Every delete and password change asks here first. askConfirm resolves true only when the admin confirms
   // (and, with typeToConfirm, typed that exact text); Cancel, the close button and Escape all resolve false.
@@ -3026,6 +3183,7 @@
   function switchTab(tabId) {
     var previousTab = state.activeTab;
     state.activeTab = tabId;
+    openSidebarGroupOf(tabId);
     document.querySelectorAll('.tab-btn').forEach(function (b) {
       var active = b.getAttribute('data-tab') === tabId;
       b.classList.toggle('active', active);
@@ -3175,11 +3333,13 @@
         if (!tab) return;
         // The Accounts tab stays highlighted while an account is open; clicking it goes back to the list.
         if (tab === 'accounts' && isAccountScreenOpen()) {
+          closeSidebarDrawer();
           goToAccountList();
           return;
         }
         if (tab !== 'accounts' && !confirmDiscardNotes()) return;
         switchTab(tab);
+        closeSidebarDrawer();
       });
     });
 
@@ -3420,6 +3580,7 @@
     });
     // Registered before the account screen's own Escape rule: a press that closes a modal is handled once.
     document.addEventListener('keydown', handleModalKeydown);
+    initSidebar();
     // 'error' does not bubble, so a failed icon is caught while the event travels down.
     document.addEventListener('error', handleItemIconError, true);
 

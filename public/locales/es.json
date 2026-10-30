@@ -412,5 +412,12 @@
   "Confirm": "Confirmar",
   "Type the exact character name to confirm": "Escribí el nombre exacto del personaje para confirmar",
   "Change the password of account {account}? Active sessions of that account will be signed out.": "¿Cambiar la contraseña de la cuenta {account}? Se cerrarán las sesiones activas de esa cuenta.",
-  "This deletes character {name} of account {account}. The character leaves the account; its data stays in the database.": "Esto elimina el personaje {name} de la cuenta {account}. El personaje sale de la cuenta; sus datos quedan en la base de datos."
+  "This deletes character {name} of account {account}. The character leaves the account; its data stays in the database.": "Esto elimina el personaje {name} de la cuenta {account}. El personaje sale de la cuenta; sus datos quedan en la base de datos.",
+  "Open menu": "Abrir menú",
+  "Close menu": "Cerrar menú",
+  "Collapse menu": "Contraer menú",
+  "Expand menu": "Expandir menú",
+  "Players": "Jugadores",
+  "Trade": "Comercio",
+  "System": "Sistema"
 }
