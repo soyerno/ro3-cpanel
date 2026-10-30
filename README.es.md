@@ -110,7 +110,12 @@ desde un contenedor Docker en red bridge). Solo se envían los comandos listados
 (por defecto `["warp"]`), el panel arma cada línea `!` a partir de números validados y cada intento queda en
 el registro de auditoría. El formulario **Tasa de EXP de campo** (`"fieldexp"`, desactivado por defecto) usa el
 `!fieldexp` de RO3Emu: la EXP de las muertes en campo abierto para todo el servidor, por rango de nivel, en memoria
-hasta que RO3Emu se reinicie; requiere que la cuenta tenga un personaje conectado. Ver
+hasta que RO3Emu se reinicie; requiere que la cuenta tenga un personaje conectado. La sección **Misiones**
+(`"quest"`, desactivada por defecto) es una herramienta de depuración: busca en el catálogo de misiones de RO3Emu por
+nombre o número, muestra las misiones del personaje conectado (estado, progreso, veces completada) y permite aceptar,
+completar los objetivos, entregar, abandonar o repetir (abandonar y volver a aceptar) cualquiera de ellas con el
+comando `!quest` de RO3Emu. La respuesta de RO3Emu se muestra en el panel. Requiere un RO3Emu que exponga el endpoint
+local `GET /ro3emu/quests`. Ver
 [Arquitectura de Seguridad](docs/guide/security.md#5-gm-tools).
 
 ### Suspensión de cuentas

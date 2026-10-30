@@ -155,9 +155,11 @@ The audit trail cannot be modified or cleared from the web interface.
 loopback endpoint `POST /ro3emu/gm?account=<account>`. Upstream behavior (`aethai/ro3emu-server`,
 `src/Ro3Emu.Server/ServerHost.cs`): the endpoint answers only to loopback callers, runs the `!command` line
 as that account's online character on the game loop, and replies `400 "not in game"` when the account has no
-character online, `200 "done"` otherwise, and `503` to every POST while the game loop is not accepting.
-The command's output goes to the player's in-game chat, not to the HTTP response, so `done` means
-"accepted", not "succeeded" (an unknown scene, for example, only produces a usage line in chat). When
+character online, `200` otherwise, and `503` to every POST while the game loop is not accepting.
+Newer RO3Emu builds put the command's reply in the `200` body as a JSON string (`"done"` when the command
+printed nothing); the panel returns it as `reply` and shows it under the GM tools. Older builds answer a
+plain `done` and the output only goes to the player's in-game chat, so `done` means "accepted", not
+"succeeded" (an unknown scene, for example, only produces a usage line in chat). When
 RO3Emu's `Ro3Emu:GmAccounts` list is not empty, the loopback tool only runs for the accounts on that list
 (upstream `docs/guide/gm-access.md`).
 
@@ -175,6 +177,14 @@ Safeguards in the panel:
   `fieldexp` (off unless listed) sends RO3Emu's `!fieldexp set <min> <max> <percent> ...`, `clear` or `reset` from
   validated integers (1 to 10 rules, levels 1 to 999, percent 1 to 10000): it changes the EXP of open-field kills
   for every player until RO3Emu restarts, so enable it only for admins who may do that.
+  `quest` (off unless listed) sends RO3Emu's `!quest accept|finish|done|drop <id>` for a validated quest id
+  (1 to 2147483647); `repeat` sends `!quest drop <id>` then `!quest accept <id>`, stops at the first failure and
+  audits each line. It changes the character's quest progress (and delivering a quest may grant its rewards), so
+  it is a debug tool: enable it only on test servers or for admins who may do that.
+- **Quest reads.** `GET /api/admin/quests/catalog` (cached for 60 s) and `GET /api/admin/quests?account=<account>`
+  proxy RO3Emu's loopback `GET /ro3emu/quests` with the same same-host rules. They answer `403` unless `quest`
+  is in `gm_allowed_commands` (the panel then hides the Quests section), `409` when the account has no character
+  online, and `502` when RO3Emu is unreachable or answers an unexpected shape.
 - **Economy commands stay off.** RO3Emu also has `item`, `mail`, `zeny`, `lvl` and similar commands. The
   panel has no builder for them on purpose: exposing them would let every panel admin mint items, currency
   or levels. Do not add such commands without a separate review.
