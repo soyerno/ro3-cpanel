@@ -108,7 +108,10 @@ endpoint GM local de RO3Emu (`POST /ro3emu/gm?account=<cuenta>`). RO3Emu solo at
 loopback, así que **solo funciona si el panel corre en el mismo host que RO3Emu** (no desde otra máquina ni
 desde un contenedor Docker en red bridge). Solo se envían los comandos listados en `gm_allowed_commands`
 (por defecto `["warp"]`), el panel arma cada línea `!` a partir de números validados y cada intento queda en
-el registro de auditoría. Ver [Arquitectura de Seguridad](docs/guide/security.md#5-gm-tools).
+el registro de auditoría. El formulario **Tasa de EXP de campo** (`"fieldexp"`, desactivado por defecto) usa el
+`!fieldexp` de RO3Emu: la EXP de las muertes en campo abierto para todo el servidor, por rango de nivel, en memoria
+hasta que RO3Emu se reinicie; requiere que la cuenta tenga un personaje conectado. Ver
+[Arquitectura de Seguridad](docs/guide/security.md#5-gm-tools).
 
 ### Suspensión de cuentas
 

@@ -110,6 +110,8 @@ loopback GM endpoint (`POST /ro3emu/gm?account=<account>`). RO3Emu only answers 
 so it **only works when the panel runs on the same host as RO3Emu** (not from a separate machine or a
 bridged Docker container). Only commands listed in `gm_allowed_commands` (default `["warp"]`) are sent, the
 panel builds every `!` line itself from validated numbers, and every attempt is written to the audit log.
+The **Field EXP rate** form (`"fieldexp"`, off by default) sets RO3Emu's `!fieldexp`: the EXP of open-field kills for the
+whole server by level range, kept in memory until RO3Emu restarts; it needs the account to have a connected character.
 See [Security Architecture](docs/guide/security.md#5-gm-tools).
 
 ### Account bans

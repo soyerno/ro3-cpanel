@@ -172,6 +172,9 @@ Safeguards in the panel:
   `z`); there is no free-text passthrough. `unstuck` sends `!warp <gm_unstuck_scene>` (default `10111`, the
   scene from upstream's example, with no coordinates so the player lands on the map's spawn point) and is
   enabled by `"unstuck"` or `"warp"`. Names without a panel builder are ignored.
+  `fieldexp` (off unless listed) sends RO3Emu's `!fieldexp set <min> <max> <percent> ...`, `clear` or `reset` from
+  validated integers (1 to 10 rules, levels 1 to 999, percent 1 to 10000): it changes the EXP of open-field kills
+  for every player until RO3Emu restarts, so enable it only for admins who may do that.
 - **Economy commands stay off.** RO3Emu also has `item`, `mail`, `zeny`, `lvl` and similar commands. The
   panel has no builder for them on purpose: exposing them would let every panel admin mint items, currency
   or levels. Do not add such commands without a separate review.

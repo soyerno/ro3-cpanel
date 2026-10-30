@@ -965,6 +965,18 @@ body {
   gap: 8px;
 }
 
+.gm-tools-section {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-color);
+}
+
+.gm-tools-section > .gm-tools-title,
+.gm-tools-section > .gm-tools-note {
+  grid-column: 1 / -1;
+  margin-bottom: 0;
+}
+
 .gm-tools-result {
   font-size: 12px;
   margin-top: 8px;

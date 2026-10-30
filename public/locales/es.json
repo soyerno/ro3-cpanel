@@ -419,5 +419,14 @@
   "Expand menu": "Expandir menú",
   "Players": "Jugadores",
   "Trade": "Comercio",
-  "System": "Sistema"
+  "System": "Sistema",
+  "Field EXP rate": "Tasa de EXP de campo",
+  "Changes the EXP of open-field kills for the whole server, by level range. It stays in memory until the server restarts. The command must be enabled in gm_allowed_commands.": "Cambia la EXP de las muertes en campo abierto para todo el servidor, por rango de nivel. Se mantiene en memoria hasta que el servidor se reinicie. El comando debe estar habilitado en gm_allowed_commands.",
+  "Level from": "Nivel desde",
+  "Level to": "Nivel hasta",
+  "Percent": "Porcentaje",
+  "Apply rate": "Aplicar tasa",
+  "Remove rate": "Quitar tasa",
+  "Back to configuration": "Volver a la configuración",
+  "Enter both levels and a percent from 1 to 10000, with the first level not above the second.": "Ingrese ambos niveles y un porcentaje de 1 a 10000, sin que el primer nivel supere al segundo."
 }
