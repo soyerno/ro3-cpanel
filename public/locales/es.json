@@ -475,5 +475,11 @@
   "Items": "Ítems",
   "Searching items...": "Buscando ítems...",
   "No items found": "No se encontraron ítems",
-  "Error searching items: {message}": "Error al buscar ítems: {message}"
+  "Error searching items: {message}": "Error al buscar ítems: {message}",
+  "Grant VIP": "Activar VIP",
+  "Revoke VIP": "Quitar VIP",
+  "Grant VIP to account \"{name}\"? The web portal treats it as a permanent VIP.": "¿Activar el VIP de la cuenta \"{name}\"? El portal web lo trata como VIP permanente.",
+  "Revoke VIP from account \"{name}\"? The portal will not grant it again on its own.": "¿Quitar el VIP de la cuenta \"{name}\"? El portal no lo volverá a otorgar por su cuenta.",
+  "Error updating VIP: {message}": "Error al actualizar el VIP: {message}",
+  "GM accounts are always VIP": "Las cuentas GM siempre son VIP"
 }

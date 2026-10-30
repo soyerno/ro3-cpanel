@@ -305,6 +305,11 @@ ES_MESSAGES = {
     "Gift code '{code}' disabled.": "Código de regalo '{code}' desactivado.",
     "Gift code '{code}' enabled.": "Código de regalo '{code}' activado.",
     "Gift code '{code}' updated successfully.": "Código de regalo '{code}' actualizado exitosamente.",
+    "Invalid VIP value: it must be true or false": "Valor de VIP inválido: debe ser true o false",
+    "VIP granted to account '{username}'.": "VIP activado para la cuenta '{username}'.",
+    "VIP revoked from account '{username}'.": "VIP desactivado para la cuenta '{username}'.",
+    "VIP granted by admin": "VIP activado por admin",
+    "VIP revoked by admin": "VIP desactivado por admin",
 }
 
 
@@ -2435,8 +2440,13 @@ def validate_gift_code_body(body):
 
 # --- Web player portal data: account vault and web market (read-only) ---
 # The web player portal (konsor-ro3 windows/player_api.py) owns account_vip, account_vault, web_market and
-# web_market_claim. The panel only reads them, never creates or alters them and never moves an item: an item
-# must never exist twice, and every transfer belongs to the portal's atomic code.
+# web_market_claim. The panel only reads them and never moves an item: an item must never exist twice, and every
+# transfer belongs to the portal's atomic code. The one exception is the admin VIP switch, which upserts an
+# account_vip row (creating the table with the portal's exact schema when the portal has not run yet).
+ACCOUNT_VIP_TABLE_SQL = (
+    "CREATE TABLE IF NOT EXISTS account_vip (account TEXT PRIMARY KEY COLLATE NOCASE, "
+    "is_vip INTEGER NOT NULL DEFAULT 1, vip_until TEXT, created_utc TEXT NOT NULL)"
+)
 ACCOUNT_VAULT_PATH = re.compile(r'^/api/admin/accounts/([^/]+)/vault$')
 MARKET_STATUSES = ("active", "sold", "cancelled", "all")
 MARKET_SUMMARY_KEYS = ("active", "sold", "cancelled", "active_zeny", "sold_zeny", "pending_claims", "pending_zeny")
@@ -2483,6 +2493,42 @@ def account_vip_status(con, account):
         if row and row["notes"] and "[VIP]" in str(row["notes"]).upper():
             return {"is_vip": True, "vip_until": None, "source": "note"}
     return none
+
+
+def _vip_until_in_future(until):
+    """True when a vip_until is still ahead; an unreadable date counts as ahead, like the portal keeps it."""
+    if not until:
+        return False
+    try:
+        expires = datetime.fromisoformat(str(until).replace("Z", "+00:00"))
+    except ValueError:
+        return True
+    if expires.tzinfo is None:
+        expires = expires.replace(tzinfo=timezone.utc)
+    return expires > datetime.now(timezone.utc)
+
+
+def set_account_vip(con, account, enabled):
+    """Upserts the portal's account_vip row on the caller's transaction.
+
+    On keeps a future vip_until and clears an expired one (so the VIP becomes permanent); off sets is_vip=0 and
+    keeps the rest, so the portal's login-streak reward does not grant it again.
+    """
+    con.execute(ACCOUNT_VIP_TABLE_SQL)
+    row = con.execute(
+        "SELECT account, vip_until FROM account_vip WHERE account = ? COLLATE NOCASE", (account,)
+    ).fetchone()
+    if row is None:
+        now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        con.execute(
+            "INSERT INTO account_vip (account, is_vip, vip_until, created_utc) VALUES (?, ?, NULL, ?)",
+            (account, 1 if enabled else 0, now),
+        )
+    elif enabled:
+        until = row["vip_until"] if _vip_until_in_future(row["vip_until"]) else None
+        con.execute("UPDATE account_vip SET is_vip = 1, vip_until = ? WHERE account = ?", (until, row["account"]))
+    else:
+        con.execute("UPDATE account_vip SET is_vip = 0 WHERE account = ?", (row["account"],))
 
 
 class CPanelRequestHandler(BaseHTTPRequestHandler):
@@ -2735,6 +2781,8 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
             return self.handle_delete_character(session['user'], client_ip)
         if raw_path == '/api/admin/accounts/save-notes':
             return self.handle_save_notes(session['user'], client_ip)
+        if raw_path == '/api/admin/accounts/vip':
+            return self.handle_account_vip(session['user'], client_ip)
         if raw_path == '/api/admin/gm':
             return self.handle_gm(session['user'], client_ip)
         if raw_path == '/api/admin/gift-codes':
@@ -3091,6 +3139,7 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
                 "notes": meta["notes"] if meta else "",
                 "tokens_count": len(tokens),
                 "is_admin": (acc["name"].lower() in admin_usernames),
+                "vip": account_vip_status(con, acc["name"]),
                 "characters": formatted_roles
             }
             return self.send_json(200, data)
@@ -3560,6 +3609,34 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
             "role_id": role["id"],
             "message": tr("Character '{name}' of account '{account}' was deleted.", name=role["name"], account=account),
         })
+
+    def handle_account_vip(self, admin_user, client_ip):
+        """Grants (vip: true) or revokes (vip: false) the web portal VIP of an existing account."""
+        body = self.read_json_body()
+        if not isinstance(body, dict) or not body:
+            return self.send_json(400, {"error": tr("Invalid request body")})
+        username = str(body.get("username") or "").strip()
+        if not username:
+            return self.send_json(400, {"error": tr("Username required")})
+        enabled = body.get("vip")
+        if not isinstance(enabled, bool):
+            return self.send_json(400, {"error": tr("Invalid VIP value: it must be true or false")})
+
+        with get_db() as con:
+            acc = con.execute("SELECT name FROM account WHERE name = ?", (username,)).fetchone()
+            if not acc:
+                return self.send_json(404, {"error": tr("Account '{username}' does not exist", username=username)})
+            name = acc["name"]
+            set_account_vip(con, name, enabled)
+            if enabled:
+                insert_audit(con, admin_user, "vip_grant", name, "VIP granted by admin", client_ip)
+            else:
+                insert_audit(con, admin_user, "vip_revoke", name, "VIP revoked by admin", client_ip)
+            con.commit()
+            vip = account_vip_status(con, name)
+
+        message = "VIP granted to account '{username}'." if enabled else "VIP revoked from account '{username}'."
+        return self.send_json(200, {"success": True, "message": tr(message, username=name), "vip": vip})
 
     def handle_save_notes(self, admin_user, client_ip):
         body = self.read_json_body()
