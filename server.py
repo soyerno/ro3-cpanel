@@ -158,6 +158,15 @@ ES_MESSAGES = {
     "Account not found": "Cuenta no encontrada",
     "Invalid character ID": "ID de personaje inválido",
     "Invalid character ID: it must be a positive integer": "ID de personaje inválido: debe ser un entero positivo",
+    "Invalid request": "Solicitud inválida",
+    "Type the exact character name to confirm the deletion.": "Escribí el nombre exacto del personaje para confirmar el borrado.",
+    "A character of an administrator account cannot be deleted.": "No se puede eliminar un personaje de una cuenta de administrador.",
+    "The account is online. Disconnect it in the game before deleting a character.": "La cuenta está en línea. Desconectala en el juego antes de eliminar un personaje.",
+    "Could not verify that the account is offline, so nothing was deleted. Try again.": "No se pudo verificar que la cuenta esté desconectada, así que no se eliminó nada. Intentá de nuevo.",
+    "Too many delete attempts. Try again in {seconds} seconds.": "Demasiados intentos de borrado. Intentá de nuevo en {seconds} segundos.",
+    "The character changed while it was being deleted. Reload and try again.": "El personaje cambió mientras se eliminaba. Recargá e intentá de nuevo.",
+    "Error deleting the character": "Error al eliminar el personaje",
+    "Character '{name}' of account '{account}' was deleted.": "El personaje '{name}' de la cuenta '{account}' fue eliminado.",
     "Character not found": "Personaje no encontrado",
     "Error reading the character's inventory": "Error leyendo el inventario del personaje",
     "Guild not found": "Gremio no encontrado",
@@ -415,6 +424,11 @@ LOGIN_MAX_FAILURES = _positive_int_config("login_max_failures", 5)
 LOGIN_WINDOW_SECONDS = _positive_int_config("login_window_minutes", 15) * 60
 LOGIN_THROTTLE = LoginThrottle(max_failures=LOGIN_MAX_FAILURES, window_seconds=LOGIN_WINDOW_SECONDS)
 
+# Deleting a character is destructive: attempts (valid or not) are capped per admin so a stolen session
+# cannot wipe characters in bulk or guess confirmation names.
+CHARACTER_DELETE_MAX_PER_MINUTE = _positive_int_config("character_delete_max_per_minute", 10)
+CHARACTER_DELETE_THROTTLE = LoginThrottle(max_failures=CHARACTER_DELETE_MAX_PER_MINUTE, window_seconds=60)
+
 # RO Class & Map Dictionaries
 # Only ids with an upstream source are verified: careers 1310, 1400, 2400, 4400 and 6100 (aethai/ro3emu-server
 # tests/Ro3Emu.Tests CareerSpecialTests.cs, CombatTableRulesTests.cs) and the scenes cited below. Every other entry
@@ -524,7 +538,7 @@ MAX_SQLITE_INT = 2 ** 63 - 1
 # "key" is (absolute path, mtime); "warned" holds paths already reported on stderr.
 ITEM_NAMES_STATE = {"key": None, "names": None, "warned": set()}
 
-def load_item_names():
+def _load_item_names_file():
     """Returns the {entry: name} mapping from config 'item_names_file', or None when unavailable."""
     path = str(CONFIG.get("item_names_file") or "").strip()
     if not path:
@@ -547,6 +561,121 @@ def load_item_names():
             ITEM_NAMES_STATE["warned"].add(abs_path)
             print(f"[Config Warning] Could not load item_names_file '{abs_path}', item names disabled: {e}", file=sys.stderr)
         return None
+
+
+# Optional item catalog ('item_catalog_file'): a JSON list of {"id", "n" (name), "ic" (icon file), "q" (quality)}
+# rows, the shape Konsor's items-catalog.json has. Every field is validated here, so what reaches the page is
+# a plain name, an icon FILE NAME that passes a strict pattern, or one of five quality words.
+ITEM_CATALOG_STATE = {"key": None, "catalog": None, "warned": set()}
+ITEM_CATALOG_MAX_BYTES = 32 * 1024 * 1024
+ITEM_NAME_MAX_LENGTH = 120
+ITEM_ICON_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,100}\.(?:png|webp|jpg)\Z")
+ITEM_QUALITIES = ("common", "fine", "rare", "legendary", "mythic")
+ITEM_ICONS_URL_PATTERN = re.compile(r"^/?(?:[A-Za-z0-9._~-]+/?)+\Z")
+
+
+def _catalog_row(row):
+    """One catalog row as (id text, {"name", "icon", "quality"}), or None when it is unusable."""
+    if not isinstance(row, dict):
+        return None
+    raw_id, name = row.get("id"), row.get("n")
+    if isinstance(raw_id, bool):
+        return None
+    if isinstance(raw_id, str) and raw_id.isascii() and raw_id.isdigit():
+        raw_id = int(raw_id)
+    if not isinstance(raw_id, int) or not (0 < raw_id <= MAX_SQLITE_INT):
+        return None
+    if not isinstance(name, str) or not name.strip():
+        return None
+    icon = row.get("ic")
+    quality = row.get("q")
+    quality = quality.strip().lower() if isinstance(quality, str) else None
+    return str(raw_id), {
+        "name": name.strip()[:ITEM_NAME_MAX_LENGTH],
+        "icon": icon if isinstance(icon, str) and ITEM_ICON_NAME.match(icon) else None,
+        "quality": quality if quality in ITEM_QUALITIES else None,
+    }
+
+
+def load_item_catalog():
+    """Returns {entry text: {"name", "icon", "quality"}} from config 'item_catalog_file', or None when unavailable."""
+    path = str(CONFIG.get("item_catalog_file") or "").strip()
+    if not path:
+        return None
+    abs_path = os.path.abspath(path)
+    try:
+        stat = os.stat(abs_path)
+        key = (abs_path, stat.st_mtime, stat.st_size)
+        if ITEM_CATALOG_STATE["key"] == key:
+            return ITEM_CATALOG_STATE["catalog"]
+        if stat.st_size > ITEM_CATALOG_MAX_BYTES:
+            raise ValueError(f"larger than {ITEM_CATALOG_MAX_BYTES} bytes")
+        with open(abs_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if not isinstance(data, list):
+            raise ValueError("expected a JSON list of {\"id\", \"n\", \"ic\", \"q\"} rows")
+        catalog = {}
+        for row in data:
+            parsed = _catalog_row(row)
+            if parsed:
+                catalog.setdefault(*parsed)
+        ITEM_CATALOG_STATE["key"] = key
+        ITEM_CATALOG_STATE["catalog"] = catalog
+        return catalog
+    except (OSError, ValueError, RecursionError) as e:
+        if abs_path not in ITEM_CATALOG_STATE["warned"]:
+            ITEM_CATALOG_STATE["warned"].add(abs_path)
+            print(f"[Config Warning] Could not load item_catalog_file '{abs_path}', item icons disabled: {e}", file=sys.stderr)
+        return None
+
+
+def load_item_names():
+    """The {entry: name} mapping: 'item_names_file' names, then catalog names for the ids it lacks; None when neither exists."""
+    names = _load_item_names_file()
+    catalog = load_item_catalog()
+    if not catalog:
+        return names
+    merged = {entry: info["name"] for entry, info in catalog.items()}
+    if names:
+        merged.update(names)
+    return merged
+
+
+NO_ITEM_INFO = {"name": None, "icon": None, "quality": None}
+
+
+def item_resolver(names=None):
+    """A lookup function entry -> {"name", "icon", "quality"} that loads the sources once (one call per request)."""
+    names = load_item_names() or {} if names is None else names
+    catalog = load_item_catalog() or {}
+
+    def resolve(entry):
+        if isinstance(entry, int) and not isinstance(entry, bool):
+            key = str(entry)
+        elif isinstance(entry, str):
+            key = entry.strip()
+        else:
+            return dict(NO_ITEM_INFO)
+        found = catalog.get(key) or NO_ITEM_INFO
+        return {"name": names.get(key), "icon": found["icon"], "quality": found["quality"]}
+
+    return resolve
+
+
+def item_info(entry):
+    return item_resolver()(entry)
+
+
+def normalized_item_icons_url(value):
+    """'item_icons_url' as a same-site path with a trailing slash, or '' when it is unset or could leave the site."""
+    if not isinstance(value, str):
+        return ""
+    value = value.strip()
+    if not value or len(value) > 200 or not ITEM_ICONS_URL_PATTERN.match(value):
+        return ""
+    if any(part in (".", "..") for part in value.split("/")):
+        return ""
+    return value if value.endswith("/") else value + "/"
 
 
 def _as_int(value):
@@ -1016,12 +1145,15 @@ def decode_mailbox(raw):
         raise MailboxDecodeError("Letters is not a list of objects")
     return letters
 
-def format_mail(letter):
+def format_mail(letter, resolve=None):
     """Projects one MailService.Letter onto display fields; internal keys and the
-    protobuf ContentParams are never exposed."""
-    attachments = [{"entry": _json_int(a, "Entry"), "count": _json_int(a, "Count"), "bind": _json_int(a, "Bind")}
+    protobuf ContentParams are never exposed. `resolve` is an item_resolver() shared by a whole page of mail."""
+    resolve = resolve or item_resolver()
+    attachments = [{"entry": _json_int(a, "Entry"), "count": _json_int(a, "Count"), "bind": _json_int(a, "Bind"),
+                    **resolve(_json_int(a, "Entry"))}
                    for a in _json_objects(letter, "Attachments")]
-    items = [{"guid": _json_int(i, "Guid"), "entry": _json_int(i, "Entry"), "stack": _json_int(i, "Stack")}
+    items = [{"guid": _json_int(i, "Guid"), "entry": _json_int(i, "Entry"), "stack": _json_int(i, "Stack"),
+              **resolve(_json_int(i, "Entry"))}
              for i in _json_objects(letter, "Items")]
     currency = []
     raw_currency = letter.get("Currency")
@@ -1378,6 +1510,19 @@ def summarize_metrics(snapshot):
             "error_logs": _number(errors.get("errorLogs")),
         },
     }
+
+
+def account_is_online(account_name):
+    """True when RO3Emu lists the account as connected. Raises when that answer cannot be trusted:
+    callers that delete must fail closed instead of assuming the account is offline."""
+    entries = fetch_ro3_json("/ro3emu/online")
+    if not isinstance(entries, list):
+        raise Ro3EmuUnavailable(unexpected_format())
+    target = str(account_name or "").strip().lower()
+    return any(
+        isinstance(entry, dict) and str(entry.get("account") or "").strip().lower() == target
+        for entry in entries
+    )
 
 
 def summarize_online(entries, show_ips):
@@ -1876,11 +2021,11 @@ def parse_gift_items(raw):
         return []
     if not isinstance(pairs, list):
         return []
-    names = load_item_names() or {}
+    resolve = item_resolver()
     items = []
     for pair in pairs:
         if isinstance(pair, list) and len(pair) == 2 and _is_whole_number(pair[0]) and _is_whole_number(pair[1]):
-            items.append({"entry": pair[0], "count": pair[1], "name": names.get(str(pair[0]))})
+            items.append({"entry": pair[0], "count": pair[1], **resolve(pair[0])})
     return items
 
 
@@ -2105,6 +2250,7 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
                 "server_subtitle": CONFIG.get("server_subtitle", "Ragnarok Online 3 Management"),
                 "logo_text": CONFIG.get("logo_text", "RO3"),
                 "logo_image_url": CONFIG.get("logo_image_url", ""),
+                "item_icons_url": normalized_item_icons_url(CONFIG.get("item_icons_url")),
                 "default_language": default_language()
             })
 
@@ -2229,6 +2375,8 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
             return self.handle_unban_account(session['user'], client_ip)
         if raw_path == '/api/admin/accounts/delete':
             return self.handle_delete_account(session['user'], client_ip)
+        if raw_path == '/api/admin/characters/delete':
+            return self.handle_delete_character(session['user'], client_ip)
         if raw_path == '/api/admin/accounts/save-notes':
             return self.handle_save_notes(session['user'], client_ip)
         if raw_path == '/api/admin/gm':
@@ -2622,6 +2770,7 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
                          "message": tr("This character's mailbox could not be decoded.")})
             return self.send_json(200, data)
 
+        resolve = item_resolver()
         # Same order RO3Emu lists mail in: newest CreatedTime first, then Id descending.
         letters = sorted(letters,
                          key=lambda m: (_json_int(m, "CreatedTime"), _json_str(m, "Id")),
@@ -2631,7 +2780,7 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
         data.update({
             "total": total,
             "pages": max(1, -(-total // page_size)),
-            "mails": [format_mail(m) for m in letters[offset:offset + page_size]],
+            "mails": [format_mail(m, resolve) for m in letters[offset:offset + page_size]],
         })
         return self.send_json(200, data)
 
@@ -2663,7 +2812,7 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
             print(f"[Inventory Error] {e}", file=sys.stderr)
             return self.send_json(500, {"error": tr("Error reading the character's inventory")})
 
-        names = load_item_names() or {}
+        resolve = item_resolver()
         items = []
         for r in rows:
             entry = r.get("entry")
@@ -2671,7 +2820,7 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
             items.append({
                 "guid": r.get("guid"),
                 "entry": entry,
-                "name": names.get(str(entry)),
+                **resolve(entry),
                 "stack": r.get("stack"),
                 "pack": pack,
                 "pack_name": tr(PACK_NAMES[pack]) if pack in PACK_NAMES else None,
@@ -2978,6 +3127,82 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
             "message": tr("Account '{username}' and its data were deleted successfully.", username=username)
         })
 
+    def handle_delete_character(self, admin_user, client_ip):
+        """Logical delete of one character (role.deleted_time), the same delete the account delete uses.
+
+        Guards, in order: JSON-only (a cross-site form cannot send it), per-admin rate limit, strict input,
+        the character's exact name as confirmation, no characters of admin accounts, the account must be
+        offline (and that must be verifiable), then one transaction that deletes and audits together."""
+        if (self.headers.get("Content-Type") or "").split(";")[0].strip().lower() != "application/json":
+            return self.send_json(415, {"error": tr("Invalid request")})
+
+        wait = CHARACTER_DELETE_THROTTLE.reserve("admin:" + str(admin_user).lower())
+        if wait:
+            return self.send_json(
+                429,
+                {"error": tr("Too many delete attempts. Try again in {seconds} seconds.", seconds=wait), "retry_after": wait},
+                {"Retry-After": str(wait)},
+            )
+
+        body = self.read_json_body()
+        if not isinstance(body, dict):
+            return self.send_json(400, {"error": tr("Invalid request body")})
+        role_id = body.get("role_id")
+        if isinstance(role_id, bool) or not isinstance(role_id, int) or not (0 < role_id <= MAX_SQLITE_INT):
+            return self.send_json(400, {"error": tr("Invalid character ID")})
+        typed_name = body.get("confirm_name")
+
+        try:
+            with get_db() as con:
+                role = con.execute(
+                    "SELECT id, name, account, deleted_time FROM role WHERE id = ?", (role_id,)
+                ).fetchone()
+        except sqlite3.Error as e:
+            print(f"[Character Delete Error] {e}", file=sys.stderr)
+            return self.send_json(500, {"error": tr("Error deleting the character")})
+        if not role or (role["deleted_time"] or 0) != 0:
+            return self.send_json(404, {"error": tr("Character not found")})
+
+        if not isinstance(typed_name, str) or typed_name != role["name"]:
+            return self.send_json(400, {"error": tr("Type the exact character name to confirm the deletion.")})
+
+        account = role["account"] or ""
+        admin_usernames = [a.get("username", "").strip().lower() for a in CONFIG.get("admin_users", [])]
+        if account.strip().lower() in admin_usernames:
+            return self.send_json(400, {"error": tr("A character of an administrator account cannot be deleted.")})
+
+        try:
+            online = account_is_online(account)
+        except Exception:
+            return self.send_json(503, {"error": tr("Could not verify that the account is offline, so nothing was deleted. Try again.")})
+        if online:
+            return self.send_json(409, {"error": tr("The account is online. Disconnect it in the game before deleting a character.")})
+
+        try:
+            with get_db() as con:
+                con.execute("BEGIN IMMEDIATE")
+                # name and deleted_time are part of the match: the row must still be the one that was confirmed.
+                changed = con.execute(
+                    "UPDATE role SET deleted_time = ? WHERE id = ? AND name = ? AND deleted_time = 0",
+                    (max(1, int(time.time())), role["id"], role["name"]),
+                ).rowcount
+                if changed != 1:
+                    return self.send_json(409, {"error": tr("The character changed while it was being deleted. Reload and try again.")})
+                # Same transaction: there is no delete without its audit row.
+                insert_audit(
+                    con, admin_user, "delete_character", f"{role['name']} (#{role['id']})",
+                    f"Character of account {account} logically deleted by admin", client_ip,
+                )
+        except sqlite3.Error as e:
+            print(f"[Character Delete Error] {e}", file=sys.stderr)
+            return self.send_json(500, {"error": tr("Error deleting the character")})
+
+        return self.send_json(200, {
+            "success": True,
+            "role_id": role["id"],
+            "message": tr("Character '{name}' of account '{account}' was deleted.", name=role["name"], account=account),
+        })
+
     def handle_save_notes(self, admin_user, client_ip):
         body = self.read_json_body()
         if not body:
@@ -3166,11 +3391,11 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
                     " ORDER BY id DESC LIMIT ? OFFSET ?",
                     (name, page_size, offset),
                 ).fetchall()
-        names = load_item_names() or {}
+        resolve = item_resolver()
         items = [{
             "id": r["id"],
             "entry": r["entry"],
-            "name": names.get(str(r["entry"])),
+            **resolve(r["entry"]),
             "stack": r["stack"],
             "pack": r["pack"],
             "pack_name": tr(PACK_NAMES[r["pack"]]) if r["pack"] in PACK_NAMES else None,
@@ -3246,13 +3471,14 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
                     " ORDER BY id DESC LIMIT ? OFFSET ?",
                     args + [page_size, offset],
                 ).fetchall()
+        resolve = item_resolver(names)
         listings = [{
             "id": r["id"],
             "seller_account": r["seller_account"],
             "seller_role_id": r["seller_role_id"],
             "seller_role_name": r["seller_role_name"],
             "entry": r["entry"],
-            "name": names.get(str(r["entry"])),
+            **resolve(r["entry"]),
             "stack": r["stack"],
             "pack": r["pack"],
             "pack_name": tr(PACK_NAMES[r["pack"]]) if r["pack"] in PACK_NAMES else None,

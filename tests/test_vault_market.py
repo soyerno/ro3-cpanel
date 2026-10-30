@@ -151,8 +151,8 @@ class TestAccountVault(VaultMarketTestCase):
         self.assertEqual((second["stack"], second["pack"], second["pack_name"], second["locked"]), (5, 1, "Items", False))
         self.assertEqual((first["locked"], first["deposited_by_name"], first["deposited_by_role_id"]), (True, "pj2", 7))
         self.assertEqual(first["deposited_utc"], "2026-10-29 11:00:00")
-        self.assertEqual(set(first), {"id", "entry", "name", "stack", "pack", "pack_name", "locked", "bind_type", "bind_expire",
-                                      "deposited_by_name", "deposited_by_role_id", "deposited_utc"})
+        self.assertEqual(set(first), {"id", "entry", "name", "icon", "quality", "stack", "pack", "pack_name", "locked", "bind_type",
+                                      "bind_expire", "deposited_by_name", "deposited_by_role_id", "deposited_utc"})
 
     def test_an_item_without_a_known_name_has_a_null_name(self):
         self.add_item("alice", 9999)
@@ -282,7 +282,7 @@ class TestWebMarket(VaultMarketTestCase):
                          (5, 2, "Equipment", 1000, True, "sold"))
         self.assertEqual(set(row), {"id", "seller_account", "seller_role_id", "seller_role_name", "entry", "name", "stack", "pack",
                                     "pack_name", "price_zeny", "locked", "status", "buyer_account", "buyer_role_name",
-                                    "created_utc", "updated_utc"})
+                                    "created_utc", "updated_utc", "icon", "quality"})
 
     def test_status_filter(self):
         self.seed()

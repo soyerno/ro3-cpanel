@@ -145,8 +145,8 @@ class TestListGiftCodes(GiftCodeTestCase):
         [row] = body["codes"]
         self.assertEqual(row["code"], "SPRING25")
         self.assertEqual(row["items"], [
-            {"entry": 10001, "count": 5, "name": "Red Potion"},
-            {"entry": 20003, "count": 1, "name": None},
+            {"entry": 10001, "count": 5, "name": "Red Potion", "icon": None, "quality": None},
+            {"entry": 20003, "count": 1, "name": None, "icon": None, "quality": None},
         ])
         self.assertEqual((row["max_uses"], row["per_account"], row["uses"]), (10, 2, 3))
         self.assertEqual((row["created_by"], row["note"], row["disabled"]), ("seed", "spring event", False))

@@ -198,10 +198,10 @@ class MailViewTest(unittest.TestCase):
         self.assertIs(rich["read"], True)
         self.assertIs(rich["claimed"], False)
         self.assertEqual(rich["attachments"], [
-            {"entry": 501, "count": 3, "bind": 1},
-            {"entry": 100, "count": 50, "bind": 0},
+            {"entry": 501, "count": 3, "bind": 1, "name": None, "icon": None, "quality": None},
+            {"entry": 100, "count": 50, "bind": 0, "name": None, "icon": None, "quality": None},
         ])
-        self.assertEqual(rich["items"], [{"guid": 9001, "entry": 1201, "stack": 1}])
+        self.assertEqual(rich["items"], [{"guid": 9001, "entry": 1201, "stack": 1, "name": None, "icon": None, "quality": None}])
         self.assertEqual(rich["currency"], [{"entry": 1, "amount": 5}, {"entry": 2, "amount": 1000}])
         # one per attachment, item and currency entry: 2 + 1 + 2
         self.assertEqual(rich["attachment_count"], 5)

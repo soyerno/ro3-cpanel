@@ -5,7 +5,17 @@
   --content-max: 1400px;
   --page-gutter: 24px;
   --bar-inline: max(var(--page-gutter), calc((100% - var(--content-max)) / 2 + var(--page-gutter)));
+  --header-height: 64px;
+  --sidebar-width: 248px;
+  --sidebar-rail: 68px;
+  --bg-sidebar: #111722;
   --bg-dark: #0a0e17;
+  /* Item quality, shown as the icon border (the name beside it carries the meaning). */
+  --q-common: #94a3b8;
+  --q-fine: #10b981;
+  --q-rare: #38bdf8;
+  --q-legendary: #fbbf24;
+  --q-mythic: #f43f5e;
   --bg-card: #121824;
   --bg-card-hover: #172030;
   --bg-modal: #101622;
@@ -258,44 +268,258 @@ body {
   color: var(--text-main);
 }
 
-/* Sub-nav Tabs */
-.subnav-tabs {
-  background: #111722;
-  border-bottom: 1px solid var(--border-color);
-  padding: 0 var(--bar-inline);
+/* Sidebar menu: Dashboard on its own, then collapsible groups of sections. It never scrolls sideways. */
+.app-shell {
   display: flex;
-  gap: 8px;
-  /* On a phone the tabs scroll inside the bar; the page itself never scrolls sideways. */
-  overflow-x: auto;
-  overflow-y: hidden;
+  flex: 1;
+  align-items: flex-start;
+  min-width: 0;
+}
+
+.sidebar {
+  width: var(--sidebar-width);
+  flex-shrink: 0;
+  position: sticky;
+  top: var(--header-height);
+  height: calc(100vh - var(--header-height));
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 10px 24px;
+  background: var(--bg-sidebar);
+  border-right: 1px solid var(--border-color);
+  overflow-x: hidden;
+  overflow-y: auto;
   scrollbar-width: thin;
-  -webkit-overflow-scrolling: touch;
+  z-index: 50;
+  transition: width 0.2s ease;
+}
+
+.sidebar-head {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.sidebar-collapse,
+.sidebar-open,
+.sidebar-close {
+  width: 36px;
+  height: 36px;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.sidebar-collapse {
+  display: inline-flex;
+}
+
+.sidebar-open,
+.sidebar-close {
+  display: none;
+}
+
+.sidebar-collapse:hover,
+.sidebar-open:hover,
+.sidebar-close:hover {
+  color: var(--text-main);
+  border-color: var(--border-color);
+}
+
+.sidebar-collapse svg {
+  transition: transform 0.2s ease;
+}
+
+.sidebar-collapse[aria-pressed="true"] svg {
+  transform: rotate(180deg);
+}
+
+.sidebar-group + .sidebar-group {
+  margin-top: 6px;
+}
+
+.sidebar-group-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 40px;
+  padding: 8px 12px;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius);
+  color: var(--text-dim);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.sidebar-group-toggle:hover {
+  color: var(--text-main);
+}
+
+.sidebar-group-toggle > span {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-chevron {
+  margin-left: auto;
+  flex-shrink: 0;
+  transition: transform 0.2s ease;
+}
+
+.sidebar-group.is-open .sidebar-chevron {
+  transform: rotate(180deg);
+}
+
+.sidebar-group:not(.is-open) .sidebar-items {
+  display: none;
+}
+
+.sidebar-items {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
 .tab-btn {
-  background: transparent;
-  border: none;
-  color: var(--text-muted);
-  padding: 14px 18px;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 12px;
   flex-shrink: 0;
   white-space: nowrap;
-  border-bottom: 2px solid transparent;
-  transition: all 0.2s;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius);
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+.sidebar-items .tab-btn {
+  padding-left: 22px;
+}
+
+.tab-btn > span:not(.tab-counter) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tab-btn .tab-counter {
+  margin-left: auto;
 }
 
 .tab-btn:hover {
   color: var(--text-main);
+  background: rgba(255, 255, 255, 0.05);
 }
 
 .tab-btn.active {
   color: var(--gold);
-  border-bottom-color: var(--gold);
+  background: var(--gold-glow);
+  /* A ring and a heavier weight mark the current section: colour alone never carries it. */
+  box-shadow: inset 0 0 0 1px var(--gold);
+  font-weight: 700;
+}
+
+.sidebar-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  z-index: 150;
+}
+
+/* Icon rail: only where the sidebar sits beside the content. On a phone it is a drawer and always shows labels. */
+@media (min-width: 861px) {
+  .app-shell.is-collapsed .sidebar {
+    width: var(--sidebar-rail);
+    padding-inline: 8px;
+  }
+
+  .app-shell.is-collapsed .sidebar .tab-btn > span,
+  .app-shell.is-collapsed .sidebar .sidebar-group-toggle,
+  .app-shell.is-collapsed .sidebar .sidebar-chevron {
+    display: none;
+  }
+
+  .app-shell.is-collapsed .sidebar .sidebar-group:not(.is-open) .sidebar-items {
+    display: flex;
+  }
+
+  .app-shell.is-collapsed .sidebar .sidebar-items .tab-btn,
+  .app-shell.is-collapsed .sidebar .tab-btn {
+    justify-content: center;
+    padding-inline: 0;
+  }
+
+  .app-shell.is-collapsed .sidebar-group + .sidebar-group {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border-color);
+  }
+
+  .app-shell.is-collapsed .sidebar-head {
+    justify-content: center;
+  }
+}
+
+@media (max-width: 860px) {
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    height: auto;
+    width: min(300px, 86vw);
+    z-index: 200;
+    transform: translateX(-100%);
+    visibility: hidden;
+    box-shadow: 0 0 30px rgba(0, 0, 0, 0.5);
+    transition: transform 0.2s ease, visibility 0s linear 0.2s;
+  }
+
+  .sidebar.is-open {
+    transform: translateX(0);
+    visibility: visible;
+    transition: transform 0.2s ease, visibility 0s;
+  }
+
+  .sidebar-open,
+  .sidebar-close {
+    display: inline-flex;
+  }
+
+  .sidebar-collapse {
+    display: none;
+  }
+
+  .sidebar-head {
+    justify-content: space-between;
+  }
+
+  .sidebar-open {
+    margin-right: -4px;
+  }
 }
 
 .tab-counter {
@@ -308,6 +532,7 @@ body {
 /* Main Container */
 .main-content {
   flex: 1;
+  min-width: 0;
   padding: var(--page-gutter);
   max-width: var(--content-max);
   width: 100%;
@@ -1221,6 +1446,73 @@ body {
   color: var(--text-main);
 }
 
+/* Item image + name */
+.item-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 100%;
+}
+
+.item-chip__text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.item-icon {
+  --q: var(--border-color);
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid var(--q);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-dim);
+  overflow: hidden;
+}
+
+.item-icon__img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.item-icon.is-missing {
+  border-style: dashed;
+}
+
+.quality--common { --q: var(--q-common); }
+.quality--fine { --q: var(--q-fine); }
+.quality--rare { --q: var(--q-rare); }
+.quality--legendary { --q: var(--q-legendary); }
+.quality--mythic { --q: var(--q-mythic); }
+
+.item-qty {
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.item-chip-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.item-chip-list--inline {
+  display: inline-flex;
+  flex-wrap: wrap;
+  flex-direction: row;
+  gap: 8px 14px;
+  vertical-align: middle;
+}
+
 .market-price {
   color: var(--success);
   font-weight: 700;
@@ -1997,14 +2289,19 @@ td.table-state {
   .modal-close,
   .select-filter,
   .form-input,
-  .search-box input {
+  .search-box input,
+  .sidebar-group-toggle {
     min-height: 44px;
   }
 
   .btn-sm,
   .btn-logout,
   .lang-btn,
-  .modal-close {
+  .modal-close,
+  .sidebar-collapse,
+  .sidebar-open,
+  .sidebar-close {
     min-width: 44px;
+    min-height: 44px;
   }
 }

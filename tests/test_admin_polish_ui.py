@@ -23,7 +23,7 @@ PUBLIC = os.path.join(ROOT, "public")
 SURFACES = ("bg-dark", "bg-card", "bg-card-hover", "bg-modal")
 EMOJI_RE = re.compile("[\U0001F000-\U0001FFFF\u2600-\u27BF\u2B00-\u2BFF\ufe0f]")
 NAV_TABS = ("accounts", "dashboard", "rankings", "guilds", "auctions", "audit", "economy", "giftcodes", "market")
-MODALS = ("modal-guild", "modal-password", "modal-create", "modal-ban", "modal-delete", "modal-giftcode")
+MODALS = ("modal-guild", "modal-password", "modal-create", "modal-ban", "modal-delete", "modal-confirm", "modal-giftcode")
 
 # Every loader that fills a table from the API, with the key its Retry button carries.
 LOADERS = (
@@ -148,7 +148,8 @@ class TestP1Modals(unittest.TestCase):
         chunks = re.split(r'(?=<div id="modal-[\w-]+" class="modal-backdrop")', self.html)[1:]
         for (modal_id, attrs), chunk in zip(tags, chunks):
             with self.subTest(modal=modal_id):
-                self.assertIn('role="dialog"', attrs)
+                # The confirmation modal is an alertdialog: it interrupts to ask a question.
+                self.assertRegex(attrs, r'role="(?:alert)?dialog"')
                 self.assertIn('aria-modal="true"', attrs)
                 labelled = re.search(r'aria-labelledby="([^"]+)"', attrs)
                 self.assertIsNotNone(labelled)

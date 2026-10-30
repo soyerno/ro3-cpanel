@@ -183,7 +183,9 @@ class TestMarketAndVaultScript(unittest.TestCase):
 
     def test_server_text_is_escaped(self):
         market = _function_body(self.js, "renderMarketTable")
-        self.assertRegex(market, r"escapeHtml\([^;]*\bname\b")
+        # The item name is escaped by the shared chip.
+        self.assertIn("itemChipHtml(l", market)
+        self.assertRegex(_function_body(self.js, "itemChipHtml"), r"escapeHtml\(named \? item\.name")
         for field in ("seller_account", "seller_role_name", "buyer_account", "buyer_role_name"):
             with self.subTest(field=field):
                 self.assertIn("l.%s" % field, market)
@@ -191,7 +193,8 @@ class TestMarketAndVaultScript(unittest.TestCase):
         self.assertIn("escapeHtml(account)", party)
         self.assertIn("escapeHtml(character)", party)
         vault = _function_body(self.js, "renderAccountVault")
-        for field in ("name", "pack_name", "deposited_by_name", "reason"):
+        self.assertIn("itemChipHtml(item)", vault)
+        for field in ("pack_name", "deposited_by_name", "reason"):
             with self.subTest(field=field):
                 self.assertRegex(vault, r"escapeHtml\([^;]*\b%s\b" % field)
 

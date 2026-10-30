@@ -138,6 +138,19 @@ Each character card in the account sheet has a **Ver inventario** button that li
 
   Leave it empty (`""`, the default) to disable names. When the file is missing or invalid, a warning is printed once to stderr and items are shown as `#<entry>`.
 
+- Item images and richer names come from an optional catalog. Point `item_catalog_file` at a JSON list of rows `{"id": 5001, "n": "Red Potion", "ic": "item_5001.png", "q": "Common"}` (`n` name, `ic` icon file name, `q` one of Common, Fine, Rare, Legendary, Mythic; other fields are ignored) and set `item_icons_url` to the same-site folder that serves the icon files, for example `"/admin/item-icons/"`. Inventory, mail, vault, market and gift code rewards then return `name`, `icon` and `quality` per item. Names from `item_names_file` still win over catalog names. Only icon names that match `[A-Za-z0-9_-]+.(png|webp|jpg)` are accepted, an `item_icons_url` that is not a plain same-site path is ignored, and without `item_icons_url` the panel shows names without images.
+
+## Deleting a character
+
+`POST /api/admin/characters/delete` with `{"role_id": 123, "confirm_name": "<exact character name>"}` does a logical delete (`role.deleted_time`), the same delete the account delete uses; the rows stay in the database. It is hardened on purpose:
+
+- Admin session only (checked against `admin_users` on every request), and the body must be `application/json`, so a cross-site form cannot send it.
+- `confirm_name` must equal the character's name exactly, so a wrong id never deletes the wrong character.
+- Characters of administrator accounts cannot be deleted.
+- The account must be offline. If RO3Emu cannot say whether it is online, nothing is deleted (HTTP 503) and an online account answers HTTP 409.
+- At most `character_delete_max_per_minute` attempts per admin (default 10), valid or not; over the limit answers HTTP 429 with `Retry-After`.
+- The delete and its audit row (`delete_character`) are written in one transaction: there is no delete without an audit entry.
+
 ## Rankings
 
 The **🏆 Rankings** tab shows read-only, paginated leaderboards. Deleted characters (`deleted_time != 0`) are always excluded.

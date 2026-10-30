@@ -137,6 +137,19 @@ Cada tarjeta de personaje en la pantalla de la cuenta tiene un botón **Ver inve
 
   Déjalo vacío (`""`, valor por defecto) para desactivar los nombres. Si el archivo no existe o es inválido, se imprime una advertencia una sola vez en stderr y los objetos se muestran como `#<entry>`.
 
+- Las imágenes y nombres más completos salen de un catálogo opcional. Apunta `item_catalog_file` a una lista JSON de filas `{"id": 5001, "n": "Poción Roja", "ic": "item_5001.png", "q": "Common"}` (`n` nombre, `ic` nombre del archivo del ícono, `q` una de Common, Fine, Rare, Legendary, Mythic; los demás campos se ignoran) y define `item_icons_url` con la carpeta del mismo sitio que sirve los íconos, por ejemplo `"/admin/item-icons/"`. Inventario, correo, baúl, mercado y premios de códigos de regalo devuelven entonces `name`, `icon` y `quality` por objeto. Los nombres de `item_names_file` siguen ganando sobre los del catálogo. Solo se aceptan nombres de ícono con la forma `[A-Za-z0-9_-]+.(png|webp|jpg)`, un `item_icons_url` que no sea una ruta simple del mismo sitio se ignora y, sin `item_icons_url`, el panel muestra los nombres sin imágenes.
+
+## Eliminar un personaje
+
+`POST /api/admin/characters/delete` con `{"role_id": 123, "confirm_name": "<nombre exacto del personaje>"}` hace un borrado lógico (`role.deleted_time`), el mismo que usa el borrado de cuenta; las filas siguen en la base. Está endurecido a propósito:
+
+- Solo con sesión de administrador (se revisa contra `admin_users` en cada petición) y el cuerpo debe ser `application/json`, así un formulario de otro sitio no puede enviarlo.
+- `confirm_name` debe ser igual al nombre del personaje, así un id equivocado nunca borra el personaje equivocado.
+- No se pueden eliminar personajes de cuentas de administrador.
+- La cuenta debe estar desconectada. Si RO3Emu no puede decir si está en línea, no se borra nada (HTTP 503) y una cuenta en línea responde HTTP 409.
+- Como máximo `character_delete_max_per_minute` intentos por administrador (10 por defecto), válidos o no; al pasarse responde HTTP 429 con `Retry-After`.
+- El borrado y su fila de auditoría (`delete_character`) se escriben en una sola transacción: no hay borrado sin registro de auditoría.
+
 ## Rankings
 
 La pestaña **🏆 Rankings** muestra clasificaciones de solo lectura y paginadas. Los personajes eliminados (`deleted_time != 0`) siempre quedan excluidos.

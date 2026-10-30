@@ -99,6 +99,11 @@
 
     appHeader: document.getElementById('app-header'),
     subnav: document.getElementById('app-subnav'),
+    appShell: document.getElementById('app-shell'),
+    sidebarOpen: document.getElementById('sidebar-open'),
+    sidebarClose: document.getElementById('sidebar-close'),
+    sidebarCollapse: document.getElementById('sidebar-collapse'),
+    sidebarBackdrop: document.getElementById('sidebar-backdrop'),
     mainContent: document.getElementById('main-content'),
     adminName: document.getElementById('admin-name'),
     btnLogout: document.getElementById('btn-logout'),
@@ -244,6 +249,15 @@
     modalCreate: document.getElementById('modal-create'),
     modalBan: document.getElementById('modal-ban'),
     modalDelete: document.getElementById('modal-delete'),
+    modalConfirm: document.getElementById('modal-confirm'),
+    formConfirm: document.getElementById('form-confirm'),
+    confirmTitle: document.getElementById('confirm-modal-title'),
+    confirmMessage: document.getElementById('confirm-message'),
+    confirmTypedGroup: document.getElementById('confirm-typed-group'),
+    confirmTypedLabel: document.getElementById('confirm-typed-label'),
+    confirmTypedInput: document.getElementById('confirm-typed-input'),
+    confirmSubmit: document.getElementById('confirm-submit'),
+    confirmCancel: document.getElementById('confirm-cancel'),
 
     toasts: document.getElementById('toast-container')
   };
@@ -300,6 +314,8 @@
         el.setAttribute(attr, t(el.getAttribute('data-i18n-' + attr)));
       });
     });
+    // Labels that depend on the sidebar state are not static text, so they are set again here.
+    if (root === document) refreshSidebarLabels();
   }
 
   function updateLangButtons() {
@@ -555,6 +571,7 @@
   }
 
   function setUnauthenticated() {
+    closeSidebarDrawer(false);
     state.authenticated = false;
     state.adminUser = null;
     resetAccountScreen(true);
@@ -1017,6 +1034,7 @@
 
   function closeModal(modalEl) {
     if (!modalEl) return;
+    if (modalEl === els.modalConfirm) settleConfirm(false);
     modalEl.hidden = true;
     var open = modalStack.indexOf(modalEl);
     if (open !== -1) modalStack.splice(open, 1);
@@ -1358,7 +1376,7 @@
     }).join('');
   }
 
-  function renderCharacterCard(c) {
+  function renderCharacterCard(c, acc) {
     var roleId = escapeHtml(String(c.id));
     var stats = ['str', 'agi', 'vit', 'int', 'dex', 'luk'].map(function (key) {
       return '<div><div class="stat-box-lbl">' + key.toUpperCase() + '</div><div class="stat-box-val">' + cellValue(c.stats[key]) + '</div></div>';
@@ -1381,6 +1399,8 @@
       '<div class="char-card-actions">' +
         '<button type="button" class="btn btn-secondary btn-sm btn-view-inventory" data-role-id="' + roleId + '" aria-expanded="false" aria-controls="char-inventory-' + roleId + '" title="' + escapeHtml(t('View character items')) + '">' + escapeHtml(t('View inventory')) + '</button>' +
         '<button type="button" class="btn btn-secondary btn-sm btn-view-mail" data-role-id="' + roleId + '" aria-expanded="false" aria-controls="char-mail-' + roleId + '" title="' + escapeHtml(t('View character mail (read-only)')) + '">' + escapeHtml(t('View mail')) + '</button>' +
+        // The server refuses characters of administrator accounts, so the button is not offered for them.
+        (acc && acc.is_admin ? '' : '<button type="button" class="btn btn-danger btn-sm btn-delete-character" data-role-id="' + roleId + '" data-role-name="' + escapeHtml(c.name) + '" data-account="' + escapeHtml(acc ? acc.name : '') + '">' + escapeHtml(t('Delete character')) + '</button>') +
       '</div>' +
       '<div class="char-inventory" id="char-inventory-' + roleId + '" hidden></div>' +
       '<div class="char-mail-panel" id="char-mail-' + roleId + '" hidden></div>' +
@@ -1393,7 +1413,7 @@
       els.accountCharacters.innerHTML = '<p class="account-empty">' + escapeHtml(t('This account has no characters yet.')) + '</p>';
       return;
     }
-    els.accountCharacters.innerHTML = chars.map(renderCharacterCard).join('');
+    els.accountCharacters.innerHTML = chars.map(function (c) { return renderCharacterCard(c, acc); }).join('');
   }
 
   // Ban, unban and delete are hidden for administrator accounts, exactly as in the list.
@@ -1491,15 +1511,15 @@
   function renderMailAttachments(m) {
     var parts = [];
     (m.attachments || []).forEach(function (a) {
-      parts.push(escapeHtml(t('Item {entry} x{count}', { entry: a.entry, count: a.count })));
+      parts.push(itemChipHtml(a, ' <span class="item-qty">x' + escapeHtml(String(a.count)) + '</span>'));
     });
     (m.items || []).forEach(function (it) {
-      parts.push(escapeHtml(t('Item {entry} x{count}', { entry: it.entry, count: it.stack })));
+      parts.push(itemChipHtml(it, ' <span class="item-qty">x' + escapeHtml(String(it.stack)) + '</span>'));
     });
     (m.currency || []).forEach(function (cur) {
       parts.push(escapeHtml(t('Currency {entry}: {amount}', { entry: cur.entry, amount: formatNumber(cur.amount) })));
     });
-    return parts.length ? parts.join(', ') : escapeHtml(t('No attachments'));
+    return parts.length ? '<span class="item-chip-list item-chip-list--inline">' + parts.join('') + '</span>' : escapeHtml(t('No attachments'));
   }
 
   function renderCharacterMail(panel, roleId, data) {
@@ -1548,6 +1568,55 @@
         panel.innerHTML = '<p class="char-mail-empty">' + escapeHtml(t('Error loading mail: {message}', { message: err.message })) + '</p>' +
           '<button type="button" class="btn btn-secondary btn-sm btn-mail-page" data-role-id="' + escapeHtml(String(roleId)) + '" data-page="' + escapeHtml(String(page)) + '">' + escapeHtml(t('Retry')) + '</button>';
       });
+  }
+
+  // --- Item name + image ---
+  // The server sends name, icon (a file name) and quality (one of five words) per item. The icon URL is built
+  // here from the same-site base in the branding config; anything that does not look like a plain file name
+  // or a plain same-site folder gets the placeholder instead of an <img>.
+  var ITEM_QUALITIES = ['common', 'fine', 'rare', 'legendary', 'mythic'];
+  var ITEM_ICON_FILE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,100}\.(?:png|webp|jpg)$/;
+  var ITEM_ICON_BASE = /^\/?(?:[A-Za-z0-9._~-]+\/)+$/;
+  var ITEM_ICON_PLACEHOLDER = '<svg class="item-icon__placeholder" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M21 8l-9-5-9 5v8l9 5 9-5V8z"/><path d="M3 8l9 5 9-5"/><path d="M12 13v8"/></svg>';
+
+  function itemIconSrc(icon) {
+    var base = state.branding && state.branding.item_icons_url;
+    if (typeof base !== 'string' || !ITEM_ICON_BASE.test(base) || base.indexOf('//') !== -1 || base.indexOf('..') !== -1) return '';
+    if (typeof icon !== 'string' || !ITEM_ICON_FILE.test(icon)) return '';
+    return base + encodeURIComponent(icon);
+  }
+
+  function itemIconHtml(item) {
+    var quality = ITEM_QUALITIES.indexOf(item.quality) !== -1 ? ' quality--' + item.quality : '';
+    var src = itemIconSrc(item.icon);
+    var label = item.name || '#' + item.entry;
+    // Decorative next to the visible name, so screen readers skip it; the alt stays descriptive for when it is not.
+    return '<span class="item-icon' + quality + (src ? '' : ' is-missing') + '" aria-hidden="true">' +
+      (src
+        ? '<img class="item-icon__img" src="' + escapeHtml(src) + '" alt="' + escapeHtml(label) + '" width="32" height="32" loading="lazy" decoding="async">'
+        : ITEM_ICON_PLACEHOLDER) +
+      '</span>';
+  }
+
+  // Image + name (+ id when the name is known), for tables and lists. `extra` is trusted HTML after the name.
+  function itemChipHtml(item, extra) {
+    var named = !!item.name;
+    return '<span class="item-chip">' + itemIconHtml(item) +
+      '<span class="item-chip__text"><strong class="item-chip__name text-strong">' +
+        escapeHtml(named ? item.name : '#' + item.entry) + '</strong>' +
+        (named ? ' <span class="text-dim">#' + escapeHtml(String(item.entry)) + '</span>' : '') +
+        (extra || '') +
+      '</span></span>';
+  }
+
+  // A file that does not load (missing on the server, blocked) becomes the placeholder.
+  function handleItemIconError(e) {
+    var img = e.target;
+    if (!img || img.tagName !== 'IMG' || !img.classList.contains('item-icon__img')) return;
+    var holder = img.parentNode;
+    if (!holder) return;
+    holder.classList.add('is-missing');
+    holder.innerHTML = ITEM_ICON_PLACEHOLDER;
   }
 
   // --- Character Inventory (read-only) ---
@@ -1612,13 +1681,12 @@
         '<table class="data-table">' +
           '<thead><tr><th>' + escapeHtml(t('Inventory item')) + '</th><th>' + escapeHtml(t('Quantity')) + '</th><th>' + escapeHtml(t('Status')) + '</th></tr></thead><tbody>';
       g.items.forEach(function (item) {
-        var name = item.name ? escapeHtml(item.name) : '#' + escapeHtml(String(item.entry));
         var flags = [];
         if (item.equipped) flags.push('<span class="badge badge-active">' + escapeHtml(t('Equipped')) + '</span>');
         if (item.locked) flags.push('<span class="badge badge-banned">' + escapeHtml(t('Locked')) + '</span>');
         if (item.bind_type) flags.push('<span class="badge badge-admin">' + escapeHtml(t('Bound')) + '</span>');
         html += '<tr>' +
-          '<td><strong class="text-strong">' + name + '</strong> <span class="text-dim">#' + escapeHtml(String(item.entry)) + '</span></td>' +
+          '<td>' + itemChipHtml(item) + '</td>' +
           '<td>' + formatNumber(item.stack) + '</td>' +
           '<td>' + (flags.length ? flags.join(' ') : '—') + '</td>' +
         '</tr>';
@@ -1755,11 +1823,10 @@
         '<th>' + escapeHtml(t('Deposited')) + '</th>' +
       '</tr></thead><tbody>';
     items.forEach(function (item) {
-      var name = item.name ? escapeHtml(item.name) : '#' + escapeHtml(String(item.entry));
       var depositor = item.deposited_by_name ? escapeHtml(item.deposited_by_name) :
         (item.deposited_by_role_id === null || item.deposited_by_role_id === undefined ? '—' : '#' + escapeHtml(String(item.deposited_by_role_id)));
       html += '<tr>' +
-        '<td><strong class="vault-item">' + name + '</strong></td>' +
+        '<td class="vault-item">' + itemChipHtml(item) + '</td>' +
         '<td>' + formatNumber(item.stack) + '</td>' +
         '<td>' + (item.pack_name ? escapeHtml(item.pack_name) : '—') + '</td>' +
         '<td>' + escapeHtml(item.locked ? t('Yes') : t('No')) + '</td>' +
@@ -1877,6 +1944,206 @@
       });
   }
 
+  // --- Sidebar menu ---
+  // Dashboard sits on its own, the other sections live in collapsible groups. The sidebar can fold into an icon
+  // rail (the choice is remembered) and, on a phone, becomes a drawer opened from the header.
+  var SIDEBAR_PREFS_KEY = 'panel_sidebar';
+  var sidebarState = { collapsed: false, closedGroups: [] };
+  var sidebarMobile = null;
+
+  function readSidebarPrefs() {
+    try {
+      var prefs = JSON.parse(globalThis.localStorage.getItem(SIDEBAR_PREFS_KEY) || 'null');
+      if (prefs && typeof prefs === 'object') {
+        return {
+          collapsed: prefs.collapsed === true,
+          closedGroups: Array.isArray(prefs.closedGroups)
+            ? prefs.closedGroups.filter(function (g) { return typeof g === 'string'; })
+            : []
+        };
+      }
+    } catch (e) {
+      // Storage blocked or the value is not JSON: start from the defaults.
+    }
+    return { collapsed: false, closedGroups: [] };
+  }
+
+  function saveSidebarPrefs() {
+    try {
+      globalThis.localStorage.setItem(SIDEBAR_PREFS_KEY, JSON.stringify(sidebarState));
+    } catch (e) {
+      // Private mode or a full quota: the menu still works, it just forgets next time.
+    }
+  }
+
+  function sidebarGroups() {
+    return els.subnav ? Array.prototype.slice.call(els.subnav.querySelectorAll('.sidebar-group')) : [];
+  }
+
+  function toggleSidebarGroup(group, open) {
+    if (!group) return;
+    var willOpen = typeof open === 'boolean' ? open : !group.classList.contains('is-open');
+    group.classList.toggle('is-open', willOpen);
+    var toggle = group.querySelector('.sidebar-group-toggle');
+    if (toggle) toggle.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+    var name = group.getAttribute('data-group');
+    var at = sidebarState.closedGroups.indexOf(name);
+    if (willOpen && at !== -1) sidebarState.closedGroups.splice(at, 1);
+    if (!willOpen && at === -1) sidebarState.closedGroups.push(name);
+  }
+
+  // Going to a section shows it: its group opens if the admin had folded it.
+  function openSidebarGroupOf(tabId) {
+    if (!els.subnav) return;
+    Array.prototype.forEach.call(els.subnav.querySelectorAll('.tab-btn'), function (btn) {
+      if (btn.getAttribute('data-tab') !== tabId) return;
+      var group = btn.closest('.sidebar-group');
+      if (group && !group.classList.contains('is-open')) toggleSidebarGroup(group, true);
+    });
+  }
+
+  // In the icon rail the labels are hidden, so each item carries its name as tooltip and accessible name.
+  function syncSidebarTitles() {
+    if (!els.subnav) return;
+    Array.prototype.forEach.call(els.subnav.querySelectorAll('.tab-btn'), function (btn) {
+      var label = btn.querySelector('span:not(.tab-counter)');
+      var name = label ? label.textContent.trim() : '';
+      if (sidebarState.collapsed && name) {
+        btn.setAttribute('title', name);
+        btn.setAttribute('aria-label', name);
+      } else {
+        btn.removeAttribute('title');
+        btn.removeAttribute('aria-label');
+      }
+    });
+  }
+
+  function setSidebarCollapsed(collapsed, persist) {
+    sidebarState.collapsed = collapsed;
+    if (els.appShell) els.appShell.classList.toggle('is-collapsed', collapsed);
+    if (els.sidebarCollapse) {
+      els.sidebarCollapse.setAttribute('aria-pressed', collapsed ? 'true' : 'false');
+      els.sidebarCollapse.setAttribute('aria-label', collapsed ? t('Expand menu') : t('Collapse menu'));
+    }
+    syncSidebarTitles();
+    if (persist) saveSidebarPrefs();
+  }
+
+  // A language change rewrites the translated labels; the ones that depend on the state are set again.
+  function refreshSidebarLabels() {
+    if (!sidebarState) return;
+    setSidebarCollapsed(sidebarState.collapsed, false);
+  }
+
+  function openSidebarDrawer() {
+    if (!els.subnav) return;
+    els.subnav.classList.add('is-open');
+    if (els.sidebarBackdrop) els.sidebarBackdrop.hidden = false;
+    if (els.sidebarOpen) els.sidebarOpen.setAttribute('aria-expanded', 'true');
+    if (els.mainContent) els.mainContent.inert = true;
+    var target = els.subnav.querySelector('.tab-btn.active') || els.sidebarClose;
+    if (target) target.focus();
+  }
+
+  function closeSidebarDrawer(returnFocus) {
+    if (!els.subnav || !els.subnav.classList.contains('is-open')) return;
+    els.subnav.classList.remove('is-open');
+    if (els.sidebarBackdrop) els.sidebarBackdrop.hidden = true;
+    if (els.sidebarOpen) els.sidebarOpen.setAttribute('aria-expanded', 'false');
+    if (els.mainContent) els.mainContent.inert = false;
+    if (returnFocus && els.sidebarOpen) els.sidebarOpen.focus();
+  }
+
+  function handleSidebarKeydown(e) {
+    if (e.key !== 'Escape' || !els.subnav || !els.subnav.classList.contains('is-open')) return;
+    if (modalStack.length) return;
+    e.preventDefault();
+    closeSidebarDrawer(true);
+  }
+
+  function initSidebar() {
+    var prefs = readSidebarPrefs();
+    sidebarState.closedGroups = prefs.closedGroups;
+    sidebarGroups().forEach(function (group) {
+      if (prefs.closedGroups.indexOf(group.getAttribute('data-group')) !== -1) toggleSidebarGroup(group, false);
+    });
+    setSidebarCollapsed(prefs.collapsed, false);
+
+    if (els.subnav) {
+      els.subnav.addEventListener('click', function (e) {
+        // Any section button closes the drawer, also one added by another script (Konsor's own section).
+        if (e.target.closest('.tab-btn')) closeSidebarDrawer();
+        var toggle = e.target.closest('.sidebar-group-toggle');
+        if (!toggle) return;
+        toggleSidebarGroup(toggle.closest('.sidebar-group'));
+        saveSidebarPrefs();
+      });
+    }
+    if (els.sidebarCollapse) {
+      els.sidebarCollapse.addEventListener('click', function () {
+        setSidebarCollapsed(!sidebarState.collapsed, true);
+      });
+    }
+    if (els.sidebarOpen) els.sidebarOpen.addEventListener('click', openSidebarDrawer);
+    if (els.sidebarClose) els.sidebarClose.addEventListener('click', function () { closeSidebarDrawer(true); });
+    if (els.sidebarBackdrop) els.sidebarBackdrop.addEventListener('click', function () { closeSidebarDrawer(true); });
+    document.addEventListener('keydown', handleSidebarKeydown);
+    // Growing past phone width turns the drawer back into the fixed sidebar.
+    if (typeof globalThis.matchMedia === 'function') {
+      sidebarMobile = globalThis.matchMedia('(max-width: 860px)');
+      sidebarMobile.addEventListener('change', function () { closeSidebarDrawer(false); });
+    }
+  }
+
+  // --- Confirmation modal ---
+  // Every delete and password change asks here first. askConfirm resolves true only when the admin confirms
+  // (and, with typeToConfirm, typed that exact text); Cancel, the close button and Escape all resolve false.
+  var confirmState = { resolve: null, expected: null };
+
+  function settleConfirm(result) {
+    var resolve = confirmState.resolve;
+    confirmState.resolve = null;
+    if (resolve) resolve(result);
+  }
+
+  function askConfirm(opts) {
+    settleConfirm(false);
+    var typed = typeof opts.typeToConfirm === 'string' && opts.typeToConfirm !== '';
+    confirmState.expected = typed ? opts.typeToConfirm : null;
+    els.confirmTitle.textContent = opts.title;
+    els.confirmTitle.classList.toggle('modal-title-danger', !!opts.danger);
+    els.confirmMessage.textContent = opts.message;
+    els.confirmTypedGroup.hidden = !typed;
+    els.confirmTypedLabel.textContent = opts.typeLabel || '';
+    els.confirmTypedInput.value = '';
+    els.confirmSubmit.textContent = opts.confirmLabel || t('Confirm');
+    els.confirmSubmit.classList.toggle('btn-danger', !!opts.danger);
+    els.confirmSubmit.classList.toggle('btn-primary', !opts.danger);
+    els.confirmSubmit.disabled = typed;
+    return new Promise(function (resolve) {
+      confirmState.resolve = resolve;
+      openModal(els.modalConfirm);
+      if (typed) {
+        els.confirmTypedInput.focus();
+      } else {
+        // Nothing to type: the safe choice has the focus, so a stray Enter never confirms.
+        els.confirmCancel.focus();
+      }
+    });
+  }
+
+  function handleConfirmTyping() {
+    if (confirmState.expected === null) return;
+    els.confirmSubmit.disabled = els.confirmTypedInput.value !== confirmState.expected;
+  }
+
+  function handleConfirmSubmit(e) {
+    e.preventDefault();
+    if (confirmState.expected !== null && els.confirmTypedInput.value !== confirmState.expected) return;
+    settleConfirm(true);
+    closeModal(els.modalConfirm);
+  }
+
   // Whole-sentence modal intros: `template` is a translated sentence containing {account}, which is
   // replaced with the bold, escaped account name (the rest of the sentence is escaped as text).
   function setModalIntro(id, template, accountName) {
@@ -1905,22 +2172,29 @@
     }
 
     var accountName = state.selectedAccount.name;
-    setSubmitting(submit, true);
-    apiFetch('/api/admin/accounts/update-password', {
-      method: 'POST',
-      body: { username: accountName, new_password: newPass }
-    })
-      .then(function (data) {
-        showToast(data.message, 'success');
-        closeModal(els.modalPassword);
-        refreshOpenAccount(accountName);
+    askConfirm({
+      title: t('Change password'),
+      message: t('Change the password of account {account}? Active sessions of that account will be signed out.', { account: accountName }),
+      confirmLabel: t('Change password')
+    }).then(function (ok) {
+      if (!ok) return null;
+      setSubmitting(submit, true);
+      return apiFetch('/api/admin/accounts/update-password', {
+        method: 'POST',
+        body: { username: accountName, new_password: newPass }
       })
-      .catch(function (err) {
-        showToast(t('Error: {message}', { message: err.message }), 'error');
-      })
-      .finally(function () {
-        setSubmitting(submit, false);
-      });
+        .then(function (data) {
+          showToast(data.message, 'success');
+          closeModal(els.modalPassword);
+          refreshOpenAccount(accountName);
+        })
+        .catch(function (err) {
+          showToast(t('Error: {message}', { message: err.message }), 'error');
+        })
+        .finally(function () {
+          setSubmitting(submit, false);
+        });
+    });
   }
 
   function showCreateAccount() {
@@ -2008,24 +2282,64 @@
   }
 
   function handleUnbanAccount(name, btn) {
-    if (!confirm(t('Do you want to reset and remove the suspension of account "{name}"?', { name: name }))) return;
-    setSubmitting(btn, true);
-    apiFetch('/api/admin/accounts/unban', {
-      method: 'POST',
-      body: { username: name }
-    })
-      .then(function (data) {
-        showToast(data.message, 'success');
-        loadAccounts();
-        loadStats();
-        refreshOpenAccount(name);
+    askConfirm({
+      title: t('Remove suspension'),
+      message: t('Do you want to reset and remove the suspension of account "{name}"?', { name: name }),
+      confirmLabel: t('Remove suspension')
+    }).then(function (ok) {
+      if (!ok) return null;
+      setSubmitting(btn, true);
+      return apiFetch('/api/admin/accounts/unban', {
+        method: 'POST',
+        body: { username: name }
       })
-      .catch(function (err) {
-        showToast(t('Error removing suspension: {message}', { message: err.message }), 'error');
+        .then(function (data) {
+          showToast(data.message, 'success');
+          loadAccounts();
+          loadStats();
+          refreshOpenAccount(name);
+        })
+        .catch(function (err) {
+          showToast(t('Error removing suspension: {message}', { message: err.message }), 'error');
+        })
+        .finally(function () {
+          setSubmitting(btn, false);
+        });
+    });
+  }
+
+  function handleDeleteCharacter(btn) {
+    var roleId = parseInt(btn.getAttribute('data-role-id'), 10);
+    var name = btn.getAttribute('data-role-name') || '';
+    var account = btn.getAttribute('data-account') || '';
+    if (!roleId || !name) return;
+    askConfirm({
+      title: t('Delete character'),
+      message: t('This deletes character {name} of account {account}. The character leaves the account; its data stays in the database.', { name: name, account: account }),
+      danger: true,
+      typeToConfirm: name,
+      typeLabel: t('Type the exact character name to confirm'),
+      confirmLabel: t('Delete character')
+    }).then(function (ok) {
+      if (!ok) return null;
+      setSubmitting(btn, true);
+      return apiFetch('/api/admin/characters/delete', {
+        method: 'POST',
+        body: { role_id: roleId, confirm_name: name }
       })
-      .finally(function () {
-        setSubmitting(btn, false);
-      });
+        .then(function (data) {
+          showToast(data.message, 'success');
+          refreshOpenAccount(account);
+          loadAccounts();
+          loadStats();
+        })
+        .catch(function (err) {
+          showToast(t('Error: {message}', { message: err.message }), 'error');
+        })
+        .finally(function () {
+          setSubmitting(btn, false);
+        });
+    });
   }
 
   function showDeleteAccount(name) {
@@ -2517,10 +2831,9 @@
 
   function giftCodeRewardsHtml(items) {
     if (!items || !items.length) return '—';
-    return items.map(function (item) {
-      var label = item.name ? escapeHtml(item.name) : escapeHtml(String(item.entry));
-      return label + ' x' + escapeHtml(String(item.count));
-    }).join(', ');
+    return '<ul class="item-chip-list">' + items.map(function (item) {
+      return '<li>' + itemChipHtml(item, ' <span class="item-qty">x' + escapeHtml(String(item.count)) + '</span>') + '</li>';
+    }).join('') + '</ul>';
   }
 
   // Unix seconds from the API, shown in the active locale; "—" when unset.
@@ -2769,11 +3082,10 @@
     }
     var html = '';
     listings.forEach(function (l) {
-      var name = l.name ? escapeHtml(l.name) : '#' + escapeHtml(String(l.entry));
       var lockedBadge = l.locked ? ' <span class="badge badge-banned">' + escapeHtml(t('Locked')) + '</span>' : '';
       var pack = l.pack_name ? '<div class="economy-sub" title="' + escapeHtml(l.pack_name) + '">' + escapeHtml(l.pack_name) + '</div>' : '';
       html += '<tr>' +
-        '<td><strong class="market-item">' + name + '</strong>' + lockedBadge + pack + '</td>' +
+        '<td class="market-item">' + itemChipHtml(l, lockedBadge) + pack + '</td>' +
         '<td>' + formatNumber(l.stack) + '</td>' +
         '<td><span class="market-price">' + formatNumber(l.price_zeny) + ' Z</span></td>' +
         '<td>' + marketPartyCell(l.seller_account, l.seller_role_name) + '</td>' +
@@ -2873,6 +3185,7 @@
   function switchTab(tabId) {
     var previousTab = state.activeTab;
     state.activeTab = tabId;
+    openSidebarGroupOf(tabId);
     document.querySelectorAll('.tab-btn').forEach(function (b) {
       var active = b.getAttribute('data-tab') === tabId;
       b.classList.toggle('active', active);
@@ -2981,6 +3294,8 @@
           loadCharacterMail(roleId, 1);
         } else if (target.classList.contains('btn-mail-page')) {
           loadCharacterMail(roleId, parseInt(target.getAttribute('data-page'), 10) || 1);
+        } else if (target.classList.contains('btn-delete-character')) {
+          handleDeleteCharacter(target);
         }
       });
     }
@@ -3265,6 +3580,9 @@
     });
     // Registered before the account screen's own Escape rule: a press that closes a modal is handled once.
     document.addEventListener('keydown', handleModalKeydown);
+    initSidebar();
+    // 'error' does not bubble, so a failed icon is caught while the event travels down.
+    document.addEventListener('error', handleItemIconError, true);
 
     var formPw = document.getElementById('form-password');
     if (formPw) formPw.addEventListener('submit', handleUpdatePassword);
@@ -3274,6 +3592,9 @@
 
     var formBan = document.getElementById('form-ban');
     if (formBan) formBan.addEventListener('submit', handleBanAccount);
+
+    if (els.formConfirm) els.formConfirm.addEventListener('submit', handleConfirmSubmit);
+    if (els.confirmTypedInput) els.confirmTypedInput.addEventListener('input', handleConfirmTyping);
 
     var formDel = document.getElementById('form-delete');
     if (formDel) formDel.addEventListener('submit', handleDeleteAccount);
