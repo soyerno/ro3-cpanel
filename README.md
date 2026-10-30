@@ -140,6 +140,14 @@ Each character card in the account sheet has a **Ver inventario** button that li
 
 - Item images and richer names come from an optional catalog. Point `item_catalog_file` at a JSON list of rows `{"id": 5001, "n": "Red Potion", "ic": "item_5001.png", "q": "Common"}` (`n` name, `ic` icon file name, `q` one of Common, Fine, Rare, Legendary, Mythic; other fields are ignored) and set `item_icons_url` to the same-site folder that serves the icon files, for example `"/admin/item-icons/"`. Inventory, mail, vault, market and gift code rewards then return `name`, `icon` and `quality` per item. Names from `item_names_file` still win over catalog names. Only icon names that match `[A-Za-z0-9_-]+.(png|webp|jpg)` are accepted, an `item_icons_url` that is not a plain same-site path is ignored, and without `item_icons_url` the panel shows names without images.
 
+### Item picker
+
+Wherever the panel asks for an item (the rewards of a gift code, the item filter of the Market tab) it uses one typeahead selector: type a name or an id, pick from a list that shows the image, the name and the id, and the choice appears as a chip with a clear button. It is a keyboard-friendly combobox (Arrow keys, Home/End, Enter to pick, Escape to close). The list is the same item list described above (`item_catalog_file` plus `item_names_file`).
+
+- **Search endpoint**: `GET /api/admin/items/search?q=<text>&limit=<n>` (admin session required) answers `{"available": true, "items": [{"entry", "name", "icon", "quality"}], "total": n}`. It matches a case-insensitive part of the name or the digits of an id, ranked exact id first, then names that start with the text, then names that contain it. `limit` defaults to 20 and is capped at 50; `q` has at most 64 characters (400 otherwise); an empty `q` lists the first items by id. Without any item list it answers `{"available": false, "items": [], "total": 0}` and the picker becomes a plain numeric id field.
+- **Validation**: when an item list is configured, `POST /api/admin/gift-codes` rejects (400) a reward whose item id is not in the list and names the ids. Without a list any positive integer is accepted, as before.
+- **Market filter**: `GET /api/admin/market` accepts `entry=<positive integer>` (exact item id, combinable with `q` and `status`); a value that is not a positive whole number is a 400.
+
 ## Deleting a character
 
 `POST /api/admin/characters/delete` with `{"role_id": 123, "confirm_name": "<exact character name>"}` does a logical delete (`role.deleted_time`), the same delete the account delete uses; the rows stay in the database. It is hardened on purpose:

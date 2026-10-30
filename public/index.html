@@ -736,6 +736,11 @@
               <option value="all" data-i18n="All">All</option>
             </select>
           </div>
+          <div class="economy-field market-item-field">
+            <span class="form-label" id="market-item-label" data-i18n="Item">Item</span>
+            <div id="market-item-picker" role="group" aria-labelledby="market-item-label"></div>
+            <span id="market-item-hint" class="muted-note" hidden data-i18n="No item list is configured: enter the item ID as a number.">No item list is configured: enter the item ID as a number.</span>
+          </div>
           <div class="economy-field">
             <label class="form-label" for="market-search-input" data-i18n="Search">Search</label>
             <input type="text" id="market-search-input" class="select-filter" placeholder="Search listings..." data-i18n-placeholder="Search listings..." autocomplete="off">
@@ -1022,6 +1027,7 @@
           <div class="form-group">
             <span class="form-label" id="giftcode-items-label" data-i18n="Rewards">Rewards</span>
             <div id="giftcode-items" class="giftcode-items" role="group" aria-labelledby="giftcode-items-label"></div>
+            <div id="giftcode-items-hint" class="muted-note" hidden data-i18n="No item list is configured: enter the item ID as a number.">No item list is configured: enter the item ID as a number.</div>
             <button type="button" id="btn-giftcode-add-item" class="btn btn-secondary btn-sm" data-i18n="➕ Add reward">➕ Add reward</button>
           </div>
 

@@ -281,6 +281,9 @@ ES_MESSAGES = {
     "The web market is not available yet: the web player portal creates it the first time it runs":
         "El mercado web todavía no está disponible: el portal web de jugadores lo crea la primera vez que se ejecuta",
     "Invalid market status. Allowed values: {values}": "Estado de mercado inválido. Valores permitidos: {values}",
+    "Invalid item ID. It must be a positive whole number": "ID de objeto inválido. Debe ser un número entero positivo",
+    "The search text can have at most 64 characters": "El texto de búsqueda puede tener como máximo 64 caracteres",
+    "These item IDs are not in the item list: {ids}": "Estos IDs de objeto no están en la lista de objetos: {ids}",
     "Gift code '{code}' created successfully.": "Código de regalo '{code}' creado exitosamente.",
     "Gift code '{code}' disabled.": "Código de regalo '{code}' desactivado.",
     "Gift code '{code}' enabled.": "Código de regalo '{code}' activado.",
@@ -727,6 +730,52 @@ def item_resolver(names=None):
 
 def item_info(entry):
     return item_resolver()(entry)
+
+
+ITEM_SEARCH_DEFAULT_LIMIT = 20
+ITEM_SEARCH_MAX_LIMIT = 50
+ITEM_SEARCH_MAX_QUERY = 64
+UNKNOWN_ITEM_IDS_SHOWN = 5
+
+
+def item_list_entries(names):
+    """The {int id: name} view of a names mapping: only positive whole-number ids can be picked."""
+    return {int(k): v for k, v in names.items() if k.isascii() and k.isdigit() and 0 < int(k) <= MAX_SQLITE_INT}
+
+
+def search_items(query, limit):
+    """Items of the general list (catalog + names file) matching `query`: (rows, total), or None when no list exists.
+
+    Rank: exact id, then a name (or id) that starts with the text, then one that contains it; ties by id.
+    """
+    names = load_item_names()
+    entries = item_list_entries(names) if names else {}
+    if not entries:
+        return None
+    text = query.strip().lower()
+    ranked = []
+    for entry, name in entries.items():
+        if not text:
+            rank = 2
+        else:
+            lowered, digits = name.lower(), str(entry)
+            numeric = text.isascii() and text.isdigit()
+            if numeric and digits == text:
+                rank = 0
+            elif lowered.startswith(text) or (numeric and digits.startswith(text)):
+                rank = 1
+            elif text in lowered or (numeric and text in digits):
+                rank = 2
+            else:
+                continue
+        ranked.append((rank, entry))
+    ranked.sort()
+    resolve = item_resolver(names)
+    rows = []
+    for _, entry in ranked[:limit]:
+        info = resolve(entry)
+        rows.append({"entry": entry, "name": info["name"], "icon": info["icon"], "quality": info["quality"]})
+    return rows, len(ranked)
 
 
 def normalized_item_icons_url(value):
@@ -2134,6 +2183,16 @@ def validate_gift_code_body(body):
         if not _is_whole_number(entry) or not _is_whole_number(count) or entry < 1 or count < 1:
             return None, items_error
         pairs.append([entry, count])
+    names = load_item_names()
+    if names:
+        # The general item list is configured: a reward must be an item of it (no list means any positive id).
+        known = item_list_entries(names)
+        unknown = []
+        for entry, _ in pairs:
+            if entry not in known and entry not in unknown:
+                unknown.append(entry)
+        if unknown:
+            return None, tr("These item IDs are not in the item list: {ids}", ids=", ".join(str(n) for n in unknown[:UNKNOWN_ITEM_IDS_SHOWN]))
 
     max_uses = body.get("max_uses", 0)
     if not _is_whole_number(max_uses) or max_uses < 0:
@@ -2361,6 +2420,10 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
         vault_match = ACCOUNT_VAULT_PATH.match(raw_path)
         if vault_match:
             return self.handle_account_vault(urllib.parse.unquote(vault_match.group(1)), params)
+
+        # 5b2. Item picker search over the general item list (read-only)
+        if raw_path == '/api/admin/items/search':
+            return self.handle_item_search(params)
 
         # 5c. Web market (read-only)
         if raw_path == '/api/admin/market':
@@ -3484,10 +3547,27 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
             "available": True, "account": name, "vip": vip, "items": items, **paging(total, page, page_size),
         })
 
+    def handle_item_search(self, params):
+        text = params.get('q', [''])[0].strip()
+        if len(text) > ITEM_SEARCH_MAX_QUERY:
+            return self.send_json(400, {"error": tr("The search text can have at most 64 characters")})
+        limit = parse_int_param(params, 'limit', ITEM_SEARCH_DEFAULT_LIMIT, minimum=1, maximum=ITEM_SEARCH_MAX_LIMIT)
+        found = search_items(text, limit)
+        if found is None:
+            return self.send_json(200, {"available": False, "items": [], "total": 0})
+        rows, total = found
+        return self.send_json(200, {"available": True, "items": rows, "total": total})
+
     def handle_market(self, params):
         status = (params.get('status', ['active'])[0] or 'active').strip().lower()
         if status not in MARKET_STATUSES:
             return self.send_json(400, {"error": tr("Invalid market status. Allowed values: {values}", values=", ".join(MARKET_STATUSES))})
+        raw_entry = params.get('entry', [''])[0].strip()
+        entry_filter = None
+        if raw_entry:
+            if not (raw_entry.isascii() and raw_entry.isdigit()) or not 0 < int(raw_entry) <= MAX_SQLITE_INT:
+                return self.send_json(400, {"error": tr("Invalid item ID. It must be a positive whole number")})
+            entry_filter = int(raw_entry)
         q = params.get('q', [''])[0].strip().lower()
         page = parse_int_param(params, 'page', 1, minimum=1)
         page_size = parse_int_param(params, 'page_size', LIST_PAGE_SIZE_DEFAULT, minimum=1, maximum=LIST_PAGE_SIZE_MAX)
@@ -3518,6 +3598,9 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
             if status != "all":
                 where.append("status = ?")
                 args.append(status)
+            if entry_filter is not None:
+                where.append("entry = ?")
+                args.append(entry_filter)
             if q:
                 # instr() is a literal substring test, so LIKE wildcards in q never apply.
                 clauses = [

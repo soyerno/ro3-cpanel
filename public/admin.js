@@ -56,6 +56,7 @@
     market: {
       status: 'active',
       query: '',
+      entry: null,
       page: 1,
       pages: 1,
       total: 0,
@@ -2863,6 +2864,400 @@
     loadAuctions();
   }
 
+  // --- Item picker: a typeahead combobox (WAI-ARIA 1.2) over the general item list ---
+  // One component for every place an admin chooses an item. The pure helpers below hold the logic so they can be
+  // run with node; createItemPicker only wires them to the DOM. Without a configured item list the server answers
+  // `available: false` and the picker becomes a plain positive-integer field.
+  var ITEM_PICKER_DEBOUNCE_MS = 200;
+  var ITEM_PICKER_LIMIT = 20;
+  var ITEM_PICKER_MAX_QUERY = 64;
+
+  function normalizeItemQuery(text) {
+    var value = text === null || text === undefined ? '' : String(text);
+    return value.replace(/\s+/g, ' ').trim().slice(0, ITEM_PICKER_MAX_QUERY);
+  }
+
+  // The option that becomes active after a navigation key; arrows wrap around, -1 means none.
+  function nextActiveIndex(current, count, key) {
+    if (!count) return -1;
+    if (key === 'ArrowDown') return current >= count - 1 ? 0 : current + 1;
+    if (key === 'ArrowUp') return current <= 0 ? count - 1 : current - 1;
+    if (key === 'Home') return 0;
+    if (key === 'End') return count - 1;
+    return current;
+  }
+
+  // What a key press does, given {open, count, active, status, text}; the DOM code only carries it out.
+  function itemPickerKeyAction(key, view) {
+    if (view.open) {
+      if (key === 'ArrowDown' || key === 'ArrowUp' || key === 'Home' || key === 'End') return view.count ? 'move' : 'none';
+      if (key === 'Enter') {
+        if (view.status === 'error') return 'retry';
+        return view.status === 'results' && view.active >= 0 && view.active < view.count ? 'select' : 'none';
+      }
+      return key === 'Escape' ? 'close' : 'none';
+    }
+    if (key === 'ArrowDown' || key === 'ArrowUp') return 'open';
+    if (key === 'Escape') return view.text ? 'clear' : 'none';
+    return 'none';
+  }
+
+  // Ticket counter: only the answer to the newest request may change the screen.
+  function createStaleGuard() {
+    var latest = 0;
+    return {
+      next: function () {
+        latest += 1;
+        return latest;
+      },
+      isCurrent: function (id) {
+        return id === latest;
+      }
+    };
+  }
+
+  function itemPickerDebounce(fn, wait) {
+    var timer = null;
+    function debounced() {
+      var args = arguments;
+      if (timer !== null) clearTimeout(timer);
+      timer = setTimeout(function () {
+        timer = null;
+        fn.apply(null, args);
+      }, wait);
+    }
+    debounced.cancel = function () {
+      if (timer !== null) clearTimeout(timer);
+      timer = null;
+    };
+    return debounced;
+  }
+
+  function itemSearchUrl(text, limit) {
+    return '/api/admin/items/search?q=' + encodeURIComponent(text) + '&limit=' + (limit || ITEM_PICKER_LIMIT);
+  }
+
+  // A typed item id: a positive whole number, or null.
+  function parseItemEntry(text) {
+    var value = String(text === null || text === undefined ? '' : text).trim();
+    if (!/^\d{1,15}$/.test(value)) return null;
+    var number = Number(value);
+    return number > 0 ? number : null;
+  }
+
+  // Whether the server has an item list at all; asked once and shared by every picker.
+  var itemListStatus = { known: false, available: true, pending: null };
+
+  function ensureItemListStatus() {
+    if (itemListStatus.known) return Promise.resolve(itemListStatus.available);
+    if (!itemListStatus.pending) {
+      itemListStatus.pending = apiFetch(itemSearchUrl('', 1))
+        .then(function (data) {
+          itemListStatus.known = true;
+          itemListStatus.available = data.available !== false;
+          return itemListStatus.available;
+        })
+        .catch(function () {
+          return true;
+        })
+        .then(function (available) {
+          itemListStatus.pending = null;
+          return available;
+        });
+    }
+    return itemListStatus.pending;
+  }
+
+  // Shows `el` (a short note) only when there is no item list and the picker is a plain number field.
+  function bindItemListHint(el) {
+    if (!el) return;
+    ensureItemListStatus().then(function (available) {
+      el.hidden = available !== false;
+    });
+  }
+
+  var itemPickerSeq = 0;
+
+  // Builds the picker inside `options.mount`. Returns {getValue, reset, focus, destroy}. getValue() is the chosen
+  // item ({entry, name, icon, quality}), or {entry} for a typed numeric id, or null.
+  function createItemPicker(options) {
+    itemPickerSeq += 1;
+    var uid = 'item-picker-' + itemPickerSeq;
+    var mount = options.mount;
+    var onChange = options.onChange || function () {};
+    var selected = null;
+    var items = [];
+    var active = -1;
+    var status = 'idle';
+    var isOpen = false;
+    var degraded = false;
+    var destroyed = false;
+    var guard = createStaleGuard();
+
+    mount.classList.add('item-picker');
+    mount.innerHTML =
+      '<input type="text" id="' + uid + '-input" class="form-input item-picker__input" role="combobox" aria-expanded="false" aria-controls="' + uid + '-list" aria-autocomplete="list" aria-activedescendant="" autocomplete="off" spellcheck="false" maxlength="' + ITEM_PICKER_MAX_QUERY + '" placeholder="Item name or ID" data-i18n-placeholder="Item name or ID" aria-label="Search item by name or ID" data-i18n-aria-label="Search item by name or ID">' +
+      '<div class="item-picker__chip" hidden></div>' +
+      '<div class="item-picker__popup" hidden>' +
+        '<ul id="' + uid + '-list" class="item-picker__list" role="listbox" aria-label="Item list" data-i18n-aria-label="Item list"></ul>' +
+        '<div class="item-picker__status" hidden></div>' +
+      '</div>' +
+      '<span class="sr-only" role="status" aria-live="polite"></span>';
+    applyI18n(mount);
+    var input = mount.querySelector('.item-picker__input');
+    var chip = mount.querySelector('.item-picker__chip');
+    var popup = mount.querySelector('.item-picker__popup');
+    var list = mount.querySelector('.item-picker__list');
+    var statusEl = mount.querySelector('.item-picker__status');
+    var live = mount.querySelector('.sr-only');
+
+    function announce(text) {
+      live.textContent = text;
+    }
+
+    function setActive(index) {
+      active = index;
+      var rows = list.querySelectorAll('.item-picker__option');
+      rows.forEach(function (el, i) {
+        el.setAttribute('aria-selected', i === index ? 'true' : 'false');
+      });
+      var current = index >= 0 ? rows[index] : null;
+      input.setAttribute('aria-activedescendant', current ? current.id : '');
+      if (!current) return;
+      var top = current.offsetTop;
+      var bottom = top + current.offsetHeight;
+      if (top < popup.scrollTop) popup.scrollTop = top;
+      else if (bottom > popup.scrollTop + popup.clientHeight) popup.scrollTop = bottom - popup.clientHeight;
+    }
+
+    function renderPopup() {
+      var show = isOpen && !degraded && !selected;
+      popup.hidden = !show;
+      input.setAttribute('aria-expanded', show ? 'true' : 'false');
+      if (!show) {
+        list.innerHTML = '';
+        input.setAttribute('aria-activedescendant', '');
+        return;
+      }
+      if (status === 'results') {
+        list.innerHTML = items.map(function (item, i) {
+          return '<li role="option" id="' + uid + '-opt-' + i + '" class="item-picker__option" data-index="' + i + '" aria-selected="' + (i === active ? 'true' : 'false') + '">' + itemChipHtml(item) + '</li>';
+        }).join('');
+        list.hidden = false;
+        statusEl.hidden = true;
+        setActive(active);
+        return;
+      }
+      list.innerHTML = '';
+      list.hidden = true;
+      input.setAttribute('aria-activedescendant', '');
+      statusEl.hidden = false;
+      if (status === 'error') {
+        statusEl.innerHTML = '<span>' + escapeHtml(t('Could not load the item list. Press Enter to retry.')) + '</span> ' +
+          '<button type="button" class="btn btn-secondary btn-sm item-picker__retry">' + escapeHtml(t('Retry')) + '</button>';
+      } else {
+        statusEl.textContent = status === 'empty' ? t('No items found') : t('Searching items...');
+      }
+    }
+
+    function closePopup() {
+      scheduleSearch.cancel();
+      guard.next();
+      isOpen = false;
+      status = 'idle';
+      items = [];
+      active = -1;
+      renderPopup();
+    }
+
+    function degrade() {
+      if (degraded) return;
+      closePopup();
+      degraded = true;
+      ['role', 'aria-expanded', 'aria-controls', 'aria-autocomplete', 'aria-activedescendant', 'maxlength'].forEach(function (attr) {
+        input.removeAttribute(attr);
+      });
+      input.type = 'number';
+      input.min = '1';
+      input.step = '1';
+      input.setAttribute('inputmode', 'numeric');
+      input.setAttribute('data-i18n-placeholder', 'Item ID');
+      input.setAttribute('data-i18n-aria-label', 'Item ID');
+      applyI18n(mount);
+      popup.hidden = true;
+    }
+
+    function runSearch() {
+      if (destroyed || degraded) return;
+      var id = guard.next();
+      status = 'loading';
+      items = [];
+      active = -1;
+      renderPopup();
+      apiFetch(itemSearchUrl(normalizeItemQuery(input.value)))
+        .then(function (data) {
+          if (destroyed || !guard.isCurrent(id)) return;
+          if (data.available === false) {
+            itemListStatus.known = true;
+            itemListStatus.available = false;
+            degrade();
+            return;
+          }
+          items = data.items || [];
+          status = items.length ? 'results' : 'empty';
+          active = items.length ? 0 : -1;
+          renderPopup();
+          announce(!items.length ? t('No items found') : (items.length === 1 ? t('One result') : t('{count} results', { count: items.length })));
+        })
+        .catch(function () {
+          if (destroyed || !guard.isCurrent(id)) return;
+          status = 'error';
+          items = [];
+          active = -1;
+          renderPopup();
+        });
+    }
+    var scheduleSearch = itemPickerDebounce(runSearch, ITEM_PICKER_DEBOUNCE_MS);
+
+    function openAndSearch() {
+      isOpen = true;
+      runSearch();
+    }
+
+    function showChip() {
+      chip.innerHTML = itemChipHtml(selected) +
+        '<button type="button" class="btn btn-secondary btn-sm item-picker__clear" title="Clear item" data-i18n-title="Clear item" aria-label="Clear item" data-i18n-aria-label="Clear item">&times;</button>';
+      applyI18n(chip);
+      chip.hidden = false;
+      input.hidden = true;
+      input.value = '';
+    }
+
+    function choose(item) {
+      selected = item;
+      closePopup();
+      showChip();
+      announce(t('Selected: {name}', { name: item.name || '#' + item.entry }));
+      var clear = chip.querySelector('.item-picker__clear');
+      if (clear) clear.focus();
+      onChange(item);
+    }
+
+    function clearSelection(focus) {
+      selected = null;
+      chip.hidden = true;
+      chip.innerHTML = '';
+      input.hidden = false;
+      input.value = '';
+      if (focus) input.focus();
+    }
+
+    input.addEventListener('input', function () {
+      if (degraded) return;
+      scheduleSearch.cancel();
+      guard.next();
+      isOpen = true;
+      status = 'loading';
+      items = [];
+      active = -1;
+      renderPopup();
+      scheduleSearch();
+    });
+
+    input.addEventListener('click', function () {
+      if (!degraded && !isOpen) openAndSearch();
+    });
+
+    input.addEventListener('keydown', function (e) {
+      if (degraded) return;
+      var action = itemPickerKeyAction(e.key, { open: isOpen, count: items.length, active: active, status: status, text: input.value });
+      if (action === 'open') {
+        e.preventDefault();
+        openAndSearch();
+      } else if (action === 'move') {
+        e.preventDefault();
+        setActive(nextActiveIndex(active, items.length, e.key));
+      } else if (action === 'select') {
+        e.preventDefault();
+        choose(items[active]);
+      } else if (action === 'retry') {
+        e.preventDefault();
+        runSearch();
+      } else if (action === 'close') {
+        // The modal must not close on the same Escape that only dismisses the list.
+        e.preventDefault();
+        e.stopPropagation();
+        closePopup();
+      } else if (action === 'clear') {
+        e.preventDefault();
+        e.stopPropagation();
+        input.value = '';
+      } else if (e.key === 'Enter' && isOpen) {
+        e.preventDefault();
+      }
+    });
+
+    // Picking with the pointer must not move focus out of the input, so the press is cancelled and the click selects.
+    popup.addEventListener('pointerdown', function (e) {
+      e.preventDefault();
+    });
+    popup.addEventListener('click', function (e) {
+      var option = e.target.closest('.item-picker__option');
+      if (option && items[Number(option.getAttribute('data-index'))]) {
+        choose(items[Number(option.getAttribute('data-index'))]);
+        return;
+      }
+      if (e.target.closest('.item-picker__retry')) {
+        runSearch();
+        input.focus();
+      }
+    });
+
+    chip.addEventListener('click', function (e) {
+      if (!e.target.closest('.item-picker__clear')) return;
+      clearSelection(true);
+      onChange(null);
+    });
+
+    mount.addEventListener('focusout', function (e) {
+      if (!mount.contains(e.relatedTarget)) closePopup();
+    });
+    function closeOnOutsidePress(e) {
+      if (!mount.contains(e.target)) closePopup();
+    }
+    document.addEventListener('pointerdown', closeOnOutsidePress);
+
+    if (itemListStatus.known && !itemListStatus.available) {
+      degrade();
+    } else {
+      ensureItemListStatus().then(function (available) {
+        if (!destroyed && available === false) degrade();
+      });
+    }
+
+    return {
+      getValue: function () {
+        if (selected) return selected;
+        var typed = parseItemEntry(input.value);
+        return typed ? { entry: typed } : null;
+      },
+      reset: function () {
+        clearSelection(false);
+        closePopup();
+      },
+      focus: function () {
+        (selected ? chip.querySelector('.item-picker__clear') : input).focus();
+      },
+      destroy: function () {
+        destroyed = true;
+        scheduleSearch.cancel();
+        guard.next();
+        document.removeEventListener('pointerdown', closeOnOutsidePress);
+        mount.innerHTML = '';
+      }
+    };
+  }
+
   // --- Gift Codes ---
   // Rewards are redeemed in the game client; the panel only creates, lists and enables/disables codes.
   function giftCodeStatusBadge(status) {
@@ -2980,12 +3375,20 @@
     var row = document.createElement('div');
     row.className = 'giftcode-item-row';
     row.innerHTML =
-      '<input type="number" class="form-input giftcode-item-entry" min="1" step="1" inputmode="numeric" placeholder="Item ID" data-i18n-placeholder="Item ID" aria-label="Item ID" data-i18n-aria-label="Item ID">' +
+      '<div class="giftcode-item-picker item-picker--flow"></div>' +
       '<input type="number" class="form-input giftcode-item-count" min="1" step="1" value="1" inputmode="numeric" placeholder="Quantity" data-i18n-placeholder="Quantity" aria-label="Quantity" data-i18n-aria-label="Quantity">' +
       '<button type="button" class="btn btn-secondary btn-sm btn-giftcode-remove-item" title="Remove reward" data-i18n-title="Remove reward" aria-label="Remove reward" data-i18n-aria-label="Remove reward">&times;</button>';
     els.giftCodeItems.appendChild(row);
     applyI18n(row);
+    row.itemPicker = createItemPicker({ mount: row.querySelector('.giftcode-item-picker') });
     updateGiftCodeRemoveButtons();
+  }
+
+  function clearGiftCodeRows() {
+    els.giftCodeItems.querySelectorAll('.giftcode-item-row').forEach(function (row) {
+      if (row.itemPicker) row.itemPicker.destroy();
+    });
+    els.giftCodeItems.innerHTML = '';
   }
 
   function showCreateGiftCode() {
@@ -2995,8 +3398,9 @@
     document.getElementById('giftcode-starts').value = '';
     document.getElementById('giftcode-expires').value = '';
     document.getElementById('giftcode-note').value = '';
-    els.giftCodeItems.innerHTML = '';
+    clearGiftCodeRows();
     addGiftCodeItemRow();
+    bindItemListHint(document.getElementById('giftcode-items-hint'));
     setGiftCodeError('');
     openModal(els.modalGiftCode);
   }
@@ -3027,7 +3431,8 @@
     var items = [];
     var itemsValid = true;
     els.giftCodeItems.querySelectorAll('.giftcode-item-row').forEach(function (row) {
-      var entry = parseWholeNumber(row.querySelector('.giftcode-item-entry').value);
+      var picked = row.itemPicker ? row.itemPicker.getValue() : null;
+      var entry = picked ? picked.entry : null;
       var count = parseWholeNumber(row.querySelector('.giftcode-item-count').value);
       if (!entry || !count) {
         itemsValid = false;
@@ -3158,6 +3563,7 @@
     var params = new URLSearchParams();
     params.set('status', market.status);
     if (market.query) params.set('q', market.query);
+    if (market.entry) params.set('entry', String(market.entry));
     params.set('page', String(market.page));
     params.set('page_size', String(MARKET_PAGE_SIZE));
 
@@ -3203,15 +3609,29 @@
     if (e && e.preventDefault) e.preventDefault();
     state.market.status = els.marketStatusSelect ? els.marketStatusSelect.value : 'active';
     state.market.query = els.marketSearchInput ? els.marketSearchInput.value.trim() : '';
+    var item = marketItemPicker ? marketItemPicker.getValue() : null;
+    state.market.entry = item ? item.entry : null;
     state.market.page = 1;
     loadMarket();
+  }
+
+  // The item filter is built the first time the tab opens, once the session exists (it asks the server for the list).
+  var marketItemPicker = null;
+
+  function ensureMarketItemPicker() {
+    var mount = document.getElementById('market-item-picker');
+    if (marketItemPicker || !mount) return;
+    marketItemPicker = createItemPicker({ mount: mount, onChange: function () { applyMarketFilters(); } });
+    bindItemListHint(document.getElementById('market-item-hint'));
   }
 
   function resetMarketFilters() {
     if (els.marketStatusSelect) els.marketStatusSelect.value = 'active';
     if (els.marketSearchInput) els.marketSearchInput.value = '';
+    if (marketItemPicker) marketItemPicker.reset();
     state.market.status = 'active';
     state.market.query = '';
+    state.market.entry = null;
     state.market.page = 1;
     loadMarket();
   }
@@ -3275,6 +3695,7 @@
     } else if (tabId === 'giftcodes') {
       loadGiftCodes();
     } else if (tabId === 'market') {
+      ensureMarketItemPicker();
       loadMarket();
     } else if (tabId === 'dashboard') {
       loadStats();
@@ -3537,6 +3958,7 @@
         if (!target) return;
         var row = target.closest('.giftcode-item-row');
         if (row && els.giftCodeItems.querySelectorAll('.giftcode-item-row').length > 1) {
+          if (row.itemPicker) row.itemPicker.destroy();
           row.remove();
           updateGiftCodeRemoveButtons();
         }

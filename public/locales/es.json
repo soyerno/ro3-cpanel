@@ -420,5 +420,16 @@
   "System": "Sistema",
   "Hide mail": "Ocultar correo",
   "Currencies": "Monedas",
-  "Currency {id}": "Moneda {id}"
+  "Currency {id}": "Moneda {id}",
+  "Search item by name or ID": "Buscar ítem por nombre o ID",
+  "Item name or ID": "Nombre o ID del ítem",
+  "Searching items...": "Buscando ítems...",
+  "No items found": "No se encontraron ítems",
+  "One result": "Un resultado",
+  "{count} results": "{count} resultados",
+  "Could not load the item list. Press Enter to retry.": "No se pudo cargar la lista de ítems. Presione Enter para reintentar.",
+  "Clear item": "Quitar ítem",
+  "Item list": "Lista de ítems",
+  "Selected: {name}": "Seleccionado: {name}",
+  "No item list is configured: enter the item ID as a number.": "No hay una lista de ítems configurada: ingrese el ID del ítem como número."
 }
