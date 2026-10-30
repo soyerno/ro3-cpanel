@@ -71,7 +71,8 @@
       request: 0,
       notesBaseline: '',
       listScroll: 0,
-      saving: false
+      saving: false,
+      vipSaving: false
     },
     // Shared account vault shown in the account screen's Vault tab (read-only).
     vault: {
@@ -223,6 +224,7 @@
     accountTitle: document.getElementById('account-title'),
     accountBreadcrumbCurrent: document.getElementById('account-breadcrumb-current'),
     accountBadges: document.getElementById('account-badges'),
+    accountVipToggle: document.getElementById('account-vip-toggle'),
     accountRegistered: document.getElementById('account-registered'),
     accountSessions: document.getElementById('account-sessions'),
     accountStatusText: document.getElementById('account-status-text'),
@@ -1306,6 +1308,7 @@
     els.accountCharacters.innerHTML = skeletonHtml(5);
     els.accountNotes.disabled = true;
     els.accountSaveNotes.disabled = true;
+    if (els.accountVipToggle) els.accountVipToggle.disabled = true;
   }
 
   function renderAccountNotFound(name) {
@@ -1345,9 +1348,66 @@
     if (!acc) return;
     var html = '<span class="badge ' + (acc.is_banned ? 'badge-banned' : 'badge-active') + '">' + escapeHtml(accountStatusLabel(acc)) + '</span>';
     if (acc.is_admin) html += ' <span class="badge badge-admin">' + escapeHtml(t('Administrator')) + '</span>';
-    var vip = state.vault.vip;
+    var vip = state.vault.vip || acc.vip;
     if (vip && (vip.source === 'gm' || vip.source === 'vip' || vip.source === 'note')) html += ' ' + vaultVipBadge(vip);
     els.accountBadges.innerHTML = html;
+    renderVipToggle();
+  }
+
+  // The VIP checkbox mirrors the effective VIP status; a GM is always VIP, so its box is locked.
+  function renderVipToggle() {
+    var box = els.accountVipToggle;
+    var acc = state.accountScreen.data;
+    if (!box) return;
+    var vip = (acc && (state.vault.vip || acc.vip)) || null;
+    var isGm = !!(vip && vip.source === 'gm');
+    box.checked = !!(vip && vip.is_vip);
+    box.disabled = !acc || isGm || state.accountScreen.vipSaving;
+    box.title = isGm ? t('GM accounts are always VIP') : '';
+  }
+
+  function handleVipToggle() {
+    var screen = state.accountScreen;
+    var box = els.accountVipToggle;
+    if (!screen.data || screen.vipSaving) return;
+    var accountName = screen.data.name;
+    var wanted = !!box.checked;
+    askConfirm({
+      title: wanted ? t('Grant VIP') : t('Revoke VIP'),
+      message: wanted
+        ? t('Grant VIP to account "{name}"? The web portal treats it as a permanent VIP.', { name: accountName })
+        : t('Revoke VIP from account "{name}"? The portal will not grant it again on its own.', { name: accountName }),
+      confirmLabel: wanted ? t('Grant VIP') : t('Revoke VIP')
+    }).then(function (ok) {
+      if (!ok) {
+        box.checked = !wanted;
+        return null;
+      }
+      screen.vipSaving = true;
+      box.disabled = true;
+      return apiFetch('/api/admin/accounts/vip', {
+        method: 'POST',
+        body: { username: accountName, vip: wanted }
+      })
+        .then(function (data) {
+          showToast(data.message, 'success');
+          if (!screen.data || screen.data.name !== accountName) return;
+          screen.data.vip = data.vip || null;
+          if (state.vault.account === accountName && state.vault.vip) {
+            state.vault.vip = data.vip || null;
+            if (state.vault.data) state.vault.data.vip = data.vip || null;
+            renderVaultPanel();
+          }
+        })
+        .catch(function (err) {
+          box.checked = !wanted;
+          showToast(t('Error updating VIP: {message}', { message: err.message }), 'error');
+        })
+        .finally(function () {
+          screen.vipSaving = false;
+          renderAccountBadges();
+        });
+    });
   }
 
   function renderAccountSummary(acc) {
@@ -1565,7 +1625,7 @@
   // --- Player links, currencies and stats ---
   // Every player name that has an account behind it links to that account's screen. The hashchange handler does the
   // navigation, so the link also works from another tab, in a new tab and with the keyboard.
-  var AUDIT_ACCOUNT_ACTIONS = ['create_account', 'update_password', 'ban_account', 'unban_account', 'gm_command'];
+  var AUDIT_ACCOUNT_ACTIONS = ['create_account', 'update_password', 'ban_account', 'unban_account', 'gm_command', 'vip_grant', 'vip_revoke'];
 
   function accountLinkHtml(account, label) {
     var text = label === undefined || label === null ? account : label;
@@ -3622,6 +3682,7 @@
 
     if (els.accountNotes) els.accountNotes.addEventListener('input', handleNotesInput);
     if (els.accountSaveNotes) els.accountSaveNotes.addEventListener('click', handleSaveNotes);
+    if (els.accountVipToggle) els.accountVipToggle.addEventListener('change', handleVipToggle);
 
     if (els.accountVault) {
       els.accountVault.addEventListener('click', function (e) {
