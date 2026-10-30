@@ -465,5 +465,10 @@
   "Available": "Disponible",
   "Failed": "Fallida",
   "Not started": "Sin empezar",
-  "This character has no quests.": "Este personaje no tiene misiones."
+  "This character has no quests.": "Este personaje no tiene misiones.",
+  "Search item by name or ID": "Buscar ítem por nombre o ID",
+  "Items": "Ítems",
+  "Searching items...": "Buscando ítems...",
+  "No items found": "No se encontraron ítems",
+  "Error searching items: {message}": "Error al buscar ítems: {message}"
 }

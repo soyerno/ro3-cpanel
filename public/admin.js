@@ -3279,16 +3279,194 @@
     });
   }
 
+  // --- Reward item typeahead ---
+  // Each reward row searches GET /api/admin/items by name or id. The chosen id lives in the hidden
+  // .giftcode-item-entry field, so the create request keeps sending {entry, count}. A plain numeric id typed
+  // without picking a result is used as it is.
+  var ITEM_SEARCH_DEBOUNCE_MS = 200;
+  var itemComboboxSeq = 0;
+
+  function itemSearchQueryReady(text) {
+    return /^\d+$/.test(text) || text.length >= 2;
+  }
+
+  function initItemCombobox(row) {
+    var input = row.querySelector('.item-combobox__input');
+    var entryField = row.querySelector('.giftcode-item-entry');
+    var popup = row.querySelector('.item-combobox__popup');
+    var list = row.querySelector('.item-combobox__list');
+    var status = row.querySelector('.item-combobox__status');
+    var chosen = row.querySelector('.item-combobox__chosen');
+    var results = [];
+    var active = -1;
+    var timer = null;
+    var seq = 0;
+    var controller = null;
+
+    function setActive(index) {
+      active = index;
+      var options = list.querySelectorAll('.item-combobox__option');
+      options.forEach(function (option, i) {
+        var on = i === index;
+        option.setAttribute('aria-selected', on ? 'true' : 'false');
+        option.classList.toggle('is-active', on);
+        if (on && typeof option.scrollIntoView === 'function') option.scrollIntoView({ block: 'nearest' });
+      });
+      if (index >= 0 && options[index]) input.setAttribute('aria-activedescendant', options[index].id);
+      else input.removeAttribute('aria-activedescendant');
+    }
+
+    function setOpen(open) {
+      popup.hidden = !open;
+      input.setAttribute('aria-expanded', open ? 'true' : 'false');
+      if (!open) setActive(-1);
+    }
+
+    function showStatus(text) {
+      status.textContent = text || '';
+      status.hidden = !text;
+    }
+
+    // Drops the queued search and makes any request still in flight stale.
+    function cancelPending() {
+      if (timer) clearTimeout(timer);
+      timer = null;
+      seq += 1;
+      if (controller) controller.abort();
+      controller = null;
+    }
+
+    function renderResults(items) {
+      results = items;
+      list.innerHTML = items.map(function (item, i) {
+        return '<li id="' + list.id + '-opt-' + i + '" class="item-combobox__option" role="option" aria-selected="false" data-index="' + i + '">' +
+          itemIconHtml(item) +
+          '<span class="item-combobox__name">' + escapeHtml(item.name || '#' + item.entry) + '</span>' +
+          '<span class="item-combobox__id text-dim">#' + escapeHtml(String(item.entry)) + '</span>' +
+        '</li>';
+      }).join('');
+      showStatus(items.length ? '' : t('No items found'));
+      setActive(-1);
+    }
+
+    function search(text) {
+      cancelPending();
+      var mySeq = seq;
+      controller = typeof AbortController === 'function' ? new AbortController() : null;
+      list.innerHTML = '';
+      results = [];
+      showStatus(t('Searching items...'));
+      setOpen(true);
+      apiFetch('/api/admin/items?q=' + encodeURIComponent(text) + '&limit=20', controller ? { signal: controller.signal } : {})
+        .then(function (data) {
+          if (mySeq !== seq) return;
+          renderResults((data && data.items) || []);
+        })
+        .catch(function (err) {
+          if (mySeq !== seq || (err && err.name === 'AbortError')) return;
+          list.innerHTML = '';
+          results = [];
+          showStatus(t('Error searching items: {message}', { message: err.message }));
+        });
+    }
+
+    function setChosen(item) {
+      chosen.innerHTML = item ? itemChipHtml(item) : '';
+      chosen.hidden = !item;
+    }
+
+    function choose(index) {
+      var item = results[index];
+      if (!item) return;
+      cancelPending();
+      entryField.value = String(item.entry);
+      input.value = item.name || String(item.entry);
+      setChosen(item);
+      setOpen(false);
+    }
+
+    input.addEventListener('input', function () {
+      var text = input.value.trim();
+      // Typing replaces any earlier pick; a bare number still counts as the item id.
+      entryField.value = /^\d+$/.test(text) ? text : '';
+      setChosen(null);
+      cancelPending();
+      if (!itemSearchQueryReady(text)) {
+        setOpen(false);
+        return;
+      }
+      timer = setTimeout(function () {
+        timer = null;
+        search(text);
+      }, ITEM_SEARCH_DEBOUNCE_MS);
+    });
+
+    input.addEventListener('keydown', function (e) {
+      var open = !popup.hidden;
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        if (!open) {
+          var text = input.value.trim();
+          if (itemSearchQueryReady(text)) search(text);
+          return;
+        }
+        if (!results.length) return;
+        var next = e.key === 'ArrowDown' ? active + 1 : active - 1;
+        if (next >= results.length) next = 0;
+        if (next < 0) next = results.length - 1;
+        setActive(next);
+      } else if (e.key === 'Enter') {
+        if (open && active >= 0) {
+          e.preventDefault();
+          choose(active);
+        }
+      } else if (e.key === 'Escape' && open) {
+        // Close only the list, not the whole dialog.
+        e.preventDefault();
+        e.stopPropagation();
+        cancelPending();
+        setOpen(false);
+      }
+    });
+
+    // mousedown keeps the focus in the input, so the list does not close before the click lands.
+    // Covers the popup's own scrollbar too.
+    popup.addEventListener('mousedown', function (e) {
+      e.preventDefault();
+    });
+    list.addEventListener('click', function (e) {
+      var option = e.target.closest('.item-combobox__option');
+      if (!option) return;
+      choose(Number(option.getAttribute('data-index')));
+      input.focus();
+    });
+    // Leaving the field (Tab, a click anywhere else) closes the list.
+    input.addEventListener('blur', function () {
+      cancelPending();
+      setOpen(false);
+    });
+  }
+
   function addGiftCodeItemRow() {
     if (!els.giftCodeItems) return;
+    var listId = 'giftcode-item-listbox-' + (++itemComboboxSeq);
     var row = document.createElement('div');
     row.className = 'giftcode-item-row';
     row.innerHTML =
-      '<input type="number" class="form-input giftcode-item-entry" min="1" step="1" inputmode="numeric" placeholder="Item ID" data-i18n-placeholder="Item ID" aria-label="Item ID" data-i18n-aria-label="Item ID">' +
+      '<div class="item-combobox">' +
+        '<input type="text" class="form-input item-combobox__input" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="' + listId + '" autocomplete="off" spellcheck="false" placeholder="Search item by name or ID" data-i18n-placeholder="Search item by name or ID" aria-label="Search item by name or ID" data-i18n-aria-label="Search item by name or ID">' +
+        '<input type="hidden" class="giftcode-item-entry" value="">' +
+        '<div class="item-combobox__popup" hidden>' +
+          '<ul class="item-combobox__list" id="' + listId + '" role="listbox" aria-label="Items" data-i18n-aria-label="Items"></ul>' +
+          '<div class="item-combobox__status text-dim" role="status" aria-live="polite" hidden></div>' +
+        '</div>' +
+        '<div class="item-combobox__chosen" hidden></div>' +
+      '</div>' +
       '<input type="number" class="form-input giftcode-item-count" min="1" step="1" value="1" inputmode="numeric" placeholder="Quantity" data-i18n-placeholder="Quantity" aria-label="Quantity" data-i18n-aria-label="Quantity">' +
       '<button type="button" class="btn btn-secondary btn-sm btn-giftcode-remove-item" title="Remove reward" data-i18n-title="Remove reward" aria-label="Remove reward" data-i18n-aria-label="Remove reward">&times;</button>';
     els.giftCodeItems.appendChild(row);
     applyI18n(row);
+    initItemCombobox(row);
     updateGiftCodeRemoveButtons();
   }
 

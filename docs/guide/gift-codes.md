@@ -22,6 +22,11 @@ A code has:
 
 - **Rewards**: one or more `item ID x count` pairs. Names are shown when `item_names_file` is configured. The panel does
   not check that an item ID exists; RO3Emu refuses a code with an unknown item when someone redeems it.
+  Each reward row has an item search: type part of a name (2+ characters) or an ID (1+ digit) and pick a result,
+  which shows its icon and name. Results come from `GET /api/admin/items?q=<text>&limit=<n>` (admin only; limit 1 to
+  50, default 20), which searches `item_catalog_file` and `item_names_file` (names from the latter win), ranked exact
+  ID, name prefix, ID prefix, then name substring. Names are shown as those files hold them (they are not
+  translated). Typing a plain item ID without picking a result still works.
 - **Max uses** (0 = unlimited) and **uses per account** (at least 1).
 - Optional **start** and **expiry** (stored as unix seconds; the start is inclusive, the expiry exclusive).
 - An optional **note**.

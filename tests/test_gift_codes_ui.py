@@ -131,11 +131,72 @@ class TestGiftCodesScript(unittest.TestCase):
         self.assertNotRegex(self.js[start:end], r"#[0-9a-fA-F]{3,8}\b")
 
 
+class TestGiftCodeItemTypeahead(unittest.TestCase):
+    """Each reward row searches items by name or id; the chosen id still goes out as {entry, count}."""
+
+    def setUp(self):
+        self.js = _read("admin.js")
+        start = self.js.index("// --- Reward item typeahead ---")
+        self.block = self.js[start:self.js.index("function showCreateGiftCode(")]
+
+    def test_row_has_an_aria_combobox_with_a_listbox(self):
+        for needle in ('role="combobox"', 'aria-autocomplete="list"', 'aria-expanded="false"', 'aria-controls="',
+                       'role="listbox"', 'role="option"', 'aria-selected=', 'role="status"', "aria-activedescendant"):
+            with self.subTest(needle=needle):
+                self.assertIn(needle, self.block)
+
+    def test_listbox_id_matches_aria_controls(self):
+        self.assertRegex(self.block, r"aria-controls=\"' \+ listId \+ '\"")
+        self.assertRegex(self.block, r"id=\"' \+ listId \+ '\" role=\"listbox\"")
+
+    def test_searches_the_item_endpoint_with_debounce_and_drops_stale_answers(self):
+        self.assertIn("'/api/admin/items?q=' + encodeURIComponent(text)", self.block)
+        self.assertIn("setTimeout(", self.block)
+        self.assertIn("AbortController", self.block)
+        self.assertRegex(self.block, r"mySeq !== seq")
+
+    def test_keyboard_navigation(self):
+        for key in ("ArrowDown", "ArrowUp", "Enter", "Escape"):
+            with self.subTest(key=key):
+                self.assertIn("'%s'" % key, self.block)
+
+    def test_the_chosen_id_lands_in_the_field_the_create_request_reads(self):
+        self.assertIn('type="hidden" class="giftcode-item-entry"', self.block)
+        self.assertIn("entryField.value = String(item.entry)", self.block)
+        # A bare numeric id typed without picking a result still counts.
+        self.assertIn(r"entryField.value = /^\d+$/.test(text) ? text : ''", self.block)
+        submit = self.js[self.js.index("function handleCreateGiftCode("):]
+        self.assertIn("row.querySelector('.giftcode-item-entry').value", submit)
+        self.assertIn("items.push({ entry: entry, count: count })", submit)
+
+    def test_results_show_icon_and_escaped_name(self):
+        self.assertIn("itemIconHtml(item)", self.block)
+        self.assertIn("escapeHtml(item.name || '#' + item.entry)", self.block)
+        self.assertIn("itemChipHtml(item)", self.block)
+
+    def test_searching_and_no_results_states_are_translated(self):
+        self.assertIn("t('Searching items...')", self.block)
+        self.assertIn("t('No items found')", self.block)
+
+    def test_csp_safe_no_inline_styles_or_handlers(self):
+        self.assertNotRegex(self.block, r"\bstyle=")
+        self.assertNotRegex(self.block, r"\son[a-z]+=")
+        self.assertNotIn(".style.", self.block)
+
+    def test_combobox_styles_live_in_the_stylesheet(self):
+        css = _read("admin.css")
+        for selector in (".item-combobox {", ".item-combobox__popup {", ".item-combobox__option.is-active"):
+            with self.subTest(selector=selector):
+                self.assertIn(selector, css)
+
+
 class TestGiftCodesLocale(unittest.TestCase):
     def test_new_strings_have_spanish_translations(self):
         with open(os.path.join(PUBLIC, "locales", "es.json"), encoding="utf-8") as f:
             es = json.load(f)
-        for key in ("Gift Codes", "Create Gift Code", "Rewards", "Scheduled", "Exhausted", "unlimited"):
+        for key in ("Gift Codes", "Create Gift Code", "Rewards", "Scheduled", "Exhausted", "unlimited",
+                    "Search item by name or ID", "Searching items...", "No items found",
+                    "Error searching items: {message}", "Items"):
             with self.subTest(key=key):
                 self.assertIn(key, es)
 
