@@ -139,6 +139,14 @@ Cada tarjeta de personaje en la pantalla de la cuenta tiene un botón **Ver inve
 
 - Las imágenes y nombres más completos salen de un catálogo opcional. Apunta `item_catalog_file` a una lista JSON de filas `{"id": 5001, "n": "Poción Roja", "ic": "item_5001.png", "q": "Common"}` (`n` nombre, `ic` nombre del archivo del ícono, `q` una de Common, Fine, Rare, Legendary, Mythic; los demás campos se ignoran) y define `item_icons_url` con la carpeta del mismo sitio que sirve los íconos, por ejemplo `"/admin/item-icons/"`. Inventario, correo, baúl, mercado y premios de códigos de regalo devuelven entonces `name`, `icon` y `quality` por objeto. Los nombres de `item_names_file` siguen ganando sobre los del catálogo. Solo se aceptan nombres de ícono con la forma `[A-Za-z0-9_-]+.(png|webp|jpg)`, un `item_icons_url` que no sea una ruta simple del mismo sitio se ignora y, sin `item_icons_url`, el panel muestra los nombres sin imágenes.
 
+### Selector de objetos
+
+Cada vez que el panel pide un objeto (los premios de un código de regalo, el filtro de objeto de la pestaña Mercado) usa un único selector con autocompletado: escribe un nombre o un id, elige de una lista que muestra la imagen, el nombre y el id, y la elección queda como una ficha con un botón para quitarla. Es un combobox usable con teclado (flechas, Inicio/Fin, Enter para elegir, Escape para cerrar). La lista es la misma lista de objetos descrita arriba (`item_catalog_file` más `item_names_file`).
+
+- **Endpoint de búsqueda**: `GET /api/admin/items/search?q=<texto>&limit=<n>` (requiere sesión de administrador) responde `{"available": true, "items": [{"entry", "name", "icon", "quality"}], "total": n}`. Busca una parte del nombre sin distinguir mayúsculas, o los dígitos de un id, ordenado primero por id exacto, luego nombres que empiezan con el texto y luego nombres que lo contienen. `limit` es 20 por defecto y tiene tope 50; `q` admite hasta 64 caracteres (400 si se pasa); un `q` vacío lista los primeros objetos por id. Sin lista de objetos responde `{"available": false, "items": [], "total": 0}` y el selector pasa a ser un campo numérico simple.
+- **Validación**: con una lista de objetos configurada, `POST /api/admin/gift-codes` rechaza (400) un premio cuyo id no esté en la lista y nombra los ids. Sin lista se acepta cualquier entero positivo, como antes.
+- **Filtro del mercado**: `GET /api/admin/market` acepta `entry=<entero positivo>` (id exacto del objeto, combinable con `q` y `status`); un valor que no sea un entero positivo es un 400.
+
 ## Eliminar un personaje
 
 `POST /api/admin/characters/delete` con `{"role_id": 123, "confirm_name": "<nombre exacto del personaje>"}` hace un borrado lógico (`role.deleted_time`), el mismo que usa el borrado de cuenta; las filas siguen en la base. Está endurecido a propósito:
