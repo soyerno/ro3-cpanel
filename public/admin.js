@@ -1944,6 +1944,23 @@
           '<button type="button" id="gm-fx-reset" class="btn btn-secondary btn-sm" data-i18n="Back to configuration">Back to configuration</button>' +
         '</div>' +
       '</form>' +
+      '<form id="gm-afk-form" class="gm-warp-form gm-tools-section" novalidate>' +
+        '<h4 class="gm-tools-title" data-i18n="Auto mode / Bonus Time">Auto mode / Bonus Time</h4>' +
+        '<p id="gm-afk-note" class="gm-tools-note" data-i18n="Applies to the character connected on this account: it must be online, and the result appears in the player game chat. Each command (afkunlock, afkmode, afktime) must be enabled in gm_allowed_commands.">Applies to the character connected on this account: it must be online, and the result appears in the player game chat. Each command (afkunlock, afkmode, afktime) must be enabled in gm_allowed_commands.</p>' +
+        '<div class="gm-warp-actions">' +
+          '<button type="button" id="gm-afk-unlock" class="btn btn-secondary btn-sm" data-i18n="Unlock auto mode">Unlock auto mode</button>' +
+          '<button type="button" id="gm-afk-lock" class="btn btn-secondary btn-sm" data-i18n="Lock auto mode">Lock auto mode</button>' +
+          '<button type="button" id="gm-afk-mode-on" class="btn btn-secondary btn-sm" data-i18n="Bonus Time on">Bonus Time on</button>' +
+          '<button type="button" id="gm-afk-mode-off" class="btn btn-secondary btn-sm" data-i18n="Bonus Time off">Bonus Time off</button>' +
+        '</div>' +
+        '<div><label class="form-label" for="gm-afk-minutes" data-i18n="Minutes">Minutes</label>' +
+          '<input type="number" id="gm-afk-minutes" class="form-input" min="-100000" max="100000" step="1" placeholder="60"></div>' +
+        '<div class="gm-warp-actions">' +
+          '<button type="button" id="gm-afk-info" class="btn btn-secondary btn-sm" data-i18n="Show Bonus Time">Show Bonus Time</button>' +
+          '<button type="button" id="gm-afk-set" class="btn btn-secondary btn-sm" data-i18n="Set minutes">Set minutes</button>' +
+          '<button type="button" id="gm-afk-add" class="btn btn-secondary btn-sm" data-i18n="Add minutes">Add minutes</button>' +
+        '</div>' +
+      '</form>' +
       '<p id="gm-tools-result" class="gm-tools-result" aria-live="polite"></p>';
     applyI18n(panel);
     body.appendChild(panel);
@@ -1959,10 +1976,28 @@
     document.getElementById('gm-fx-reset').addEventListener('click', function () {
       sendGmCommand('fieldexp', { action: 'reset' });
     });
+    document.getElementById('gm-afk-form').addEventListener('submit', function (e) { e.preventDefault(); });
+    document.getElementById('gm-afk-unlock').addEventListener('click', function () {
+      sendGmCommand('afkunlock', { state: 'on' });
+    });
+    document.getElementById('gm-afk-lock').addEventListener('click', function () {
+      sendGmCommand('afkunlock', { state: 'off' });
+    });
+    document.getElementById('gm-afk-mode-on').addEventListener('click', function () {
+      sendGmCommand('afkmode', { state: 'on' });
+    });
+    document.getElementById('gm-afk-mode-off').addEventListener('click', function () {
+      sendGmCommand('afkmode', { state: 'off' });
+    });
+    document.getElementById('gm-afk-info').addEventListener('click', function () {
+      sendGmCommand('afktime', { action: 'info' });
+    });
+    document.getElementById('gm-afk-set').addEventListener('click', function () { handleGmAfkTime('set'); });
+    document.getElementById('gm-afk-add').addEventListener('click', function () { handleGmAfkTime('add'); });
   }
 
   function resetGmPanel() {
-    ['gm-warp-scene', 'gm-warp-x', 'gm-warp-z', 'gm-fx-min', 'gm-fx-max', 'gm-fx-percent'].forEach(function (id) {
+    ['gm-warp-scene', 'gm-warp-x', 'gm-warp-z', 'gm-fx-min', 'gm-fx-max', 'gm-fx-percent', 'gm-afk-minutes'].forEach(function (id) {
       var input = document.getElementById(id);
       if (input) input.value = '';
     });
@@ -2016,6 +2051,19 @@
       return;
     }
     sendGmCommand('fieldexp', { action: 'set', rules: [{ min: min, max: max, percent: percent }] });
+  }
+
+  // Bonus Time bank: "set" takes 0 to 100000 minutes, "add" -100000 to 100000 (the game server keeps the bank at 0 or more).
+  function handleGmAfkTime(action) {
+    var minutes = parseGmInt('gm-afk-minutes');
+    var minimum = action === 'set' ? 0 : -100000;
+    if (minutes === null || isNaN(minutes) || minutes < minimum || minutes > 100000) {
+      setGmResult(action === 'set'
+        ? t('Enter whole minutes from 0 to 100000.')
+        : t('Enter whole minutes from -100000 to 100000.'), 'error');
+      return;
+    }
+    sendGmCommand('afktime', { action: action, minutes: minutes });
   }
 
   function sendGmCommand(command, args) {

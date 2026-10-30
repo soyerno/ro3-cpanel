@@ -175,6 +175,11 @@ Safeguards in the panel:
   `fieldexp` (off unless listed) sends RO3Emu's `!fieldexp set <min> <max> <percent> ...`, `clear` or `reset` from
   validated integers (1 to 10 rules, levels 1 to 999, percent 1 to 10000): it changes the EXP of open-field kills
   for every player until RO3Emu restarts, so enable it only for admins who may do that.
+  `afkunlock` and `afkmode` (off unless listed) send `!afkunlock on|off` and `!afkmode on|off`: the `state`
+  argument must be exactly `"on"` or `"off"`. `afktime` (off unless listed) sends `!afktime info`,
+  `!afktime set <minutes>` (0 to 100000) or `!afktime add <minutes>` (-100000 to 100000; the game server keeps
+  the bank at 0 or more), with `minutes` a JSON integer. They act on the account's online character and their
+  reply goes to the in-game chat. `afktime set|add` grants Bonus Time, so enable it only for admins who may do that.
 - **Economy commands stay off.** RO3Emu also has `item`, `mail`, `zeny`, `lvl` and similar commands. The
   panel has no builder for them on purpose: exposing them would let every panel admin mint items, currency
   or levels. Do not add such commands without a separate review.
