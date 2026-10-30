@@ -54,7 +54,7 @@ class GiftCodeTestCase(unittest.TestCase):
                 con.executescript(GIFT_SCHEMA)
         self.names_path = os.path.join(self.tmp.name, "items.json")
         with open(self.names_path, "w", encoding="utf-8") as f:
-            json.dump({"10001": "Red Potion"}, f)
+            json.dump({"10001": "Red Potion", "10002": "Blue Gem"}, f)
         self._saved = (server.DB_PATH, dict(server.CONFIG), dict(server.ITEM_NAMES_STATE))
         server.DB_PATH = self.db_path
         server.CONFIG["admin_users"] = [{"username": "boss", "password": "Pw-123456"}]
@@ -211,13 +211,13 @@ class TestListGiftCodes(GiftCodeTestCase):
 class TestCreateGiftCode(GiftCodeTestCase):
     def test_creates_a_row_exactly_as_the_server_contract_reads_it(self):
         start, end = NOW + HOUR, NOW + 2 * HOUR
-        status, body = self.create(code="  Spring25  ", items=[{"entry": 10001, "count": 5}, {"entry": 20003, "count": 1}],
+        status, body = self.create(code="  Spring25  ", items=[{"entry": 10001, "count": 5}, {"entry": 10002, "count": 1}],
                                    max_uses=100, per_account=2, starts_utc=start, expires_utc=end, note="  spring  ")
         self.assertEqual(status, 200)
         self.assertEqual((body["success"], body["code"]), (True, "Spring25"))
         [row] = self.rows("SELECT * FROM gift_code")
         self.assertEqual(row["code"], "Spring25")
-        self.assertEqual(json.loads(row["items"]), [[10001, 5], [20003, 1]])
+        self.assertEqual(json.loads(row["items"]), [[10001, 5], [10002, 1]])
         self.assertEqual((row["max_uses"], row["per_account"]), (100, 2))
         self.assertEqual((row["starts_utc"], row["expires_utc"], row["disabled"]), (start, end, 0))
         self.assertEqual((row["created_by"], row["note"]), ("boss", "spring"))
@@ -225,7 +225,7 @@ class TestCreateGiftCode(GiftCodeTestCase):
         self.assertEqual(self.audit()[-1], {"admin_user": "boss", "action": "gift_code_create", "target": "Spring25"})
 
     def test_defaults_match_the_contract(self):
-        status, _ = self.call("POST", "/api/admin/gift-codes", {"code": "MINIMAL", "items": [{"entry": 1, "count": 1}]})
+        status, _ = self.call("POST", "/api/admin/gift-codes", {"code": "MINIMAL", "items": [{"entry": 10001, "count": 1}]})
         self.assertEqual(status, 200)
         [row] = self.rows("SELECT max_uses, per_account, starts_utc, expires_utc, note FROM gift_code")
         self.assertEqual(row, {"max_uses": 0, "per_account": 1, "starts_utc": None, "expires_utc": None, "note": None})
