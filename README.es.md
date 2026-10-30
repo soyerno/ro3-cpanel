@@ -114,7 +114,13 @@ hasta que RO3Emu se reinicie; requiere que la cuenta tenga un personaje conectad
 **Modo automático / Tiempo bonus** envía los comandos WildAFK del servidor de juego al personaje en línea de la
 cuenta: `!afkunlock on|off` (desbloqueo permanente del modo automático), `!afkmode on|off` (interruptor del tiempo
 bonus) y `!afktime info|set <minutos>|add <minutos>` (saldo de tiempo bonus). Cada uno está desactivado salvo que
-`"afkunlock"`, `"afkmode"` o `"afktime"` figure en la lista, y la respuesta aparece en el chat del juego del jugador. Ver
+`"afkunlock"`, `"afkmode"` o `"afktime"` figure en la lista, y la respuesta aparece en el chat del juego del jugador.
+La sección **Misiones**
+(`"quest"`, desactivada por defecto) es una herramienta de depuración: busca en el catálogo de misiones de RO3Emu por
+nombre o número, muestra las misiones del personaje conectado (estado, progreso, veces completada) y permite aceptar,
+completar los objetivos, entregar, abandonar o repetir (abandonar y volver a aceptar) cualquiera de ellas con el
+comando `!quest` de RO3Emu. La respuesta de RO3Emu se muestra en el panel. Requiere un RO3Emu que exponga el endpoint
+local `GET /ro3emu/quests`. Ver
 [Arquitectura de Seguridad](docs/guide/security.md#5-gm-tools).
 
 ### Suspensión de cuentas

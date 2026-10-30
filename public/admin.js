@@ -1961,6 +1961,7 @@
           '<button type="button" id="gm-afk-add" class="btn btn-secondary btn-sm" data-i18n="Add minutes">Add minutes</button>' +
         '</div>' +
       '</form>' +
+      questToolsMarkup() +
       '<p id="gm-tools-result" class="gm-tools-result" aria-live="polite"></p>';
     applyI18n(panel);
     body.appendChild(panel);
@@ -1994,6 +1995,7 @@
     });
     document.getElementById('gm-afk-set').addEventListener('click', function () { handleGmAfkTime('set'); });
     document.getElementById('gm-afk-add').addEventListener('click', function () { handleGmAfkTime('add'); });
+    bindQuestTools();
   }
 
   function resetGmPanel() {
@@ -2002,10 +2004,11 @@
       if (input) input.value = '';
     });
     setGmResult('', '');
+    resetQuestTools();
   }
 
-  function setGmResult(message, type) {
-    var result = document.getElementById('gm-tools-result');
+  function setGmResult(message, type, resultId) {
+    var result = document.getElementById(resultId || 'gm-tools-result');
     if (!result) return;
     result.textContent = message;
     result.className = 'gm-tools-result' + (type ? ' ' + type : '');
@@ -2066,27 +2069,244 @@
     sendGmCommand('afktime', { action: action, minutes: minutes });
   }
 
-  function sendGmCommand(command, args) {
+  // The result line shows what was sent and RO3Emu's reply (older RO3Emu builds only answer the generic message).
+  function sendGmCommand(command, args, resultId) {
     var account = state.accountScreen.data;
-    if (!account) return;
-    setGmResult(t('Sending…'), '');
+    if (!account) return Promise.resolve();
+    setGmResult(t('Sending…'), '', resultId);
     var gmButtons = Array.prototype.slice.call(document.querySelectorAll('#gm-tools button'));
     gmButtons.forEach(function (button) { setSubmitting(button, true); });
-    apiFetch('/api/admin/gm', {
+    return apiFetch('/api/admin/gm', {
       method: 'POST',
       body: { account: account.name, command: command, args: args }
     })
       .then(function (data) {
-        setGmResult(data.sent + ': ' + data.message, 'success');
+        setGmResult(data.sent + ': ' + (data.reply || data.message), 'success', resultId);
         showToast(t('GM command sent'), 'success');
       })
       .catch(function (err) {
-        setGmResult(err.message, 'error');
+        setGmResult(err.message, 'error', resultId);
         showToast(t('GM error: {message}', { message: err.message }), 'error');
       })
       .finally(function () {
         gmButtons.forEach(function (button) { setSubmitting(button, false); });
       });
+  }
+
+  // --- Quest tools (GM "quest" command; hidden unless "quest" is in gm_allowed_commands) ---
+  // The catalog comes from GET /api/admin/quests/catalog and the character's quests from
+  // GET /api/admin/quests?account=. Quest names come from game data, so they are only ever set as text.
+  var QUEST_PICKER_LIMIT = 200;
+  var questTools = { catalog: null, catalogLoading: false, selectedId: null, account: null, requestSeq: 0 };
+
+  function questToolsMarkup() {
+    return '<section id="gm-quests" class="gm-tools-section gm-quests" hidden>' +
+        '<h4 class="gm-tools-title" data-i18n="Quests">Quests</h4>' +
+        '<p class="gm-tools-note" data-i18n="Find a quest by name or number and apply an action to the connected character. Repeat drops the quest and accepts it again.">Find a quest by name or number and apply an action to the connected character. Repeat drops the quest and accepts it again.</p>' +
+        '<div class="gm-quest-picker">' +
+          '<label class="form-label" for="gm-quest-search" data-i18n="Search quest">Search quest</label>' +
+          '<input type="search" id="gm-quest-search" class="form-input" autocomplete="off" data-i18n-placeholder="Name or number" placeholder="Name or number">' +
+          '<select id="gm-quest-select" class="form-input gm-quest-select" size="6" data-i18n-aria-label="Quest" aria-label="Quest"></select>' +
+        '</div>' +
+        '<div class="gm-warp-actions gm-quest-actions">' +
+          '<button type="button" class="btn btn-secondary btn-sm" data-quest-action="accept" data-i18n="Accept">Accept</button>' +
+          '<button type="button" class="btn btn-secondary btn-sm" data-quest-action="finish" data-i18n="Complete objectives">Complete objectives</button>' +
+          '<button type="button" class="btn btn-secondary btn-sm" data-quest-action="done" data-i18n="Deliver">Deliver</button>' +
+          '<button type="button" class="btn btn-secondary btn-sm" data-quest-action="drop" data-i18n="Drop">Drop</button>' +
+          '<button type="button" class="btn btn-secondary btn-sm" data-quest-action="repeat" data-i18n="Repeat">Repeat</button>' +
+        '</div>' +
+        '<p id="gm-quest-result" class="gm-tools-result" aria-live="polite"></p>' +
+        '<div class="gm-quest-head">' +
+          '<h4 class="gm-tools-title" data-i18n="Character quests">Character quests</h4>' +
+          '<button type="button" id="gm-quest-refresh" class="btn btn-secondary btn-sm" data-i18n="Refresh">Refresh</button>' +
+        '</div>' +
+        '<div class="table-container"><table class="data-table gm-quest-table"><thead><tr>' +
+          '<th data-i18n="ID">ID</th>' +
+          '<th data-i18n="Quest">Quest</th>' +
+          '<th data-i18n="Status">Status</th>' +
+          '<th data-i18n="Progress">Progress</th>' +
+          '<th data-i18n="Times completed">Times completed</th>' +
+          '<th data-i18n="Actions">Actions</th>' +
+        '</tr></thead><tbody id="gm-quest-tbody"></tbody></table></div>' +
+      '</section>';
+  }
+
+  function bindQuestTools() {
+    document.getElementById('gm-quest-search').addEventListener('input', renderQuestPicker);
+    document.getElementById('gm-quest-select').addEventListener('change', function (e) {
+      questTools.selectedId = e.target.value ? parseInt(e.target.value, 10) : null;
+    });
+    document.querySelectorAll('#gm-quests .gm-quest-actions [data-quest-action]').forEach(function (button) {
+      button.addEventListener('click', function () {
+        if (!questTools.selectedId) {
+          setGmResult(t('Choose a quest first.'), 'error', 'gm-quest-result');
+          return;
+        }
+        runQuestAction(button.getAttribute('data-quest-action'), questTools.selectedId);
+      });
+    });
+    document.getElementById('gm-quest-tbody').addEventListener('click', function (e) {
+      var button = e.target.closest ? e.target.closest('[data-quest-row-action]') : null;
+      if (!button) return;
+      runQuestAction(button.getAttribute('data-quest-row-action'), parseInt(button.getAttribute('data-quest-id'), 10));
+    });
+    document.getElementById('gm-quest-refresh').addEventListener('click', loadCharacterQuests);
+  }
+
+  function runQuestAction(action, questId) {
+    if (!questId || questId < 1) return;
+    sendGmCommand('quest', { action: action, id: questId }, 'gm-quest-result').then(loadCharacterQuests);
+  }
+
+  function resetQuestTools() {
+    var section = document.getElementById('gm-quests');
+    if (!section) return;
+    questTools.account = state.accountScreen.name || null;
+    questTools.selectedId = null;
+    document.getElementById('gm-quest-search').value = '';
+    setGmResult('', '', 'gm-quest-result');
+    clearChildren(document.getElementById('gm-quest-tbody'));
+    if (!questTools.account) return;
+    if (questTools.catalog) {
+      section.hidden = false;
+      renderQuestPicker();
+      loadCharacterQuests();
+      return;
+    }
+    if (questTools.catalogLoading) return;
+    questTools.catalogLoading = true;
+    apiFetch('/api/admin/quests/catalog')
+      .then(function (data) {
+        questTools.catalog = Array.isArray(data.quests) ? data.quests : [];
+        section.hidden = false;
+        renderQuestPicker();
+        loadCharacterQuests();
+      })
+      .catch(function (err) {
+        // 403: "quest" is not allowed, so the section stays hidden. Anything else is shown so it can be fixed.
+        if (err.status === 403) return;
+        section.hidden = false;
+        setGmResult(err.message, 'error', 'gm-quest-result');
+      })
+      .finally(function () {
+        questTools.catalogLoading = false;
+      });
+  }
+
+  function clearChildren(node) {
+    while (node && node.firstChild) node.removeChild(node.firstChild);
+  }
+
+  function questLabel(quest) {
+    return quest.id + ' · ' + (quest.name || t('Unnamed quest'));
+  }
+
+  function renderQuestPicker() {
+    var select = document.getElementById('gm-quest-select');
+    if (!select) return;
+    var query = (document.getElementById('gm-quest-search').value || '').trim().toLowerCase();
+    var matches = (questTools.catalog || []).filter(function (quest) {
+      return !query || String(quest.id).indexOf(query) !== -1 || String(quest.name || '').toLowerCase().indexOf(query) !== -1;
+    });
+    clearChildren(select);
+    matches.slice(0, QUEST_PICKER_LIMIT).forEach(function (quest) {
+      var option = document.createElement('option');
+      option.value = String(quest.id);
+      option.textContent = questLabel(quest);
+      if (quest.id === questTools.selectedId) option.selected = true;
+      select.appendChild(option);
+    });
+    if (matches.length > QUEST_PICKER_LIMIT) {
+      var more = document.createElement('option');
+      more.disabled = true;
+      more.textContent = t('{count} more: refine the search', { count: matches.length - QUEST_PICKER_LIMIT });
+      select.appendChild(more);
+    }
+  }
+
+  function questStatusLabel(status) {
+    switch (status) {
+      case 'running': return t('In progress');
+      case 'finish': return t('Objectives complete');
+      case 'delivery': return t('Delivered');
+      case 'canaccept': return t('Available');
+      case 'fail': return t('Failed');
+      case 'none': return t('Not started');
+      default: return status || '—';
+    }
+  }
+
+  function questProgressText(progress) {
+    if (!Array.isArray(progress) || !progress.length) return '—';
+    return progress.map(function (p) { return p.done + '/' + p.need; }).join(', ');
+  }
+
+  function questCell(row, text) {
+    var cell = document.createElement('td');
+    cell.textContent = text;
+    row.appendChild(cell);
+    return cell;
+  }
+
+  function questStateRow(tbody, message, isError) {
+    var row = document.createElement('tr');
+    var cell = questCell(row, message);
+    cell.colSpan = 6;
+    cell.className = 'table-state' + (isError ? ' gm-quest-error' : '');
+    tbody.appendChild(row);
+  }
+
+  function loadCharacterQuests() {
+    var tbody = document.getElementById('gm-quest-tbody');
+    var account = questTools.account;
+    if (!tbody || !account) return;
+    var seq = ++questTools.requestSeq;
+    clearChildren(tbody);
+    questStateRow(tbody, t('Loading...'), false);
+    apiFetch('/api/admin/quests?account=' + encodeURIComponent(account))
+      .then(function (data) {
+        if (seq !== questTools.requestSeq) return;
+        renderCharacterQuests(tbody, Array.isArray(data.quests) ? data.quests : []);
+      })
+      .catch(function (err) {
+        if (seq !== questTools.requestSeq) return;
+        clearChildren(tbody);
+        questStateRow(tbody, err.message, true);
+      });
+  }
+
+  function renderCharacterQuests(tbody, quests) {
+    clearChildren(tbody);
+    if (!quests.length) {
+      questStateRow(tbody, t('This character has no quests.'), false);
+      return;
+    }
+    var rowActions = [
+      ['repeat', t('Repeat')],
+      ['finish', t('Complete objectives')],
+      ['done', t('Deliver')],
+      ['drop', t('Drop')]
+    ];
+    quests.forEach(function (quest) {
+      var row = document.createElement('tr');
+      questCell(row, String(quest.id));
+      questCell(row, quest.name || t('Unnamed quest'));
+      questCell(row, questStatusLabel(quest.status));
+      questCell(row, questProgressText(quest.progress));
+      questCell(row, formatNumber(quest.completed));
+      var actions = questCell(row, '');
+      actions.className = 'gm-quest-row-actions';
+      rowActions.forEach(function (entry) {
+        var button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'btn btn-secondary btn-sm';
+        button.setAttribute('data-quest-row-action', entry[0]);
+        button.setAttribute('data-quest-id', String(quest.id));
+        button.textContent = entry[1];
+        actions.appendChild(button);
+      });
+      tbody.appendChild(row);
+    });
   }
 
   // --- Sidebar menu ---

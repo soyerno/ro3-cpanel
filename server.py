@@ -233,6 +233,12 @@ ES_MESSAGES = {
         "fieldexp {action} no admite 'rules'.",
     "fieldexp set requires 'rules': 1 to {max} rules.":
         "fieldexp set requiere 'rules': de 1 a {max} reglas.",
+    "quest requires 'action': accept, finish, done, drop or repeat.":
+        "quest requiere 'action': accept, finish, done, drop o repeat.",
+    "quest requires 'id' (the quest number).":
+        "quest requiere 'id' (el número de la misión).",
+    "Command sent. RO3Emu's reply is shown below; it also appears in the player's in-game chat.":
+        "Comando enviado. La respuesta de RO3Emu se muestra abajo; también aparece en el chat del jugador.",
     "Each rule needs exactly 'min', 'max' and 'percent'.":
         "Cada regla necesita exactamente 'min', 'max' y 'percent'.",
     "A rule's 'min' level cannot be above its 'max'.":
@@ -252,10 +258,6 @@ ES_MESSAGES = {
     "Arguments not allowed: {args}": "Argumentos no permitidos: {args}",
     "warp requires 'scene' (sceneEntry).": "warp requiere 'scene' (sceneEntry).",
     "warp requires 'x' and 'z' together, or neither.": "warp requiere 'x' y 'z' juntos, o ninguno de los dos.",
-    "Command sent: RO3Emu answered 'done'. The result (or a usage error) appears in the player's "
-    "in-game chat, not in the panel.":
-        "Comando enviado: RO3Emu respondió 'done'. El resultado (o un error de uso) aparece en el chat "
-        "del juego del jugador, no en el panel.",
     "The account is not in the game (it has no connected character).":
         "La cuenta no está en el juego (no tiene un personaje conectado).",
     "RO3Emu is not accepting commands right now (the server is not in the Accepting phase).":
@@ -1897,7 +1899,8 @@ def authenticate_admin(username, password=None, password_hash=None):
 # loopback callers (404 otherwise), reads the account from the `account` query parameter and one `!command`
 # line from the body, runs it as that account's online character, and answers 400 "not in game" when the
 # account has no character online, 200 "done" otherwise. Every POST gets 503 while the game loop is not
-# Accepting. The command's own output goes to the player's in-game chat, never to the HTTP body.
+# Accepting. Newer RO3Emu builds answer 200 with a JSON string holding the command's reply ("done" when the
+# command printed nothing); older builds answer the plain "done". The panel shows whichever it gets.
 
 GM_TIMEOUT_SECONDS = 3.0
 GM_DEFAULT_ALLOWED_COMMANDS = ["warp"]
@@ -2074,8 +2077,28 @@ def _build_afktime(args):
     return f"!afktime {action} {minutes}"
 
 
+GM_QUEST_ID_MAX = 2 ** 31 - 1
+GM_QUEST_ACTIONS = ("accept", "finish", "done", "drop", "repeat")
+
+
+def _build_quest(args):
+    # Upstream `!quest accept|finish|done|drop <taskId>` (src/Ro3Emu.Server/Game/TaskService.cs). "repeat" is a
+    # panel shortcut: drop then accept, so a quest can be taken again even after it was delivered.
+    args = _gm_args(args, ("action", "id"))
+    action = args.get("action")
+    if action not in GM_QUEST_ACTIONS:
+        raise GmRequestError(400, tr("quest requires 'action': accept, finish, done, drop or repeat."))
+    if "id" not in args:
+        raise GmRequestError(400, tr("quest requires 'id' (the quest number)."))
+    quest_id = _gm_int(args["id"], 1, GM_QUEST_ID_MAX, "id")
+    if action == "repeat":
+        return [f"!quest drop {quest_id}", f"!quest accept {quest_id}"]
+    return f"!quest {action} {quest_id}"
+
+
 # Panel command -> (allowlist names that enable it, builder). The panel builds every `!` line itself from
 # validated arguments; there is no free-text passthrough. "unstuck" sends a warp, so allowing "warp" allows it.
+# A builder returns one line, or a list of lines sent in order (stopping at the first failure).
 GM_COMMANDS = {
     "warp": (("warp",), _build_warp),
     "unstuck": (("unstuck", "warp"), _build_unstuck),
@@ -2083,17 +2106,22 @@ GM_COMMANDS = {
     "afkunlock": (("afkunlock",), _build_afkunlock),
     "afktime": (("afktime",), _build_afktime),
     "afkmode": (("afkmode",), _build_afkmode),
+    "quest": (("quest",), _build_quest),
 }
 
 
-def build_gm_line(command, args):
-    """Validates a panel GM command and returns the exact `!` line to send, or raises GmRequestError."""
+def gm_command_enabled(command):
+    return command in GM_COMMANDS and bool(gm_allowed_commands().intersection(GM_COMMANDS[command][0]))
+
+
+def build_gm_lines(command, args):
+    """Validates a panel GM command and returns the exact `!` lines to send, or raises GmRequestError."""
     if not isinstance(command, str) or command not in GM_COMMANDS:
         raise GmRequestError(400, tr("GM command not supported by the panel."))
-    enabled_by, builder = GM_COMMANDS[command]
-    if not gm_allowed_commands().intersection(enabled_by):
+    if not gm_command_enabled(command):
         raise GmRequestError(400, tr("The command '{command}' is not enabled in 'gm_allowed_commands'.", command=command))
-    return builder(args)
+    lines = GM_COMMANDS[command][1](args)
+    return lines if isinstance(lines, list) else [lines]
 
 
 def validate_gm_account(account):
@@ -2102,6 +2130,23 @@ def validate_gm_account(account):
     if any(c.isspace() or not c.isprintable() or c in "!&=?#%" for c in account):
         raise GmRequestError(400, tr("Invalid account: it contains characters that are not allowed."))
     return account
+
+
+def resolve_gm_account(account):
+    """Validates an account and returns its stored name (case-insensitive lookup), or raises GmRequestError."""
+    account = validate_gm_account(account)
+    try:
+        with get_db() as con:
+            con.create_function("PY_LOWER", 1, sql_py_lower)
+            rows = con.execute(
+                "SELECT name FROM account WHERE PY_LOWER(name) = ? ORDER BY name = ? DESC, name LIMIT 1",
+                (account.lower(), account),
+            ).fetchall()
+    except (sqlite3.Error, OSError):
+        raise GmRequestError(503, tr("RO3Emu database unavailable."))
+    if not rows:
+        raise GmRequestError(404, tr("Account '{username}' does not exist", username=account))
+    return rows[0]["name"]
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -2113,8 +2158,24 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 _GM_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirect())
 
 
+GM_REPLY_MAX_BYTES = 64 * 1024
+GM_REPLY_MAX_CHARS = 4000
+
+
+def _gm_reply_text(raw):
+    """RO3Emu's reply: a JSON string from newer builds, plain text from older ones."""
+    text = raw.decode("utf-8", "replace")
+    try:
+        value = json.loads(text)
+    except ValueError:
+        value = text
+    if not isinstance(value, str):
+        value = text
+    return value.strip()[:GM_REPLY_MAX_CHARS]
+
+
 def send_gm_line(base_url, account, line):
-    """POSTs one `!` line to RO3Emu. Returns (http_status, panel_message, outcome_for_audit)."""
+    """POSTs one `!` line to RO3Emu. Returns (http_status, panel_message, outcome_for_audit, reply_text)."""
     url = f"{base_url}/ro3emu/gm?" + urllib.parse.urlencode({"account": account})
     req = urllib.request.Request(
         url,
@@ -2124,11 +2185,9 @@ def send_gm_line(base_url, account, line):
     )
     try:
         with _GM_OPENER.open(req, timeout=GM_TIMEOUT_SECONDS) as resp:
-            resp.read(4096)
-            return 200, tr(
-                "Command sent: RO3Emu answered 'done'. The result (or a usage error) appears in the player's "
-                "in-game chat, not in the panel."
-            ), "sent (done)"
+            reply = _gm_reply_text(resp.read(GM_REPLY_MAX_BYTES))
+            message = tr("Command sent. RO3Emu's reply is shown below; it also appears in the player's in-game chat.")
+            return 200, message, "sent (done)", reply
     except urllib.error.HTTPError as e:
         # The status line already arrived; a body that stalls or resets must not drop the reply or the audit row.
         with e:
@@ -2137,14 +2196,86 @@ def send_gm_line(base_url, account, line):
             except Exception:
                 body = ""
         if e.code == 400 and "not in game" in body:
-            return 409, tr("The account is not in the game (it has no connected character)."), "failed: not in game"
+            return 409, tr("The account is not in the game (it has no connected character)."), "failed: not in game", ""
         if e.code == 503:
-            return 503, tr("RO3Emu is not accepting commands right now (the server is not in the Accepting phase)."), "failed: HTTP 503"
+            return 503, tr("RO3Emu is not accepting commands right now (the server is not in the Accepting phase)."), "failed: HTTP 503", ""
         if e.code == 404:
-            return 502, gm_unavailable(), "failed: HTTP 404"
-        return 502, tr("Unexpected RO3Emu response (HTTP {code}).", code=e.code), f"failed: HTTP {e.code}"
+            return 502, gm_unavailable(), "failed: HTTP 404", ""
+        return 502, tr("Unexpected RO3Emu response (HTTP {code}).", code=e.code), f"failed: HTTP {e.code}", ""
     except Exception as e:  # URLError, timeout, connection reset: never a 500 from the panel
-        return 502, gm_unavailable(), f"failed: {type(e).__name__}"
+        return 502, gm_unavailable(), f"failed: {type(e).__name__}", ""
+
+
+# --- Quest debug tools: RO3Emu's loopback /ro3emu/quests ---
+# GET /ro3emu/quests -> [{"id", "name"}]; GET /ro3emu/quests?account=<acct> -> {"account", "role", "quests":
+# [{"id", "name", "status", "progress": [{"done", "need"}], "completed"}]}, 400 "not in game" when offline.
+
+QUEST_CATALOG_TTL_SECONDS = 60.0
+_QUEST_CATALOG_CACHE = {"key": None, "expires": 0.0, "quests": None}
+
+
+def fetch_ro3_quests(base_url, account=None):
+    """GET RO3Emu's /ro3emu/quests (the catalog, or one account's quests). Raises GmRequestError."""
+    url = f"{base_url}/ro3emu/quests"
+    if account is not None:
+        url += "?" + urllib.parse.urlencode({"account": account})
+    req = urllib.request.Request(url, method="GET", headers={"User-Agent": "RO3AdminCPanel"})
+    try:
+        with _GM_OPENER.open(req, timeout=GM_TIMEOUT_SECONDS) as resp:
+            raw = resp.read(RO3_MAX_RESPONSE_BYTES + 1)
+    except urllib.error.HTTPError as e:
+        with e:
+            try:
+                body = e.read(4096).decode("utf-8", "replace")
+            except Exception:
+                body = ""
+        if e.code == 400 and "not in game" in body:
+            raise GmRequestError(409, tr("The account is not in the game (it has no connected character)."))
+        if e.code == 503:
+            raise GmRequestError(503, tr("RO3Emu is not accepting commands right now (the server is not in the Accepting phase)."))
+        if e.code == 404:
+            raise GmRequestError(502, gm_unavailable())
+        raise GmRequestError(502, tr("Unexpected RO3Emu response (HTTP {code}).", code=e.code))
+    except Exception:  # URLError, timeout, connection reset: never a 500 from the panel
+        raise GmRequestError(502, gm_unavailable())
+    if len(raw) > RO3_MAX_RESPONSE_BYTES:
+        raise GmRequestError(502, tr("The RO3Emu response exceeds the maximum allowed size."))
+    try:
+        return json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError):
+        raise GmRequestError(502, tr("The RO3Emu response is not valid JSON."))
+
+
+def _quest_int(value):
+    if type(value) is not int:
+        raise ValueError("expected an integer")
+    return value
+
+
+def normalize_quest_catalog(payload):
+    """Only the known fields, with their types checked; raises ValueError/KeyError/TypeError otherwise."""
+    if not isinstance(payload, list):
+        raise ValueError("the quest catalog is not a list")
+    return [{"id": _quest_int(q["id"]), "name": str(q.get("name") or "")} for q in payload]
+
+
+def normalize_character_quests(payload):
+    """Only the known fields, with their types checked; raises ValueError/KeyError/TypeError otherwise."""
+    if not isinstance(payload, dict) or not isinstance(payload.get("quests"), list):
+        raise ValueError("the quest state has no quest list")
+    quests = []
+    for q in payload["quests"]:
+        progress = q.get("progress") or []
+        if not isinstance(progress, list):
+            raise ValueError("progress is not a list")
+        quests.append({
+            "id": _quest_int(q["id"]),
+            "name": str(q.get("name") or ""),
+            "status": str(q.get("status") or ""),
+            "progress": [{"done": _quest_int(p.get("done", 0)), "need": _quest_int(p.get("need", 0))} for p in progress],
+            "completed": _quest_int(q.get("completed", 0)),
+        })
+    return {"account": str(payload.get("account") or ""), "role": str(payload.get("role") or ""), "quests": quests}
 
 
 def _audit_text(value, limit=200):
@@ -2495,6 +2626,12 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
         # 11. Who is online (RO3Emu /ro3emu/online, loopback only)
         if raw_path == '/api/admin/online':
             return self.handle_online()
+
+        # 11b. Quest debug tools (RO3Emu /ro3emu/quests, loopback only; needs "quest" in gm_allowed_commands)
+        if raw_path == '/api/admin/quests/catalog':
+            return self.handle_quests(params, catalog=True)
+        if raw_path == '/api/admin/quests':
+            return self.handle_quests(params, catalog=False)
 
         # 12. Server metrics (RO3Emu /ro3emu/metrics, loopback only)
         if raw_path == '/api/admin/metrics':
@@ -3398,35 +3535,56 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
         body = self.read_json_body()
         raw_account = body.get("account") if isinstance(body, dict) else None
         raw_command = body.get("command") if isinstance(body, dict) else None
-        line = None
+        lines = None
         try:
             if not isinstance(body, dict):
                 raise GmRequestError(400, tr("Invalid request body"))
-            line = build_gm_line(raw_command, body.get("args"))
-            account = validate_gm_account(raw_account)
+            lines = build_gm_lines(raw_command, body.get("args"))
+            validate_gm_account(raw_account)
             base_url = gm_endpoint_base()
-            try:
-                with get_db() as con:
-                    con.create_function("PY_LOWER", 1, sql_py_lower)
-                    rows = con.execute(
-                        "SELECT name FROM account WHERE PY_LOWER(name) = ? ORDER BY name = ? DESC, name LIMIT 1",
-                        (account.lower(), account),
-                    ).fetchall()
-            except (sqlite3.Error, OSError):
-                raise GmRequestError(503, tr("RO3Emu database unavailable."))
-            if not rows:
-                raise GmRequestError(404, tr("Account '{username}' does not exist", username=account))
-            account = rows[0]["name"]
+            account = resolve_gm_account(raw_account)
         except GmRequestError as e:
-            details = f"{_audit_text(line or raw_command)} -> rejected: {e.message}"
+            details = f"{_audit_text(' ; '.join(lines) if lines else raw_command)} -> rejected: {e.message}"
             log_audit(admin_user, "gm_command", _audit_text(raw_account, 80), details, client_ip)
             return self.send_json(e.status, {"error": e.message})
 
-        status, message, outcome = send_gm_line(base_url, account, line)
-        log_audit(admin_user, "gm_command", account, f"{line} -> {outcome}", client_ip)
-        if status == 200:
-            return self.send_json(200, {"success": True, "sent": line, "message": message})
-        return self.send_json(status, {"error": message, "sent": line})
+        # Lines go out in order with one audit row each; the first failure stops the rest.
+        replies = []
+        message = ""
+        for line in lines:
+            status, message, outcome, reply = send_gm_line(base_url, account, line)
+            log_audit(admin_user, "gm_command", account, f"{line} -> {outcome}", client_ip)
+            if status != 200:
+                return self.send_json(status, {"error": message, "sent": line, "replies": replies})
+            replies.append({"sent": line, "reply": reply})
+        return self.send_json(200, {
+            "success": True,
+            "sent": "\n".join(r["sent"] for r in replies),
+            "reply": "\n".join(r["reply"] for r in replies),
+            "replies": replies,
+            "message": message,
+        })
+
+    def handle_quests(self, params, catalog):
+        """Quest debug tools (read side): RO3Emu's quest catalog, or one online account's quests."""
+        try:
+            if not gm_command_enabled("quest"):
+                raise GmRequestError(403, tr("The command '{command}' is not enabled in 'gm_allowed_commands'.", command="quest"))
+            if not catalog:
+                validate_gm_account(params.get("account", [""])[0])
+            base_url = gm_endpoint_base()
+            if catalog:
+                cache = _QUEST_CATALOG_CACHE
+                if cache["key"] != base_url or cache["expires"] < time.monotonic():
+                    quests = normalize_quest_catalog(fetch_ro3_quests(base_url))
+                    cache.update(key=base_url, expires=time.monotonic() + QUEST_CATALOG_TTL_SECONDS, quests=quests)
+                return self.send_json(200, {"quests": cache["quests"]})
+            account = resolve_gm_account(params.get("account", [""])[0])
+            return self.send_json(200, normalize_character_quests(fetch_ro3_quests(base_url, account)))
+        except GmRequestError as e:
+            return self.send_json(e.status, {"error": e.message})
+        except (ValueError, KeyError, TypeError, AttributeError):
+            return self.send_json(502, {"error": unexpected_format()})
 
     def handle_audit_log(self, params):
         # `limit` is the original name of `page_size` and still works.
