@@ -19,7 +19,10 @@
   "default_language": "en",
   "session_ttl_hours": 24,
   "item_names_file": "",
+  "item_catalog_file": "",
+  "item_icons_url": "",
   "names_file": "",
   "login_max_failures": 5,
-  "login_window_minutes": 15
+  "login_window_minutes": 15,
+  "character_delete_max_per_minute": 10
 }

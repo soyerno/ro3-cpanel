@@ -538,7 +538,7 @@ MAX_SQLITE_INT = 2 ** 63 - 1
 # "key" is (absolute path, mtime); "warned" holds paths already reported on stderr.
 ITEM_NAMES_STATE = {"key": None, "names": None, "warned": set()}
 
-def load_item_names():
+def _load_item_names_file():
     """Returns the {entry: name} mapping from config 'item_names_file', or None when unavailable."""
     path = str(CONFIG.get("item_names_file") or "").strip()
     if not path:
@@ -561,6 +561,121 @@ def load_item_names():
             ITEM_NAMES_STATE["warned"].add(abs_path)
             print(f"[Config Warning] Could not load item_names_file '{abs_path}', item names disabled: {e}", file=sys.stderr)
         return None
+
+
+# Optional item catalog ('item_catalog_file'): a JSON list of {"id", "n" (name), "ic" (icon file), "q" (quality)}
+# rows, the shape Konsor's items-catalog.json has. Every field is validated here, so what reaches the page is
+# a plain name, an icon FILE NAME that passes a strict pattern, or one of five quality words.
+ITEM_CATALOG_STATE = {"key": None, "catalog": None, "warned": set()}
+ITEM_CATALOG_MAX_BYTES = 32 * 1024 * 1024
+ITEM_NAME_MAX_LENGTH = 120
+ITEM_ICON_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,100}\.(?:png|webp|jpg)\Z")
+ITEM_QUALITIES = ("common", "fine", "rare", "legendary", "mythic")
+ITEM_ICONS_URL_PATTERN = re.compile(r"^/?(?:[A-Za-z0-9._~-]+/?)+\Z")
+
+
+def _catalog_row(row):
+    """One catalog row as (id text, {"name", "icon", "quality"}), or None when it is unusable."""
+    if not isinstance(row, dict):
+        return None
+    raw_id, name = row.get("id"), row.get("n")
+    if isinstance(raw_id, bool):
+        return None
+    if isinstance(raw_id, str) and raw_id.isascii() and raw_id.isdigit():
+        raw_id = int(raw_id)
+    if not isinstance(raw_id, int) or not (0 < raw_id <= MAX_SQLITE_INT):
+        return None
+    if not isinstance(name, str) or not name.strip():
+        return None
+    icon = row.get("ic")
+    quality = row.get("q")
+    quality = quality.strip().lower() if isinstance(quality, str) else None
+    return str(raw_id), {
+        "name": name.strip()[:ITEM_NAME_MAX_LENGTH],
+        "icon": icon if isinstance(icon, str) and ITEM_ICON_NAME.match(icon) else None,
+        "quality": quality if quality in ITEM_QUALITIES else None,
+    }
+
+
+def load_item_catalog():
+    """Returns {entry text: {"name", "icon", "quality"}} from config 'item_catalog_file', or None when unavailable."""
+    path = str(CONFIG.get("item_catalog_file") or "").strip()
+    if not path:
+        return None
+    abs_path = os.path.abspath(path)
+    try:
+        stat = os.stat(abs_path)
+        key = (abs_path, stat.st_mtime, stat.st_size)
+        if ITEM_CATALOG_STATE["key"] == key:
+            return ITEM_CATALOG_STATE["catalog"]
+        if stat.st_size > ITEM_CATALOG_MAX_BYTES:
+            raise ValueError(f"larger than {ITEM_CATALOG_MAX_BYTES} bytes")
+        with open(abs_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if not isinstance(data, list):
+            raise ValueError("expected a JSON list of {\"id\", \"n\", \"ic\", \"q\"} rows")
+        catalog = {}
+        for row in data:
+            parsed = _catalog_row(row)
+            if parsed:
+                catalog.setdefault(*parsed)
+        ITEM_CATALOG_STATE["key"] = key
+        ITEM_CATALOG_STATE["catalog"] = catalog
+        return catalog
+    except (OSError, ValueError, RecursionError) as e:
+        if abs_path not in ITEM_CATALOG_STATE["warned"]:
+            ITEM_CATALOG_STATE["warned"].add(abs_path)
+            print(f"[Config Warning] Could not load item_catalog_file '{abs_path}', item icons disabled: {e}", file=sys.stderr)
+        return None
+
+
+def load_item_names():
+    """The {entry: name} mapping: 'item_names_file' names, then catalog names for the ids it lacks; None when neither exists."""
+    names = _load_item_names_file()
+    catalog = load_item_catalog()
+    if not catalog:
+        return names
+    merged = {entry: info["name"] for entry, info in catalog.items()}
+    if names:
+        merged.update(names)
+    return merged
+
+
+NO_ITEM_INFO = {"name": None, "icon": None, "quality": None}
+
+
+def item_resolver(names=None):
+    """A lookup function entry -> {"name", "icon", "quality"} that loads the sources once (one call per request)."""
+    names = load_item_names() or {} if names is None else names
+    catalog = load_item_catalog() or {}
+
+    def resolve(entry):
+        if isinstance(entry, int) and not isinstance(entry, bool):
+            key = str(entry)
+        elif isinstance(entry, str):
+            key = entry.strip()
+        else:
+            return dict(NO_ITEM_INFO)
+        found = catalog.get(key) or NO_ITEM_INFO
+        return {"name": names.get(key), "icon": found["icon"], "quality": found["quality"]}
+
+    return resolve
+
+
+def item_info(entry):
+    return item_resolver()(entry)
+
+
+def normalized_item_icons_url(value):
+    """'item_icons_url' as a same-site path with a trailing slash, or '' when it is unset or could leave the site."""
+    if not isinstance(value, str):
+        return ""
+    value = value.strip()
+    if not value or len(value) > 200 or not ITEM_ICONS_URL_PATTERN.match(value):
+        return ""
+    if any(part in (".", "..") for part in value.split("/")):
+        return ""
+    return value if value.endswith("/") else value + "/"
 
 
 def _as_int(value):
@@ -1030,12 +1145,15 @@ def decode_mailbox(raw):
         raise MailboxDecodeError("Letters is not a list of objects")
     return letters
 
-def format_mail(letter):
+def format_mail(letter, resolve=None):
     """Projects one MailService.Letter onto display fields; internal keys and the
-    protobuf ContentParams are never exposed."""
-    attachments = [{"entry": _json_int(a, "Entry"), "count": _json_int(a, "Count"), "bind": _json_int(a, "Bind")}
+    protobuf ContentParams are never exposed. `resolve` is an item_resolver() shared by a whole page of mail."""
+    resolve = resolve or item_resolver()
+    attachments = [{"entry": _json_int(a, "Entry"), "count": _json_int(a, "Count"), "bind": _json_int(a, "Bind"),
+                    **resolve(_json_int(a, "Entry"))}
                    for a in _json_objects(letter, "Attachments")]
-    items = [{"guid": _json_int(i, "Guid"), "entry": _json_int(i, "Entry"), "stack": _json_int(i, "Stack")}
+    items = [{"guid": _json_int(i, "Guid"), "entry": _json_int(i, "Entry"), "stack": _json_int(i, "Stack"),
+              **resolve(_json_int(i, "Entry"))}
              for i in _json_objects(letter, "Items")]
     currency = []
     raw_currency = letter.get("Currency")
@@ -1903,11 +2021,11 @@ def parse_gift_items(raw):
         return []
     if not isinstance(pairs, list):
         return []
-    names = load_item_names() or {}
+    resolve = item_resolver()
     items = []
     for pair in pairs:
         if isinstance(pair, list) and len(pair) == 2 and _is_whole_number(pair[0]) and _is_whole_number(pair[1]):
-            items.append({"entry": pair[0], "count": pair[1], "name": names.get(str(pair[0]))})
+            items.append({"entry": pair[0], "count": pair[1], **resolve(pair[0])})
     return items
 
 
@@ -2132,6 +2250,7 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
                 "server_subtitle": CONFIG.get("server_subtitle", "Ragnarok Online 3 Management"),
                 "logo_text": CONFIG.get("logo_text", "RO3"),
                 "logo_image_url": CONFIG.get("logo_image_url", ""),
+                "item_icons_url": normalized_item_icons_url(CONFIG.get("item_icons_url")),
                 "default_language": default_language()
             })
 
@@ -2651,6 +2770,7 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
                          "message": tr("This character's mailbox could not be decoded.")})
             return self.send_json(200, data)
 
+        resolve = item_resolver()
         # Same order RO3Emu lists mail in: newest CreatedTime first, then Id descending.
         letters = sorted(letters,
                          key=lambda m: (_json_int(m, "CreatedTime"), _json_str(m, "Id")),
@@ -2660,7 +2780,7 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
         data.update({
             "total": total,
             "pages": max(1, -(-total // page_size)),
-            "mails": [format_mail(m) for m in letters[offset:offset + page_size]],
+            "mails": [format_mail(m, resolve) for m in letters[offset:offset + page_size]],
         })
         return self.send_json(200, data)
 
@@ -2692,7 +2812,7 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
             print(f"[Inventory Error] {e}", file=sys.stderr)
             return self.send_json(500, {"error": tr("Error reading the character's inventory")})
 
-        names = load_item_names() or {}
+        resolve = item_resolver()
         items = []
         for r in rows:
             entry = r.get("entry")
@@ -2700,7 +2820,7 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
             items.append({
                 "guid": r.get("guid"),
                 "entry": entry,
-                "name": names.get(str(entry)),
+                **resolve(entry),
                 "stack": r.get("stack"),
                 "pack": pack,
                 "pack_name": tr(PACK_NAMES[pack]) if pack in PACK_NAMES else None,
@@ -3271,11 +3391,11 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
                     " ORDER BY id DESC LIMIT ? OFFSET ?",
                     (name, page_size, offset),
                 ).fetchall()
-        names = load_item_names() or {}
+        resolve = item_resolver()
         items = [{
             "id": r["id"],
             "entry": r["entry"],
-            "name": names.get(str(r["entry"])),
+            **resolve(r["entry"]),
             "stack": r["stack"],
             "pack": r["pack"],
             "pack_name": tr(PACK_NAMES[r["pack"]]) if r["pack"] in PACK_NAMES else None,
@@ -3351,13 +3471,14 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
                     " ORDER BY id DESC LIMIT ? OFFSET ?",
                     args + [page_size, offset],
                 ).fetchall()
+        resolve = item_resolver(names)
         listings = [{
             "id": r["id"],
             "seller_account": r["seller_account"],
             "seller_role_id": r["seller_role_id"],
             "seller_role_name": r["seller_role_name"],
             "entry": r["entry"],
-            "name": names.get(str(r["entry"])),
+            **resolve(r["entry"]),
             "stack": r["stack"],
             "pack": r["pack"],
             "pack_name": tr(PACK_NAMES[r["pack"]]) if r["pack"] in PACK_NAMES else None,
