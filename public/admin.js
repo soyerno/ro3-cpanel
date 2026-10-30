@@ -244,6 +244,15 @@
     modalCreate: document.getElementById('modal-create'),
     modalBan: document.getElementById('modal-ban'),
     modalDelete: document.getElementById('modal-delete'),
+    modalConfirm: document.getElementById('modal-confirm'),
+    formConfirm: document.getElementById('form-confirm'),
+    confirmTitle: document.getElementById('confirm-modal-title'),
+    confirmMessage: document.getElementById('confirm-message'),
+    confirmTypedGroup: document.getElementById('confirm-typed-group'),
+    confirmTypedLabel: document.getElementById('confirm-typed-label'),
+    confirmTypedInput: document.getElementById('confirm-typed-input'),
+    confirmSubmit: document.getElementById('confirm-submit'),
+    confirmCancel: document.getElementById('confirm-cancel'),
 
     toasts: document.getElementById('toast-container')
   };
@@ -1017,6 +1026,7 @@
 
   function closeModal(modalEl) {
     if (!modalEl) return;
+    if (modalEl === els.modalConfirm) settleConfirm(false);
     modalEl.hidden = true;
     var open = modalStack.indexOf(modalEl);
     if (open !== -1) modalStack.splice(open, 1);
@@ -1358,7 +1368,7 @@
     }).join('');
   }
 
-  function renderCharacterCard(c) {
+  function renderCharacterCard(c, acc) {
     var roleId = escapeHtml(String(c.id));
     var stats = ['str', 'agi', 'vit', 'int', 'dex', 'luk'].map(function (key) {
       return '<div><div class="stat-box-lbl">' + key.toUpperCase() + '</div><div class="stat-box-val">' + cellValue(c.stats[key]) + '</div></div>';
@@ -1381,6 +1391,8 @@
       '<div class="char-card-actions">' +
         '<button type="button" class="btn btn-secondary btn-sm btn-view-inventory" data-role-id="' + roleId + '" aria-expanded="false" aria-controls="char-inventory-' + roleId + '" title="' + escapeHtml(t('View character items')) + '">' + escapeHtml(t('View inventory')) + '</button>' +
         '<button type="button" class="btn btn-secondary btn-sm btn-view-mail" data-role-id="' + roleId + '" aria-expanded="false" aria-controls="char-mail-' + roleId + '" title="' + escapeHtml(t('View character mail (read-only)')) + '">' + escapeHtml(t('View mail')) + '</button>' +
+        // The server refuses characters of administrator accounts, so the button is not offered for them.
+        (acc && acc.is_admin ? '' : '<button type="button" class="btn btn-danger btn-sm btn-delete-character" data-role-id="' + roleId + '" data-role-name="' + escapeHtml(c.name) + '" data-account="' + escapeHtml(acc ? acc.name : '') + '">' + escapeHtml(t('Delete character')) + '</button>') +
       '</div>' +
       '<div class="char-inventory" id="char-inventory-' + roleId + '" hidden></div>' +
       '<div class="char-mail-panel" id="char-mail-' + roleId + '" hidden></div>' +
@@ -1393,7 +1405,7 @@
       els.accountCharacters.innerHTML = '<p class="account-empty">' + escapeHtml(t('This account has no characters yet.')) + '</p>';
       return;
     }
-    els.accountCharacters.innerHTML = chars.map(renderCharacterCard).join('');
+    els.accountCharacters.innerHTML = chars.map(function (c) { return renderCharacterCard(c, acc); }).join('');
   }
 
   // Ban, unban and delete are hidden for administrator accounts, exactly as in the list.
@@ -1877,6 +1889,55 @@
       });
   }
 
+  // --- Confirmation modal ---
+  // Every delete and password change asks here first. askConfirm resolves true only when the admin confirms
+  // (and, with typeToConfirm, typed that exact text); Cancel, the close button and Escape all resolve false.
+  var confirmState = { resolve: null, expected: null };
+
+  function settleConfirm(result) {
+    var resolve = confirmState.resolve;
+    confirmState.resolve = null;
+    if (resolve) resolve(result);
+  }
+
+  function askConfirm(opts) {
+    settleConfirm(false);
+    var typed = typeof opts.typeToConfirm === 'string' && opts.typeToConfirm !== '';
+    confirmState.expected = typed ? opts.typeToConfirm : null;
+    els.confirmTitle.textContent = opts.title;
+    els.confirmTitle.classList.toggle('modal-title-danger', !!opts.danger);
+    els.confirmMessage.textContent = opts.message;
+    els.confirmTypedGroup.hidden = !typed;
+    els.confirmTypedLabel.textContent = opts.typeLabel || '';
+    els.confirmTypedInput.value = '';
+    els.confirmSubmit.textContent = opts.confirmLabel || t('Confirm');
+    els.confirmSubmit.classList.toggle('btn-danger', !!opts.danger);
+    els.confirmSubmit.classList.toggle('btn-primary', !opts.danger);
+    els.confirmSubmit.disabled = typed;
+    return new Promise(function (resolve) {
+      confirmState.resolve = resolve;
+      openModal(els.modalConfirm);
+      if (typed) {
+        els.confirmTypedInput.focus();
+      } else {
+        // Nothing to type: the safe choice has the focus, so a stray Enter never confirms.
+        els.confirmCancel.focus();
+      }
+    });
+  }
+
+  function handleConfirmTyping() {
+    if (confirmState.expected === null) return;
+    els.confirmSubmit.disabled = els.confirmTypedInput.value !== confirmState.expected;
+  }
+
+  function handleConfirmSubmit(e) {
+    e.preventDefault();
+    if (confirmState.expected !== null && els.confirmTypedInput.value !== confirmState.expected) return;
+    settleConfirm(true);
+    closeModal(els.modalConfirm);
+  }
+
   // Whole-sentence modal intros: `template` is a translated sentence containing {account}, which is
   // replaced with the bold, escaped account name (the rest of the sentence is escaped as text).
   function setModalIntro(id, template, accountName) {
@@ -1905,22 +1966,29 @@
     }
 
     var accountName = state.selectedAccount.name;
-    setSubmitting(submit, true);
-    apiFetch('/api/admin/accounts/update-password', {
-      method: 'POST',
-      body: { username: accountName, new_password: newPass }
-    })
-      .then(function (data) {
-        showToast(data.message, 'success');
-        closeModal(els.modalPassword);
-        refreshOpenAccount(accountName);
+    askConfirm({
+      title: t('Change password'),
+      message: t('Change the password of account {account}? Active sessions of that account will be signed out.', { account: accountName }),
+      confirmLabel: t('Change password')
+    }).then(function (ok) {
+      if (!ok) return null;
+      setSubmitting(submit, true);
+      return apiFetch('/api/admin/accounts/update-password', {
+        method: 'POST',
+        body: { username: accountName, new_password: newPass }
       })
-      .catch(function (err) {
-        showToast(t('Error: {message}', { message: err.message }), 'error');
-      })
-      .finally(function () {
-        setSubmitting(submit, false);
-      });
+        .then(function (data) {
+          showToast(data.message, 'success');
+          closeModal(els.modalPassword);
+          refreshOpenAccount(accountName);
+        })
+        .catch(function (err) {
+          showToast(t('Error: {message}', { message: err.message }), 'error');
+        })
+        .finally(function () {
+          setSubmitting(submit, false);
+        });
+    });
   }
 
   function showCreateAccount() {
@@ -2008,24 +2076,64 @@
   }
 
   function handleUnbanAccount(name, btn) {
-    if (!confirm(t('Do you want to reset and remove the suspension of account "{name}"?', { name: name }))) return;
-    setSubmitting(btn, true);
-    apiFetch('/api/admin/accounts/unban', {
-      method: 'POST',
-      body: { username: name }
-    })
-      .then(function (data) {
-        showToast(data.message, 'success');
-        loadAccounts();
-        loadStats();
-        refreshOpenAccount(name);
+    askConfirm({
+      title: t('Remove suspension'),
+      message: t('Do you want to reset and remove the suspension of account "{name}"?', { name: name }),
+      confirmLabel: t('Remove suspension')
+    }).then(function (ok) {
+      if (!ok) return null;
+      setSubmitting(btn, true);
+      return apiFetch('/api/admin/accounts/unban', {
+        method: 'POST',
+        body: { username: name }
       })
-      .catch(function (err) {
-        showToast(t('Error removing suspension: {message}', { message: err.message }), 'error');
+        .then(function (data) {
+          showToast(data.message, 'success');
+          loadAccounts();
+          loadStats();
+          refreshOpenAccount(name);
+        })
+        .catch(function (err) {
+          showToast(t('Error removing suspension: {message}', { message: err.message }), 'error');
+        })
+        .finally(function () {
+          setSubmitting(btn, false);
+        });
+    });
+  }
+
+  function handleDeleteCharacter(btn) {
+    var roleId = parseInt(btn.getAttribute('data-role-id'), 10);
+    var name = btn.getAttribute('data-role-name') || '';
+    var account = btn.getAttribute('data-account') || '';
+    if (!roleId || !name) return;
+    askConfirm({
+      title: t('Delete character'),
+      message: t('This deletes character {name} of account {account}. The character leaves the account; its data stays in the database.', { name: name, account: account }),
+      danger: true,
+      typeToConfirm: name,
+      typeLabel: t('Type the exact character name to confirm'),
+      confirmLabel: t('Delete character')
+    }).then(function (ok) {
+      if (!ok) return null;
+      setSubmitting(btn, true);
+      return apiFetch('/api/admin/characters/delete', {
+        method: 'POST',
+        body: { role_id: roleId, confirm_name: name }
       })
-      .finally(function () {
-        setSubmitting(btn, false);
-      });
+        .then(function (data) {
+          showToast(data.message, 'success');
+          refreshOpenAccount(account);
+          loadAccounts();
+          loadStats();
+        })
+        .catch(function (err) {
+          showToast(t('Error: {message}', { message: err.message }), 'error');
+        })
+        .finally(function () {
+          setSubmitting(btn, false);
+        });
+    });
   }
 
   function showDeleteAccount(name) {
@@ -2981,6 +3089,8 @@
           loadCharacterMail(roleId, 1);
         } else if (target.classList.contains('btn-mail-page')) {
           loadCharacterMail(roleId, parseInt(target.getAttribute('data-page'), 10) || 1);
+        } else if (target.classList.contains('btn-delete-character')) {
+          handleDeleteCharacter(target);
         }
       });
     }
@@ -3274,6 +3384,9 @@
 
     var formBan = document.getElementById('form-ban');
     if (formBan) formBan.addEventListener('submit', handleBanAccount);
+
+    if (els.formConfirm) els.formConfirm.addEventListener('submit', handleConfirmSubmit);
+    if (els.confirmTypedInput) els.confirmTypedInput.addEventListener('input', handleConfirmTyping);
 
     var formDel = document.getElementById('form-delete');
     if (formDel) formDel.addEventListener('submit', handleDeleteAccount);

@@ -938,6 +938,32 @@
     </div>
   </div>
 
+  <!-- Modal: confirm an action (delete, password change, ...) -->
+  <div id="modal-confirm" class="modal-backdrop" role="alertdialog" aria-modal="true" aria-labelledby="confirm-modal-title" aria-describedby="confirm-message" hidden>
+    <div class="modal-dialog modal-dialog-sm" tabindex="-1">
+      <div class="modal-header">
+        <div id="confirm-modal-title" class="modal-title"></div>
+        <button type="button" class="modal-close" data-close-modal aria-label="Close" data-i18n-aria-label="Close">&times;</button>
+      </div>
+
+      <form id="form-confirm">
+        <div class="modal-body">
+          <p id="confirm-message" class="modal-intro"></p>
+
+          <div id="confirm-typed-group" class="form-group" hidden>
+            <label class="form-label" id="confirm-typed-label" for="confirm-typed-input"></label>
+            <input type="text" id="confirm-typed-input" class="form-input" autocomplete="off" autocapitalize="off" spellcheck="false">
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" id="confirm-cancel" class="btn btn-secondary" data-close-modal data-i18n="Cancel">Cancel</button>
+          <button type="submit" id="confirm-submit" class="btn btn-primary"></button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <!-- Modal 6: Create gift code -->
   <div id="modal-giftcode" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="giftcode-modal-title" hidden>
     <div class="modal-dialog modal-dialog-lg" tabindex="-1">
