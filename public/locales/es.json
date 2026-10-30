@@ -188,7 +188,6 @@
   "View inventory": "Ver inventario",
   "View character mail (read-only)": "Ver correo del personaje (solo lectura)",
   "View mail": "Ver correo",
-  "Item {entry} x{count}": "Ítem {entry} x{count}",
   "Currency {entry}: {amount}": "Moneda {entry}: {amount}",
   "No attachments": "Sin adjuntos",
   "The mailbox could not be decoded.": "El buzón no se pudo decodificar.",

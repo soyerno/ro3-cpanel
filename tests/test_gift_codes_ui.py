@@ -106,9 +106,12 @@ class TestGiftCodesScript(unittest.TestCase):
         self.assertRegex(self.js, r"expires\s*<=\s*starts|expires <= starts")
 
     def test_server_text_is_escaped(self):
-        for field in ("c.code", "c.note", "c.created_by", "item.name"):
+        for field in ("c.code", "c.note", "c.created_by"):
             with self.subTest(field=field):
                 self.assertRegex(self.js, r"escapeHtml\(%s\)" % re.escape(field))
+        # Reward names go through the shared item chip, which escapes the name (see test_item_display_ui).
+        self.assertIn("itemChipHtml(", self.js[self.js.index("function giftCodeRewardsHtml("):])
+        self.assertRegex(self.js[self.js.index("function itemChipHtml("):], r"escapeHtml\(named \? item\.name")
 
     def test_status_badge_texts_are_literal_keys(self):
         for text in ("Active", "Disabled", "Scheduled", "Expired", "Exhausted"):

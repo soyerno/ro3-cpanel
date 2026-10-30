@@ -1503,15 +1503,15 @@
   function renderMailAttachments(m) {
     var parts = [];
     (m.attachments || []).forEach(function (a) {
-      parts.push(escapeHtml(t('Item {entry} x{count}', { entry: a.entry, count: a.count })));
+      parts.push(itemChipHtml(a, ' <span class="item-qty">x' + escapeHtml(String(a.count)) + '</span>'));
     });
     (m.items || []).forEach(function (it) {
-      parts.push(escapeHtml(t('Item {entry} x{count}', { entry: it.entry, count: it.stack })));
+      parts.push(itemChipHtml(it, ' <span class="item-qty">x' + escapeHtml(String(it.stack)) + '</span>'));
     });
     (m.currency || []).forEach(function (cur) {
       parts.push(escapeHtml(t('Currency {entry}: {amount}', { entry: cur.entry, amount: formatNumber(cur.amount) })));
     });
-    return parts.length ? parts.join(', ') : escapeHtml(t('No attachments'));
+    return parts.length ? '<span class="item-chip-list item-chip-list--inline">' + parts.join('') + '</span>' : escapeHtml(t('No attachments'));
   }
 
   function renderCharacterMail(panel, roleId, data) {
@@ -1560,6 +1560,55 @@
         panel.innerHTML = '<p class="char-mail-empty">' + escapeHtml(t('Error loading mail: {message}', { message: err.message })) + '</p>' +
           '<button type="button" class="btn btn-secondary btn-sm btn-mail-page" data-role-id="' + escapeHtml(String(roleId)) + '" data-page="' + escapeHtml(String(page)) + '">' + escapeHtml(t('Retry')) + '</button>';
       });
+  }
+
+  // --- Item name + image ---
+  // The server sends name, icon (a file name) and quality (one of five words) per item. The icon URL is built
+  // here from the same-site base in the branding config; anything that does not look like a plain file name
+  // or a plain same-site folder gets the placeholder instead of an <img>.
+  var ITEM_QUALITIES = ['common', 'fine', 'rare', 'legendary', 'mythic'];
+  var ITEM_ICON_FILE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,100}\.(?:png|webp|jpg)$/;
+  var ITEM_ICON_BASE = /^\/?(?:[A-Za-z0-9._~-]+\/)+$/;
+  var ITEM_ICON_PLACEHOLDER = '<svg class="item-icon__placeholder" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M21 8l-9-5-9 5v8l9 5 9-5V8z"/><path d="M3 8l9 5 9-5"/><path d="M12 13v8"/></svg>';
+
+  function itemIconSrc(icon) {
+    var base = state.branding && state.branding.item_icons_url;
+    if (typeof base !== 'string' || !ITEM_ICON_BASE.test(base) || base.indexOf('//') !== -1 || base.indexOf('..') !== -1) return '';
+    if (typeof icon !== 'string' || !ITEM_ICON_FILE.test(icon)) return '';
+    return base + encodeURIComponent(icon);
+  }
+
+  function itemIconHtml(item) {
+    var quality = ITEM_QUALITIES.indexOf(item.quality) !== -1 ? ' quality--' + item.quality : '';
+    var src = itemIconSrc(item.icon);
+    var label = item.name || '#' + item.entry;
+    // Decorative next to the visible name, so screen readers skip it; the alt stays descriptive for when it is not.
+    return '<span class="item-icon' + quality + (src ? '' : ' is-missing') + '" aria-hidden="true">' +
+      (src
+        ? '<img class="item-icon__img" src="' + escapeHtml(src) + '" alt="' + escapeHtml(label) + '" width="32" height="32" loading="lazy" decoding="async">'
+        : ITEM_ICON_PLACEHOLDER) +
+      '</span>';
+  }
+
+  // Image + name (+ id when the name is known), for tables and lists. `extra` is trusted HTML after the name.
+  function itemChipHtml(item, extra) {
+    var named = !!item.name;
+    return '<span class="item-chip">' + itemIconHtml(item) +
+      '<span class="item-chip__text"><strong class="item-chip__name text-strong">' +
+        escapeHtml(named ? item.name : '#' + item.entry) + '</strong>' +
+        (named ? ' <span class="text-dim">#' + escapeHtml(String(item.entry)) + '</span>' : '') +
+        (extra || '') +
+      '</span></span>';
+  }
+
+  // A file that does not load (missing on the server, blocked) becomes the placeholder.
+  function handleItemIconError(e) {
+    var img = e.target;
+    if (!img || img.tagName !== 'IMG' || !img.classList.contains('item-icon__img')) return;
+    var holder = img.parentNode;
+    if (!holder) return;
+    holder.classList.add('is-missing');
+    holder.innerHTML = ITEM_ICON_PLACEHOLDER;
   }
 
   // --- Character Inventory (read-only) ---
@@ -1624,13 +1673,12 @@
         '<table class="data-table">' +
           '<thead><tr><th>' + escapeHtml(t('Inventory item')) + '</th><th>' + escapeHtml(t('Quantity')) + '</th><th>' + escapeHtml(t('Status')) + '</th></tr></thead><tbody>';
       g.items.forEach(function (item) {
-        var name = item.name ? escapeHtml(item.name) : '#' + escapeHtml(String(item.entry));
         var flags = [];
         if (item.equipped) flags.push('<span class="badge badge-active">' + escapeHtml(t('Equipped')) + '</span>');
         if (item.locked) flags.push('<span class="badge badge-banned">' + escapeHtml(t('Locked')) + '</span>');
         if (item.bind_type) flags.push('<span class="badge badge-admin">' + escapeHtml(t('Bound')) + '</span>');
         html += '<tr>' +
-          '<td><strong class="text-strong">' + name + '</strong> <span class="text-dim">#' + escapeHtml(String(item.entry)) + '</span></td>' +
+          '<td>' + itemChipHtml(item) + '</td>' +
           '<td>' + formatNumber(item.stack) + '</td>' +
           '<td>' + (flags.length ? flags.join(' ') : '—') + '</td>' +
         '</tr>';
@@ -1767,11 +1815,10 @@
         '<th>' + escapeHtml(t('Deposited')) + '</th>' +
       '</tr></thead><tbody>';
     items.forEach(function (item) {
-      var name = item.name ? escapeHtml(item.name) : '#' + escapeHtml(String(item.entry));
       var depositor = item.deposited_by_name ? escapeHtml(item.deposited_by_name) :
         (item.deposited_by_role_id === null || item.deposited_by_role_id === undefined ? '—' : '#' + escapeHtml(String(item.deposited_by_role_id)));
       html += '<tr>' +
-        '<td><strong class="vault-item">' + name + '</strong></td>' +
+        '<td class="vault-item">' + itemChipHtml(item) + '</td>' +
         '<td>' + formatNumber(item.stack) + '</td>' +
         '<td>' + (item.pack_name ? escapeHtml(item.pack_name) : '—') + '</td>' +
         '<td>' + escapeHtml(item.locked ? t('Yes') : t('No')) + '</td>' +
@@ -2625,10 +2672,9 @@
 
   function giftCodeRewardsHtml(items) {
     if (!items || !items.length) return '—';
-    return items.map(function (item) {
-      var label = item.name ? escapeHtml(item.name) : escapeHtml(String(item.entry));
-      return label + ' x' + escapeHtml(String(item.count));
-    }).join(', ');
+    return '<ul class="item-chip-list">' + items.map(function (item) {
+      return '<li>' + itemChipHtml(item, ' <span class="item-qty">x' + escapeHtml(String(item.count)) + '</span>') + '</li>';
+    }).join('') + '</ul>';
   }
 
   // Unix seconds from the API, shown in the active locale; "—" when unset.
@@ -2877,11 +2923,10 @@
     }
     var html = '';
     listings.forEach(function (l) {
-      var name = l.name ? escapeHtml(l.name) : '#' + escapeHtml(String(l.entry));
       var lockedBadge = l.locked ? ' <span class="badge badge-banned">' + escapeHtml(t('Locked')) + '</span>' : '';
       var pack = l.pack_name ? '<div class="economy-sub" title="' + escapeHtml(l.pack_name) + '">' + escapeHtml(l.pack_name) + '</div>' : '';
       html += '<tr>' +
-        '<td><strong class="market-item">' + name + '</strong>' + lockedBadge + pack + '</td>' +
+        '<td class="market-item">' + itemChipHtml(l, lockedBadge) + pack + '</td>' +
         '<td>' + formatNumber(l.stack) + '</td>' +
         '<td><span class="market-price">' + formatNumber(l.price_zeny) + ' Z</span></td>' +
         '<td>' + marketPartyCell(l.seller_account, l.seller_role_name) + '</td>' +
@@ -3375,6 +3420,8 @@
     });
     // Registered before the account screen's own Escape rule: a press that closes a modal is handled once.
     document.addEventListener('keydown', handleModalKeydown);
+    // 'error' does not bubble, so a failed icon is caught while the event travels down.
+    document.addEventListener('error', handleItemIconError, true);
 
     var formPw = document.getElementById('form-password');
     if (formPw) formPw.addEventListener('submit', handleUpdatePassword);

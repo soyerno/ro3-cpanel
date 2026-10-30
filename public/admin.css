@@ -6,6 +6,12 @@
   --page-gutter: 24px;
   --bar-inline: max(var(--page-gutter), calc((100% - var(--content-max)) / 2 + var(--page-gutter)));
   --bg-dark: #0a0e17;
+  /* Item quality, shown as the icon border (the name beside it carries the meaning). */
+  --q-common: #94a3b8;
+  --q-fine: #10b981;
+  --q-rare: #38bdf8;
+  --q-legendary: #fbbf24;
+  --q-mythic: #f43f5e;
   --bg-card: #121824;
   --bg-card-hover: #172030;
   --bg-modal: #101622;
@@ -1219,6 +1225,73 @@ body {
 .market-item,
 .market-account {
   color: var(--text-main);
+}
+
+/* Item image + name */
+.item-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 100%;
+}
+
+.item-chip__text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.item-icon {
+  --q: var(--border-color);
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid var(--q);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-dim);
+  overflow: hidden;
+}
+
+.item-icon__img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.item-icon.is-missing {
+  border-style: dashed;
+}
+
+.quality--common { --q: var(--q-common); }
+.quality--fine { --q: var(--q-fine); }
+.quality--rare { --q: var(--q-rare); }
+.quality--legendary { --q: var(--q-legendary); }
+.quality--mythic { --q: var(--q-mythic); }
+
+.item-qty {
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.item-chip-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.item-chip-list--inline {
+  display: inline-flex;
+  flex-wrap: wrap;
+  flex-direction: row;
+  gap: 8px 14px;
+  vertical-align: middle;
 }
 
 .market-price {
