@@ -227,6 +227,16 @@ ES_MESSAGES = {
     "GM command not supported by the panel.": "Comando GM no soportado por el panel.",
     "The command '{command}' is not enabled in 'gm_allowed_commands'.":
         "El comando '{command}' no está habilitado en 'gm_allowed_commands'.",
+    "fieldexp requires 'action': set, clear or reset.":
+        "fieldexp requiere 'action': set, clear o reset.",
+    "fieldexp {action} takes no 'rules'.":
+        "fieldexp {action} no admite 'rules'.",
+    "fieldexp set requires 'rules': 1 to {max} rules.":
+        "fieldexp set requiere 'rules': de 1 a {max} reglas.",
+    "Each rule needs exactly 'min', 'max' and 'percent'.":
+        "Cada regla necesita exactamente 'min', 'max' y 'percent'.",
+    "A rule's 'min' level cannot be above its 'max'.":
+        "El nivel 'min' de una regla no puede ser mayor que su 'max'.",
     "Invalid account.": "Cuenta inválida.",
     "Invalid account: it contains characters that are not allowed.":
         "Cuenta inválida: contiene caracteres no permitidos.",
@@ -1983,11 +1993,45 @@ def _build_unstuck(args):
     return f"!warp {scene}"
 
 
+GM_FIELDEXP_MAX_RULES = 10
+GM_FIELDEXP_LEVEL_MAX = 999
+GM_FIELDEXP_PERCENT_MAX = 10000  # upstream FieldExpRates.MaxPercent
+
+
+def _build_fieldexp(args):
+    # Upstream `!fieldexp` (src/Ro3Emu.Server/Game/GmCommands.cs): the field EXP rates, in memory until the next start.
+    # "set" replaces the rules (groups of minLevel maxLevel percent), "clear" leaves none, "reset" brings back the
+    # configured ones. The bare `!fieldexp` (show) is not offered: its answer goes to the in-game chat, not here.
+    args = _gm_args(args, ("action", "rules"))
+    action = args.get("action")
+    if action not in ("set", "clear", "reset"):
+        raise GmRequestError(400, tr("fieldexp requires 'action': set, clear or reset."))
+    if action != "set":
+        if "rules" in args:
+            raise GmRequestError(400, tr("fieldexp {action} takes no 'rules'.", action=action))
+        return f"!fieldexp {action}"
+    rules = args.get("rules")
+    if not isinstance(rules, list) or not 1 <= len(rules) <= GM_FIELDEXP_MAX_RULES:
+        raise GmRequestError(400, tr("fieldexp set requires 'rules': 1 to {max} rules.", max=GM_FIELDEXP_MAX_RULES))
+    numbers = []
+    for rule in rules:
+        if not isinstance(rule, dict) or set(rule) != {"min", "max", "percent"}:
+            raise GmRequestError(400, tr("Each rule needs exactly 'min', 'max' and 'percent'."))
+        low = _gm_int(rule["min"], 1, GM_FIELDEXP_LEVEL_MAX, "min")
+        high = _gm_int(rule["max"], 1, GM_FIELDEXP_LEVEL_MAX, "max")
+        percent = _gm_int(rule["percent"], 1, GM_FIELDEXP_PERCENT_MAX, "percent")
+        if low > high:
+            raise GmRequestError(400, tr("A rule's 'min' level cannot be above its 'max'."))
+        numbers += [low, high, percent]
+    return "!fieldexp set " + " ".join(str(n) for n in numbers)
+
+
 # Panel command -> (allowlist names that enable it, builder). The panel builds every `!` line itself from
 # validated arguments; there is no free-text passthrough. "unstuck" sends a warp, so allowing "warp" allows it.
 GM_COMMANDS = {
     "warp": (("warp",), _build_warp),
     "unstuck": (("unstuck", "warp"), _build_unstuck),
+    "fieldexp": (("fieldexp",), _build_fieldexp),
 }
 
 

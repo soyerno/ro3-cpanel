@@ -1929,6 +1929,21 @@
           '<button type="button" id="gm-unstuck" class="btn btn-secondary btn-sm" data-i18n="Unstuck">Unstuck</button>' +
         '</div>' +
       '</form>' +
+      '<form id="gm-fieldexp-form" class="gm-warp-form gm-tools-section" novalidate>' +
+        '<h4 class="gm-tools-title" data-i18n="Field EXP rate">Field EXP rate</h4>' +
+        '<p class="gm-tools-note" data-i18n="Changes the EXP of open-field kills for the whole server, by level range. It stays in memory until the server restarts. The command must be enabled in gm_allowed_commands.">Changes the EXP of open-field kills for the whole server, by level range. It stays in memory until the server restarts. The command must be enabled in gm_allowed_commands.</p>' +
+        '<div><label class="form-label" for="gm-fx-min" data-i18n="Level from">Level from</label>' +
+          '<input type="number" id="gm-fx-min" class="form-input" min="1" step="1" required placeholder="20"></div>' +
+        '<div><label class="form-label" for="gm-fx-max" data-i18n="Level to">Level to</label>' +
+          '<input type="number" id="gm-fx-max" class="form-input" min="1" step="1" required placeholder="40"></div>' +
+        '<div><label class="form-label" for="gm-fx-percent" data-i18n="Percent">Percent</label>' +
+          '<input type="number" id="gm-fx-percent" class="form-input" min="1" max="10000" step="1" required placeholder="300"></div>' +
+        '<div class="gm-warp-actions">' +
+          '<button type="submit" class="btn btn-secondary btn-sm" data-i18n="Apply rate">Apply rate</button>' +
+          '<button type="button" id="gm-fx-clear" class="btn btn-secondary btn-sm" data-i18n="Remove rate">Remove rate</button>' +
+          '<button type="button" id="gm-fx-reset" class="btn btn-secondary btn-sm" data-i18n="Back to configuration">Back to configuration</button>' +
+        '</div>' +
+      '</form>' +
       '<p id="gm-tools-result" class="gm-tools-result" aria-live="polite"></p>';
     applyI18n(panel);
     body.appendChild(panel);
@@ -1937,10 +1952,17 @@
     document.getElementById('gm-unstuck').addEventListener('click', function () {
       sendGmCommand('unstuck', {});
     });
+    document.getElementById('gm-fieldexp-form').addEventListener('submit', handleGmFieldExp);
+    document.getElementById('gm-fx-clear').addEventListener('click', function () {
+      sendGmCommand('fieldexp', { action: 'clear' });
+    });
+    document.getElementById('gm-fx-reset').addEventListener('click', function () {
+      sendGmCommand('fieldexp', { action: 'reset' });
+    });
   }
 
   function resetGmPanel() {
-    ['gm-warp-scene', 'gm-warp-x', 'gm-warp-z'].forEach(function (id) {
+    ['gm-warp-scene', 'gm-warp-x', 'gm-warp-z', 'gm-fx-min', 'gm-fx-max', 'gm-fx-percent'].forEach(function (id) {
       var input = document.getElementById(id);
       if (input) input.value = '';
     });
@@ -1980,6 +2002,20 @@
       args.z = z;
     }
     sendGmCommand('warp', args);
+  }
+
+  function handleGmFieldExp(e) {
+    e.preventDefault();
+    var min = parseGmInt('gm-fx-min');
+    var max = parseGmInt('gm-fx-max');
+    var percent = parseGmInt('gm-fx-percent');
+    var numbers = [min, max, percent];
+    if (numbers.some(function (n) { return n === null || isNaN(n); }) ||
+        min < 1 || max < min || percent < 1 || percent > 10000) {
+      setGmResult(t('Enter both levels and a percent from 1 to 10000, with the first level not above the second.'), 'error');
+      return;
+    }
+    sendGmCommand('fieldexp', { action: 'set', rules: [{ min: min, max: max, percent: percent }] });
   }
 
   function sendGmCommand(command, args) {

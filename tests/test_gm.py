@@ -263,6 +263,64 @@ class GmEndpointTest(unittest.TestCase):
             with self.subTest(args=args):
                 self.assert_rejected({"account": "player1", "command": "warp", "args": args})
 
+    def test_fieldexp_is_off_unless_it_is_in_the_allowlist(self):
+        self.assert_rejected({"account": "player1", "command": "fieldexp", "args": {"action": "clear"}})
+        server.CONFIG["gm_allowed_commands"] = ["warp"]
+        self.assert_rejected({"account": "player1", "command": "fieldexp", "args": {"action": "reset"}})
+
+    def test_fieldexp_sends_the_exact_lines_to_the_loopback_endpoint(self):
+        server.CONFIG["gm_allowed_commands"] = ["fieldexp"]
+        cases = [
+            ({"action": "set", "rules": [{"min": 20, "max": 40, "percent": 300}]}, "!fieldexp set 20 40 300"),
+            ({"action": "set", "rules": [{"min": 20, "max": 36, "percent": 300}, {"min": 37, "max": 40, "percent": 500}]},
+             "!fieldexp set 20 36 300 37 40 500"),
+            ({"action": "clear"}, "!fieldexp clear"),
+            ({"action": "reset"}, "!fieldexp reset"),
+        ]
+        for args, line in cases:
+            with self.subTest(line=line):
+                code, data = self.gm({"account": "player1", "command": "fieldexp", "args": args})
+                self.assertEqual(code, 200, data)
+                self.assertEqual(data["sent"], line)
+                self.assertEqual(self.fake.requests[-1]["body"], line)
+        self.assertEqual(len(self.audit_rows()), len(cases), "every attempt is audit-logged")
+
+    def test_fieldexp_allowlist_does_not_open_other_commands(self):
+        server.CONFIG["gm_allowed_commands"] = ["fieldexp"]
+        self.assert_rejected({"account": "player1", "command": "warp", "args": {"scene": 10100}})
+        self.assert_rejected({"account": "player1", "command": "unstuck"})
+
+    def test_invalid_fieldexp_args_are_rejected(self):
+        server.CONFIG["gm_allowed_commands"] = ["fieldexp"]
+        rule = {"min": 20, "max": 40, "percent": 300}
+        bad_args = [
+            None,
+            {},
+            {"action": "show"},
+            {"action": "set"},  # no rules
+            {"action": "set", "rules": []},
+            {"action": "set", "rules": "20 40 300"},
+            {"action": "set", "rules": [rule] * 11},
+            {"action": "set", "rules": [{"min": 20, "max": 40}]},
+            {"action": "set", "rules": [dict(rule, extra=1)]},
+            {"action": "set", "rules": [[20, 40, 300]]},
+            {"action": "set", "rules": [dict(rule, min=0)]},
+            {"action": "set", "rules": [dict(rule, max=1000)]},
+            {"action": "set", "rules": [dict(rule, min=41)]},  # min above max
+            {"action": "set", "rules": [dict(rule, percent=0)]},
+            {"action": "set", "rules": [dict(rule, percent=10001)]},
+            {"action": "set", "rules": [dict(rule, percent="300")]},
+            {"action": "set", "rules": [dict(rule, percent=True)]},
+            {"action": "set", "rules": [dict(rule, percent="300\n!zeny 999999")]},
+            {"action": "clear", "rules": [rule]},
+            {"action": "reset", "rules": []},
+            {"action": "clear\n!zeny 999999"},
+            {"action": "set", "rules": [rule], "extra": 1},
+        ]
+        for args in bad_args:
+            with self.subTest(args=args):
+                self.assert_rejected({"account": "player1", "command": "fieldexp", "args": args})
+
     def test_unstuck_rejects_arguments(self):
         self.assert_rejected({"account": "player1", "command": "unstuck", "args": {"scene": 10100}})
 
