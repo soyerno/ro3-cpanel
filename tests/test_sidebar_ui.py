@@ -182,8 +182,12 @@ class SidebarScriptTest(unittest.TestCase):
     def test_opening_a_section_opens_its_group(self):
         self.assertIn("openSidebarGroupOf(tabId)", function_body(self.js, "switchTab"))
 
-    def test_picking_a_section_closes_the_drawer(self):
-        self.assertRegex(self.js, r"switchTab\(tab\);\s*closeSidebarDrawer\(\)")
+    def test_picking_any_menu_item_closes_the_drawer_even_one_another_script_adds(self):
+        # A delegated listener on the nav sees every .tab-btn, including ones that this file does not handle
+        # (the Konsor build injects its own section button).
+        init = function_body(self.js, "initSidebar")
+        self.assertIn("els.subnav.addEventListener('click'", init)
+        self.assertIn("if (e.target.closest('.tab-btn')) closeSidebarDrawer();", init)
 
     def test_the_drawer_closes_with_escape_the_backdrop_and_the_close_button(self):
         self.assertIn("'Escape'", function_body(self.js, "handleSidebarKeydown"))

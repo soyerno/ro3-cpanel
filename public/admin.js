@@ -2071,6 +2071,8 @@
 
     if (els.subnav) {
       els.subnav.addEventListener('click', function (e) {
+        // Any section button closes the drawer, also one added by another script (Konsor's own section).
+        if (e.target.closest('.tab-btn')) closeSidebarDrawer();
         var toggle = e.target.closest('.sidebar-group-toggle');
         if (!toggle) return;
         toggleSidebarGroup(toggle.closest('.sidebar-group'));
@@ -3333,13 +3335,11 @@
         if (!tab) return;
         // The Accounts tab stays highlighted while an account is open; clicking it goes back to the list.
         if (tab === 'accounts' && isAccountScreenOpen()) {
-          closeSidebarDrawer();
           goToAccountList();
           return;
         }
         if (tab !== 'accounts' && !confirmDiscardNotes()) return;
         switchTab(tab);
-        closeSidebarDrawer();
       });
     });
 
