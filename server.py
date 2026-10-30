@@ -158,6 +158,15 @@ ES_MESSAGES = {
     "Account not found": "Cuenta no encontrada",
     "Invalid character ID": "ID de personaje inválido",
     "Invalid character ID: it must be a positive integer": "ID de personaje inválido: debe ser un entero positivo",
+    "Invalid request": "Solicitud inválida",
+    "Type the exact character name to confirm the deletion.": "Escribí el nombre exacto del personaje para confirmar el borrado.",
+    "A character of an administrator account cannot be deleted.": "No se puede eliminar un personaje de una cuenta de administrador.",
+    "The account is online. Disconnect it in the game before deleting a character.": "La cuenta está en línea. Desconectala en el juego antes de eliminar un personaje.",
+    "Could not verify that the account is offline, so nothing was deleted. Try again.": "No se pudo verificar que la cuenta esté desconectada, así que no se eliminó nada. Intentá de nuevo.",
+    "Too many delete attempts. Try again in {seconds} seconds.": "Demasiados intentos de borrado. Intentá de nuevo en {seconds} segundos.",
+    "The character changed while it was being deleted. Reload and try again.": "El personaje cambió mientras se eliminaba. Recargá e intentá de nuevo.",
+    "Error deleting the character": "Error al eliminar el personaje",
+    "Character '{name}' of account '{account}' was deleted.": "El personaje '{name}' de la cuenta '{account}' fue eliminado.",
     "Character not found": "Personaje no encontrado",
     "Error reading the character's inventory": "Error leyendo el inventario del personaje",
     "Guild not found": "Gremio no encontrado",
@@ -414,6 +423,11 @@ def _positive_int_config(key, default):
 LOGIN_MAX_FAILURES = _positive_int_config("login_max_failures", 5)
 LOGIN_WINDOW_SECONDS = _positive_int_config("login_window_minutes", 15) * 60
 LOGIN_THROTTLE = LoginThrottle(max_failures=LOGIN_MAX_FAILURES, window_seconds=LOGIN_WINDOW_SECONDS)
+
+# Deleting a character is destructive: attempts (valid or not) are capped per admin so a stolen session
+# cannot wipe characters in bulk or guess confirmation names.
+CHARACTER_DELETE_MAX_PER_MINUTE = _positive_int_config("character_delete_max_per_minute", 10)
+CHARACTER_DELETE_THROTTLE = LoginThrottle(max_failures=CHARACTER_DELETE_MAX_PER_MINUTE, window_seconds=60)
 
 # RO Class & Map Dictionaries
 # Only ids with an upstream source are verified: careers 1310, 1400, 2400, 4400 and 6100 (aethai/ro3emu-server
@@ -1380,6 +1394,19 @@ def summarize_metrics(snapshot):
     }
 
 
+def account_is_online(account_name):
+    """True when RO3Emu lists the account as connected. Raises when that answer cannot be trusted:
+    callers that delete must fail closed instead of assuming the account is offline."""
+    entries = fetch_ro3_json("/ro3emu/online")
+    if not isinstance(entries, list):
+        raise Ro3EmuUnavailable(unexpected_format())
+    target = str(account_name or "").strip().lower()
+    return any(
+        isinstance(entry, dict) and str(entry.get("account") or "").strip().lower() == target
+        for entry in entries
+    )
+
+
 def summarize_online(entries, show_ips):
     """RO3Emu /ro3emu/online rows -> panel rows; 'remote' (player IP) only when show_ips."""
     if not isinstance(entries, list):
@@ -2229,6 +2256,8 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
             return self.handle_unban_account(session['user'], client_ip)
         if raw_path == '/api/admin/accounts/delete':
             return self.handle_delete_account(session['user'], client_ip)
+        if raw_path == '/api/admin/characters/delete':
+            return self.handle_delete_character(session['user'], client_ip)
         if raw_path == '/api/admin/accounts/save-notes':
             return self.handle_save_notes(session['user'], client_ip)
         if raw_path == '/api/admin/gm':
@@ -2976,6 +3005,82 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
         return self.send_json(200, {
             "success": True,
             "message": tr("Account '{username}' and its data were deleted successfully.", username=username)
+        })
+
+    def handle_delete_character(self, admin_user, client_ip):
+        """Logical delete of one character (role.deleted_time), the same delete the account delete uses.
+
+        Guards, in order: JSON-only (a cross-site form cannot send it), per-admin rate limit, strict input,
+        the character's exact name as confirmation, no characters of admin accounts, the account must be
+        offline (and that must be verifiable), then one transaction that deletes and audits together."""
+        if (self.headers.get("Content-Type") or "").split(";")[0].strip().lower() != "application/json":
+            return self.send_json(415, {"error": tr("Invalid request")})
+
+        wait = CHARACTER_DELETE_THROTTLE.reserve("admin:" + str(admin_user).lower())
+        if wait:
+            return self.send_json(
+                429,
+                {"error": tr("Too many delete attempts. Try again in {seconds} seconds.", seconds=wait), "retry_after": wait},
+                {"Retry-After": str(wait)},
+            )
+
+        body = self.read_json_body()
+        if not isinstance(body, dict):
+            return self.send_json(400, {"error": tr("Invalid request body")})
+        role_id = body.get("role_id")
+        if isinstance(role_id, bool) or not isinstance(role_id, int) or not (0 < role_id <= MAX_SQLITE_INT):
+            return self.send_json(400, {"error": tr("Invalid character ID")})
+        typed_name = body.get("confirm_name")
+
+        try:
+            with get_db() as con:
+                role = con.execute(
+                    "SELECT id, name, account, deleted_time FROM role WHERE id = ?", (role_id,)
+                ).fetchone()
+        except sqlite3.Error as e:
+            print(f"[Character Delete Error] {e}", file=sys.stderr)
+            return self.send_json(500, {"error": tr("Error deleting the character")})
+        if not role or (role["deleted_time"] or 0) != 0:
+            return self.send_json(404, {"error": tr("Character not found")})
+
+        if not isinstance(typed_name, str) or typed_name != role["name"]:
+            return self.send_json(400, {"error": tr("Type the exact character name to confirm the deletion.")})
+
+        account = role["account"] or ""
+        admin_usernames = [a.get("username", "").strip().lower() for a in CONFIG.get("admin_users", [])]
+        if account.strip().lower() in admin_usernames:
+            return self.send_json(400, {"error": tr("A character of an administrator account cannot be deleted.")})
+
+        try:
+            online = account_is_online(account)
+        except Exception:
+            return self.send_json(503, {"error": tr("Could not verify that the account is offline, so nothing was deleted. Try again.")})
+        if online:
+            return self.send_json(409, {"error": tr("The account is online. Disconnect it in the game before deleting a character.")})
+
+        try:
+            with get_db() as con:
+                con.execute("BEGIN IMMEDIATE")
+                # name and deleted_time are part of the match: the row must still be the one that was confirmed.
+                changed = con.execute(
+                    "UPDATE role SET deleted_time = ? WHERE id = ? AND name = ? AND deleted_time = 0",
+                    (max(1, int(time.time())), role["id"], role["name"]),
+                ).rowcount
+                if changed != 1:
+                    return self.send_json(409, {"error": tr("The character changed while it was being deleted. Reload and try again.")})
+                # Same transaction: there is no delete without its audit row.
+                insert_audit(
+                    con, admin_user, "delete_character", f"{role['name']} (#{role['id']})",
+                    f"Character of account {account} logically deleted by admin", client_ip,
+                )
+        except sqlite3.Error as e:
+            print(f"[Character Delete Error] {e}", file=sys.stderr)
+            return self.send_json(500, {"error": tr("Error deleting the character")})
+
+        return self.send_json(200, {
+            "success": True,
+            "role_id": role["id"],
+            "message": tr("Character '{name}' of account '{account}' was deleted.", name=role["name"], account=account),
         })
 
     def handle_save_notes(self, admin_user, client_ip):
