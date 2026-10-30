@@ -749,6 +749,48 @@ def item_info(entry):
     return item_resolver()(entry)
 
 
+ITEM_SEARCH_LIMIT_DEFAULT = 20
+ITEM_SEARCH_LIMIT_MAX = 50
+ITEM_SEARCH_MIN_TEXT = 2
+
+
+def search_items(query, limit, names=None, catalog=None):
+    """Items whose id or name matches 'query', best first: exact id, name prefix, id prefix, name substring.
+
+    A numeric query needs one character, any other at least two (shorter gives []). Ties sort by name, then id.
+    'names' is the merged {entry: name} map and 'catalog' the {entry: {"icon", "quality"}} map; both load when None.
+    """
+    text = query.strip() if isinstance(query, str) else ""
+    numeric = text.isascii() and text.isdigit()
+    if not text or (not numeric and len(text) < ITEM_SEARCH_MIN_TEXT):
+        return []
+    names = (load_item_names() or {}) if names is None else names
+    catalog = (load_item_catalog() or {}) if catalog is None else catalog
+    needle = text.casefold()
+    ranked = []
+    for entry, name in names.items():
+        if not (isinstance(entry, str) and entry.isascii() and entry.isdigit()) or not isinstance(name, str):
+            continue
+        folded = name.casefold()
+        if numeric and entry == text.lstrip("0"):
+            rank = 0
+        elif folded.startswith(needle):
+            rank = 1
+        elif numeric and entry.startswith(text):
+            rank = 2
+        elif needle in folded:
+            rank = 3
+        else:
+            continue
+        ranked.append((rank, folded, int(entry), name))
+    ranked.sort()
+    items = []
+    for _, _, entry, name in ranked[:limit]:
+        found = catalog.get(str(entry)) or NO_ITEM_INFO
+        items.append({"entry": entry, "name": name, "icon": found["icon"], "quality": found["quality"]})
+    return items
+
+
 def normalized_item_icons_url(value):
     """'item_icons_url' as a same-site path with a trailing slash, or '' when it is unset or could leave the site."""
     if not isinstance(value, str):
@@ -2619,6 +2661,10 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
         if raw_path == '/api/admin/gift-codes':
             return self.handle_gift_codes_list()
 
+        # 10c. Item search (catalog + item names) for the gift code reward rows
+        if raw_path == '/api/admin/items':
+            return self.handle_item_search(params)
+
         # 11. Rankings (read-only)
         if raw_path == '/api/admin/rankings':
             return self.handle_rankings(params)
@@ -3605,6 +3651,10 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
         for entry in logs:
             entry["details"] = localize_audit_details(entry.get("details"))
         return self.send_json(200, {"logs": logs, **paging(total, page, page_size)})
+
+    def handle_item_search(self, params):
+        limit = parse_int_param(params, 'limit', ITEM_SEARCH_LIMIT_DEFAULT, minimum=1, maximum=ITEM_SEARCH_LIMIT_MAX)
+        return self.send_json(200, {"items": search_items(params.get('q', [''])[0], limit)})
 
     def handle_gift_codes_list(self):
         with get_db() as con:
