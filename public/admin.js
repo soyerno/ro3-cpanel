@@ -458,14 +458,6 @@
     return Number(num).toLocaleString(i18n.lang);
   }
 
-  // Currencies other than Zeny have no verified name in RO3Emu, so they are listed by item id.
-  function formatOtherCurrencies(others) {
-    if (!others || !others.length) return '—';
-    return others.map(function (c) {
-      return '#' + escapeHtml(String(c.id)) + ': ' + formatNumber(c.amount);
-    }).join(', ');
-  }
-
   function formatDate(isoStr) {
     if (!isoStr) return '—';
     try {
@@ -874,8 +866,8 @@
     els.onlineTbody.innerHTML = players.map(function (p) {
       var pos = (isNum(p.x) && isNum(p.z)) ? String(p.x) + ', ' + String(p.z) : '—';
       var row = '<tr>' +
-        '<td>' + escapeHtml(p.account) + '</td>' +
-        '<td>' + (p.character ? escapeHtml(p.character) : '<span class="text-muted">' + escapeHtml(t('No character')) + '</span>') + '</td>' +
+        '<td>' + accountLinkHtml(p.account) + '</td>' +
+        '<td>' + (p.character ? accountLinkHtml(p.account, p.character) : '<span class="text-muted">' + escapeHtml(t('No character')) + '</span>') + '</td>' +
         '<td>' + (p.scene_name ? escapeHtml(p.scene_name) : '—') + '</td>' +
         '<td>' + escapeHtml(pos) + '</td>';
       if (showIps) row += '<td>' + (p.remote ? escapeHtml(p.remote) : '—') + '</td>';
@@ -965,7 +957,7 @@
         charsHtml = '<div class="char-chips-container">';
         acc.characters.forEach(function (c) {
           charsHtml += '<span class="char-chip">' +
-            '<strong>' + escapeHtml(c.name) + '</strong> ' +
+            '<strong>' + accountLinkHtml(acc.name, c.name) + '</strong> ' +
             '<span class="char-class">' + escapeHtml(c.career_name) + '</span> ' +
             '<span class="char-lv">Lv.' + c.level + '/' + c.job_level + '</span>' +
             '</span>';
@@ -977,7 +969,7 @@
 
       // data-label feeds the stacked card layout of narrow screens; the aria-labels name each button after its account.
       html += '<tr data-account="' + escapeHtml(acc.name) + '">' +
-        '<td data-label="' + escapeHtml(t('Account')) + '"><strong class="account-name">' + escapeHtml(acc.name) + '</strong></td>' +
+        '<td data-label="' + escapeHtml(t('Account')) + '"><strong class="account-name">' + accountLinkHtml(acc.name) + '</strong></td>' +
         '<td data-label="' + escapeHtml(t('Status')) + '">' + badgeHtml + '</td>' +
         '<td data-label="' + escapeHtml(t('Associated Characters')) + '">' + charsHtml + '</td>' +
         '<td class="cell-meta" data-label="' + escapeHtml(t('Registration Date')) + '">' + formatDate(acc.created_utc) + '</td>' +
@@ -1378,9 +1370,6 @@
 
   function renderCharacterCard(c, acc) {
     var roleId = escapeHtml(String(c.id));
-    var stats = ['str', 'agi', 'vit', 'int', 'dex', 'luk'].map(function (key) {
-      return '<div><div class="stat-box-lbl">' + key.toUpperCase() + '</div><div class="stat-box-val">' + cellValue(c.stats[key]) + '</div></div>';
-    }).join('');
     return '<article class="char-card-detail">' +
       '<div class="char-card-header">' +
         '<div class="char-card-name">' +
@@ -1389,13 +1378,16 @@
         '</div>' +
         '<div class="char-card-level">' + escapeHtml(t('Level {level} / Job {job}', { level: c.level, job: c.job_level })) + '</div>' +
       '</div>' +
-      '<dl class="char-facts">' +
-        '<div><dt>' + escapeHtml(t('Zeny')) + ':</dt><dd class="char-fact-zeny">' + formatNumber(c.currency.zeny) + ' Z</dd></div>' +
-        '<div><dt>' + escapeHtml(t('Other currencies:')) + '</dt><dd class="char-fact-other">' + formatOtherCurrencies(c.currency.others) + '</dd></div>' +
-        '<div><dt>' + escapeHtml(t('Location:')) + '</dt><dd>' + escapeHtml(c.scene_name) + ' (' + cellValue(c.pos.x) + ', ' + cellValue(c.pos.z) + ')</dd></div>' +
-        '<div><dt>' + escapeHtml(t('Last login:')) + '</dt><dd>' + formatDate(c.last_login) + '</dd></div>' +
-      '</dl>' +
-      '<div class="stats-grid-mini">' + stats + '</div>' +
+      '<div class="char-card-body">' +
+        '<div class="char-card-main">' +
+          '<dl class="char-facts">' +
+            '<div><dt>' + escapeHtml(t('Location:')) + '</dt><dd>' + escapeHtml(c.scene_name) + ' (' + cellValue(c.pos.x) + ', ' + cellValue(c.pos.z) + ')</dd></div>' +
+            '<div><dt>' + escapeHtml(t('Last login:')) + '</dt><dd>' + formatDate(c.last_login) + '</dd></div>' +
+          '</dl>' +
+          renderCharacterCurrencies(c) +
+        '</div>' +
+        renderCharacterStats(c.stats || {}) +
+      '</div>' +
       '<div class="char-card-actions">' +
         '<button type="button" class="btn btn-secondary btn-sm btn-view-inventory" data-role-id="' + roleId + '" aria-expanded="false" aria-controls="char-inventory-' + roleId + '" title="' + escapeHtml(t('View character items')) + '">' + escapeHtml(t('View inventory')) + '</button>' +
         '<button type="button" class="btn btn-secondary btn-sm btn-view-mail" data-role-id="' + roleId + '" aria-expanded="false" aria-controls="char-mail-' + roleId + '" title="' + escapeHtml(t('View character mail (read-only)')) + '">' + escapeHtml(t('View mail')) + '</button>' +
@@ -1517,7 +1509,7 @@
       parts.push(itemChipHtml(it, ' <span class="item-qty">x' + escapeHtml(String(it.stack)) + '</span>'));
     });
     (m.currency || []).forEach(function (cur) {
-      parts.push(escapeHtml(t('Currency {entry}: {amount}', { entry: cur.entry, amount: formatNumber(cur.amount) })));
+      parts.push('<ul class="char-currencies char-currencies--inline">' + currencyRowHtml(cur.entry, cur, cur.amount) + '</ul>');
     });
     return parts.length ? '<span class="item-chip-list item-chip-list--inline">' + parts.join('') + '</span>' : escapeHtml(t('No attachments'));
   }
@@ -1570,6 +1562,55 @@
       });
   }
 
+  // --- Player links, currencies and stats ---
+  // Every player name that has an account behind it links to that account's screen. The hashchange handler does the
+  // navigation, so the link also works from another tab, in a new tab and with the keyboard.
+  var AUDIT_ACCOUNT_ACTIONS = ['create_account', 'update_password', 'ban_account', 'unban_account', 'gm_command'];
+
+  function accountLinkHtml(account, label) {
+    var text = label === undefined || label === null ? account : label;
+    if (!account) return escapeHtml(text);
+    return '<a class="player-link" href="' + escapeHtml(accountRouteHash(account)) + '">' + escapeHtml(text) + '</a>';
+  }
+
+  // The audit target is an account only for the actions on accounts that still exist (a deleted account, a gift
+  // code or a feature switch are plain text). Long targets are cut for display; the link and the title keep the full name.
+  function auditTargetHtml(l) {
+    var targetRaw = l.target || '';
+    if (!targetRaw) return '\u2014';
+    var MAX_TARGET_CHARS = 20;
+    var shown = targetRaw.length > MAX_TARGET_CHARS ? targetRaw.substring(0, MAX_TARGET_CHARS) + '\u2026' : targetRaw;
+    var inner = AUDIT_ACCOUNT_ACTIONS.indexOf(l.action) !== -1 ? accountLinkHtml(targetRaw, shown) : escapeHtml(shown);
+    return '<strong class="audit-target text-strong" title="' + escapeHtml(targetRaw) + '">' + inner + '</strong>';
+  }
+
+  // One currency: image, name and amount. Currency ids are item ids, so the item catalog names them.
+  function currencyRowHtml(entry, info, amount) {
+    var name = info && info.name ? info.name : (entry === 1 ? t('Zeny') : t('Currency {id}', { id: entry }));
+    return '<li class="char-currency">' +
+      itemIconHtml({ entry: entry, name: name, icon: info && info.icon, quality: info && info.quality }) +
+      '<span class="char-currency__name">' + escapeHtml(name) + '</span>' +
+      '<span class="char-currency__amount">' + escapeHtml(formatNumber(amount)) + '</span>' +
+    '</li>';
+  }
+
+  function renderCharacterCurrencies(c) {
+    var rows = [currencyRowHtml(1, c.currency.zeny_item, c.currency.zeny)];
+    (c.currency.others || []).forEach(function (other) {
+      rows.push(currencyRowHtml(other.id, other, other.amount));
+    });
+    return '<section class="char-currencies-block">' +
+      '<h4 class="char-subtitle">' + escapeHtml(t('Currencies')) + '</h4>' +
+      '<ul class="char-currencies" tabindex="0" aria-label="' + escapeHtml(t('Currencies')) + '">' + rows.join('') + '</ul>' +
+    '</section>';
+  }
+
+  function renderCharacterStats(stats) {
+    return '<dl class="char-stats">' + ['str', 'agi', 'vit', 'int', 'dex', 'luk'].map(function (key) {
+      return '<div class="char-stat"><dt>' + key.toUpperCase() + '</dt><dd>' + cellValue(stats[key]) + '</dd></div>';
+    }).join('') + '</dl>';
+  }
+
   // --- Item name + image ---
   // The server sends name, icon (a file name) and quality (one of five words) per item. The icon URL is built
   // here from the same-site base in the branding config; anything that does not look like a plain file name
@@ -1620,30 +1661,50 @@
   }
 
   // --- Character Inventory (read-only) ---
+  // A character card shows its inventory or its mail, never both: opening one closes the other. `which` is
+  // 'inventory', 'mail' or null (both closed); the card remembers it in data-panel, so a slow load can tell
+  // whether the admin has already moved on.
+  function setCharacterPanel(card, which) {
+    card.setAttribute('data-panel', which || '');
+    var inventoryBox = card.querySelector('.char-inventory');
+    var mailBox = card.querySelector('.char-mail-panel');
+    if (inventoryBox && which !== 'inventory') inventoryBox.hidden = true;
+    if (mailBox && which !== 'mail') mailBox.hidden = true;
+    var inventoryBtn = card.querySelector('.btn-view-inventory');
+    var mailBtn = card.querySelector('.btn-view-mail');
+    if (inventoryBtn) {
+      inventoryBtn.setAttribute('aria-expanded', which === 'inventory' ? 'true' : 'false');
+      inventoryBtn.textContent = which === 'inventory' ? t('Hide inventory') : t('View inventory');
+    }
+    if (mailBtn) {
+      mailBtn.setAttribute('aria-expanded', which === 'mail' ? 'true' : 'false');
+      mailBtn.textContent = which === 'mail' ? t('Hide mail') : t('View mail');
+    }
+  }
+
   function toggleCharacterInventory(btn) {
     var card = btn.closest('.char-card-detail');
     var container = card ? card.querySelector('.char-inventory') : null;
     var roleId = btn.getAttribute('data-role-id');
     if (!container || !roleId) return;
 
-    if (!container.hidden) {
-      container.hidden = true;
-      btn.textContent = t('View inventory');
-      btn.setAttribute('aria-expanded', 'false');
+    if (card.getAttribute('data-panel') === 'inventory') {
+      setCharacterPanel(card, null);
       return;
     }
 
+    setCharacterPanel(card, 'inventory');
     btn.disabled = true;
     btn.textContent = t('Loading...');
     apiFetch('/api/admin/characters/' + encodeURIComponent(roleId) + '/items')
       .then(function (data) {
+        if (card.getAttribute('data-panel') !== 'inventory') return;
         container.innerHTML = renderInventory(data);
         container.hidden = false;
-        btn.textContent = t('Hide inventory');
-        btn.setAttribute('aria-expanded', 'true');
+        setCharacterPanel(card, 'inventory');
       })
       .catch(function (err) {
-        btn.textContent = t('View inventory');
+        if (card.getAttribute('data-panel') === 'inventory') setCharacterPanel(card, null);
         showToast(t('Error loading inventory: {message}', { message: err.message }), 'error');
       })
       .finally(function () {
@@ -2406,21 +2467,11 @@
         }
         var html = '';
         logs.forEach(function (l) {
-          var targetRaw = l.target || '';
-          var targetDisplay = targetRaw;
-          var MAX_TARGET_CHARS = 20;
-          if (targetDisplay.length > MAX_TARGET_CHARS) {
-            targetDisplay = targetDisplay.substring(0, MAX_TARGET_CHARS) + '…';
-          }
-          var targetCell = targetRaw
-            ? '<strong class="audit-target text-strong" title="' + escapeHtml(targetRaw) + '">' + escapeHtml(targetDisplay) + '</strong>'
-            : '—';
-
           html += '<tr>' +
             '<td class="cell-meta">' + formatDate(l.created_utc) + '</td>' +
             '<td><strong class="text-gold">' + escapeHtml(l.admin_user) + '</strong></td>' +
             '<td><span class="badge badge-admin">' + escapeHtml(l.action) + '</span></td>' +
-            '<td>' + targetCell + '</td>' +
+            '<td>' + auditTargetHtml(l) + '</td>' +
             '<td class="text-muted">' + escapeHtml(l.details) + '</td>' +
           '</tr>';
         });
@@ -2468,7 +2519,7 @@
   }
 
   function describeEconomyOwner(e) {
-    if (e.owner_name) return escapeHtml(e.owner_name);
+    if (e.owner_name) return accountLinkHtml(e.owner_account, e.owner_name);
     return escapeHtml(e.owner_kind_label) + ' ' + escapeHtml(e.owner_id);
   }
 
@@ -2482,13 +2533,13 @@
     entries.forEach(function (e) {
       var deltaClass = e.delta < 0 ? 'economy-delta-neg' : 'economy-delta-pos';
       var deltaText = (e.delta > 0 ? '+' : '') + formatNumber(e.delta);
-      var actorRole = e.actor_role_name ? escapeHtml(e.actor_role_name) : ('#' + escapeHtml(String(e.actor_role)));
+      var actorRole = e.actor_role_name ? e.actor_role_name : ('#' + String(e.actor_role));
       html += '<tr>' +
         '<td class="cell-meta">' + formatDate(e.recorded_utc) + '</td>' +
         '<td><span class="badge badge-admin">' + escapeHtml(e.command_kind) + '</span>' +
           '<div class="economy-sub" title="' + escapeHtml(e.operation_id) + '">' + escapeHtml(e.operation_id) + '</div></td>' +
-        '<td><strong class="text-strong">' + escapeHtml(e.actor_account) + '</strong>' +
-          '<div class="economy-sub">' + actorRole + '</div></td>' +
+        '<td><strong class="text-strong">' + accountLinkHtml(e.actor_account) + '</strong>' +
+          '<div class="economy-sub">' + (e.actor_role_name ? accountLinkHtml(e.actor_account, actorRole) : escapeHtml(actorRole)) + '</div></td>' +
         '<td>' + describeEconomyOwner(e) + '</td>' +
         '<td>' + escapeHtml(e.asset_label) + '</td>' +
         '<td class="' + deltaClass + '">' + escapeHtml(deltaText) + '</td>' +
@@ -2613,8 +2664,8 @@
           }
           html += '<tr>' +
             '<td><strong class="text-gold">' + r.rank + '</strong></td>' +
-            '<td><strong class="text-strong">' + escapeHtml(r.name) + '</strong></td>' +
-            '<td class="text-muted">' + escapeHtml(r.account) + '</td>' +
+            '<td><strong class="text-strong">' + accountLinkHtml(r.account, r.name) + '</strong></td>' +
+            '<td class="text-muted">' + accountLinkHtml(r.account) + '</td>' +
             '<td>' + escapeHtml(r.career_name) + '</td>' +
             '<td>' + formatNumber(r.level) + ' / ' + formatNumber(r.job_level) + '</td>' +
             '<td><strong>' + formatNumber(r.value) + '</strong></td>' +
@@ -2726,8 +2777,8 @@
           var html = '';
           members.forEach(function (m) {
             html += '<tr>' +
-              '<td><strong class="text-strong">' + escapeHtml(m.name) + '</strong></td>' +
-              '<td>' + escapeHtml(m.account) + '</td>' +
+              '<td><strong class="text-strong">' + accountLinkHtml(m.account, m.name) + '</strong></td>' +
+              '<td>' + accountLinkHtml(m.account) + '</td>' +
               '<td>' + escapeHtml(m.career_name) + '</td>' +
               '<td>' + cellValue(m.level) + '</td>' +
             '</tr>';
@@ -2799,7 +2850,9 @@
     }
     els.auctionsTbody.innerHTML = rows.map(function (r) {
       return '<tr>' + columns.map(function (c) {
-        return '<td>' + auctionCell(r[c[0]]) + '</td>';
+        // A character in the pre-buy list links to the account it belongs to.
+        var cell = c[0] === 'role_name' && r.role_name ? accountLinkHtml(r.role_account, r.role_name) : auctionCell(r[c[0]]);
+        return '<td>' + cell + '</td>';
       }).join('') + '</tr>';
     }).join('');
   }
@@ -3069,8 +3122,8 @@
   // Seller and buyer cells: account on top, character underneath.
   function marketPartyCell(account, character) {
     if (!account) return '—';
-    var html = '<strong class="market-account">' + escapeHtml(account) + '</strong>';
-    if (character) html += '<div class="economy-sub" title="' + escapeHtml(character) + '">' + escapeHtml(character) + '</div>';
+    var html = '<strong class="market-account">' + accountLinkHtml(account) + '</strong>';
+    if (character) html += '<div class="economy-sub" title="' + escapeHtml(character) + '">' + accountLinkHtml(account, character) + '</div>';
     return html;
   }
 
@@ -3284,13 +3337,13 @@
         if (target.classList.contains('btn-view-inventory')) {
           toggleCharacterInventory(target);
         } else if (target.classList.contains('btn-view-mail')) {
-          var panel = document.getElementById('char-mail-' + roleId);
-          if (panel && !panel.hidden) {
-            panel.hidden = true;
-            target.setAttribute('aria-expanded', 'false');
+          var card = target.closest('.char-card-detail');
+          if (!card) return;
+          if (card.getAttribute('data-panel') === 'mail') {
+            setCharacterPanel(card, null);
             return;
           }
-          target.setAttribute('aria-expanded', 'true');
+          setCharacterPanel(card, 'mail');
           loadCharacterMail(roleId, 1);
         } else if (target.classList.contains('btn-mail-page')) {
           loadCharacterMail(roleId, parseInt(target.getAttribute('data-page'), 10) || 1);
