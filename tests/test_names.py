@@ -23,18 +23,46 @@ class TestNameLookups(unittest.TestCase):
         self.assertEqual(server.scene_name(1022001), "Payon Forest")
         self.assertEqual(server.scene_name(1010101), "Izlude")
 
-    def test_names_match_upstream_tests(self):
-        # aethai/ro3emu-server tests/Ro3Emu.Tests/CombatTableRulesTests.cs:36-43
-        self.assertEqual(server.career_name(1400), "Lord Knight")
-        self.assertEqual(server.career_name(4400), "High Priest")
+    def test_names_match_the_game_job_data(self):
+        # job_id -> job_name of the game's own skill trees (konsor-ro3 data/ro3base/skill_trees.json). The tier
+        # decides which id is which: 1300 and 4300 are the transcended second jobs, 1400 and 4400 the third jobs.
+        # aethai/ro3emu-server CombatTableRulesTests.cs calls 1400 "Lord Knight" and 4400 "High Priest" in comments,
+        # but the same test asserts every resonance job (1400, 4400, 2400) has job rank 5, like the Warlock.
+        self.assertEqual(server.career_name(1300), "Lord Knight")
+        self.assertEqual(server.career_name(1310), "Paladin")
+        self.assertEqual(server.career_name(1400), "Rune Knight")
         self.assertEqual(server.career_name(2400), "Warlock")
+        self.assertEqual(server.career_name(4300), "High Priest")
+        self.assertEqual(server.career_name(4400), "Arch Bishop")
+        self.assertEqual(server.career_name(6100), "Merchant")
         # tests/Ro3Emu.Tests/DungeonTests.Return.cs:534 (const long izlude = 10101)
         self.assertEqual(server.scene_name(10101), "Izlude")
 
-    def test_ids_whose_name_upstream_gives_to_another_id_fall_back(self):
-        self.assertEqual(server.career_name(1300), "Class 1300")
-        self.assertEqual(server.career_name(4300), "Class 4300")
-        self.assertEqual(server.scene_name(10600), "Map 10600")
+    def test_every_job_of_the_game_data_has_a_name(self):
+        game_jobs = (1000, 1100, 1200, 1210, 1300, 1310, 1400, 1410, 2100, 2200, 2300, 2400, 3100, 3200, 3300, 3400,
+                     4100, 4200, 4300, 4400, 5100, 5200, 5300, 6100, 6200, 6300, 6400)
+        for job in game_jobs:
+            with self.subTest(job=job):
+                self.assertFalse(server.career_name(job).startswith("Class "), job)
+
+    def test_town_and_field_scenes_follow_the_game_map_data(self):
+        # id -> name_en of the game's scene data (konsor-ro3 data/ro3base/maps.json)
+        expected = {10100: "Prontera", 10102: "Byalan Island", 10103: "Inn", 10104: "Library", 10201: "Archer Village",
+                    10220: "Payon Forest", 10514: "Sograt Desert", 10600: "Alberta", 10610: "Sunken Ship",
+                    10700: "Glast Heim the Ancient City", 30399: "Producer's Lair", 101: "Garden of Time"}
+        for scene, name in expected.items():
+            with self.subTest(scene=scene):
+                self.assertEqual(server.scene_name(scene), name)
+
+    def test_guessed_scene_names_the_game_data_contradicts_are_gone(self):
+        # These were unverified guesses (Prontera West, Morroc Field, Al De Baran...). The ids are other maps or none.
+        for scene in (10301, 10400, 10401, 10800):
+            with self.subTest(scene=scene):
+                self.assertEqual(server.scene_name(scene), "Map %d" % scene)
+
+    def test_the_whole_map_list_is_there(self):
+        towns = [s for s in server.SCENE_MAP if s < 1000000]
+        self.assertGreaterEqual(len(towns), 72)
 
     def test_unknown_career_falls_back(self):
         self.assertEqual(server.career_name(987654), "Class 987654")

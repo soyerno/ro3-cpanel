@@ -254,6 +254,7 @@ class TestEconomyApi(EconomyApiTestBase):
         self.assertEqual(entry["owner_kind"], 1)
         self.assertEqual(entry["owner_id"], "11")
         self.assertEqual(entry["owner_name"], "Bob")
+        self.assertEqual(entry["owner_account"], "bob")
         self.assertEqual(entry["asset_kind"], 2)
         self.assertEqual(entry["asset_id"], 1)
         self.assertEqual(entry["asset_label"], "Zeny")
