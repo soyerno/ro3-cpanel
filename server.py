@@ -304,6 +304,7 @@ ES_MESSAGES = {
     "Gift code '{code}' created successfully.": "Código de regalo '{code}' creado exitosamente.",
     "Gift code '{code}' disabled.": "Código de regalo '{code}' desactivado.",
     "Gift code '{code}' enabled.": "Código de regalo '{code}' activado.",
+    "Gift code '{code}' updated successfully.": "Código de regalo '{code}' actualizado exitosamente.",
 }
 
 
@@ -2384,7 +2385,10 @@ def gift_code_status(disabled, starts_utc, expires_utc, max_uses, uses, now):
 
 
 def validate_gift_code_body(body):
-    """Returns (fields, None) for a valid create request or (None, error message)."""
+    """Returns (fields, None) for a valid create or update request or (None, error message).
+
+    Create and update share every rule; on update "code" only identifies the row and is never rewritten.
+    """
     code = body.get("code")
     if not isinstance(code, str) or not (1 <= len(code.strip()) <= GIFT_CODE_MAX_LEN) or not code.strip().isprintable():
         return None, tr("The code must be between 1 and 64 characters")
@@ -2657,7 +2661,7 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
         if raw_path == '/api/admin/economy':
             return self.handle_economy(params)
 
-        # 10b. Gift codes (RO3Emu's gift_code table; the panel creates and toggles codes)
+        # 10b. Gift codes (RO3Emu's gift_code table; the panel creates, edits and toggles codes)
         if raw_path == '/api/admin/gift-codes':
             return self.handle_gift_codes_list()
 
@@ -2739,6 +2743,8 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
             return self.handle_gift_code_toggle(session['user'], client_ip, disabled=True)
         if raw_path == '/api/admin/gift-codes/enable':
             return self.handle_gift_code_toggle(session['user'], client_ip, disabled=False)
+        if raw_path == '/api/admin/gift-codes/update':
+            return self.handle_gift_code_update(session['user'], client_ip)
 
         self.send_json(404, {"error": tr("Endpoint not found")})
 
@@ -3717,6 +3723,36 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
             "success": True,
             "code": code,
             "message": tr("Gift code '{code}' created successfully.", code=code),
+        })
+
+    def handle_gift_code_update(self, admin_user, client_ip):
+        # The code string is the key redemption rows reference, so it is matched but never rewritten. Lowering
+        # max_uses below the current redemption count is allowed: the code simply stops accepting redemptions.
+        body = self.read_json_body()
+        if not body or not isinstance(body, dict):
+            return self.send_json(400, {"error": tr("Invalid request body")})
+        fields, error = validate_gift_code_body(body)
+        if error:
+            return self.send_json(400, {"error": error})
+        code = fields["code"]
+        with get_db() as con:
+            if not _table_exists(con, "gift_code"):
+                return self.send_json(503, {"error": gift_codes_unsupported()})
+            row = con.execute("SELECT code FROM gift_code WHERE code = ?", (code,)).fetchone()
+            if not row:
+                return self.send_json(404, {"error": tr("The gift code '{code}' does not exist", code=code)})
+            stored = row["code"]
+            con.execute(
+                "UPDATE gift_code SET items = ?, max_uses = ?, per_account = ?, starts_utc = ?, expires_utc = ?,"
+                " note = ? WHERE code = ?",
+                (fields["items"], fields["max_uses"], fields["per_account"], fields["starts_utc"],
+                 fields["expires_utc"], fields["note"], stored),
+            )
+        log_audit(admin_user, "gift_code_update", stored, "Gift code updated", client_ip)
+        return self.send_json(200, {
+            "success": True,
+            "code": stored,
+            "message": tr("Gift code '{code}' updated successfully.", code=stored),
         })
 
     def handle_gift_code_toggle(self, admin_user, client_ip, disabled):

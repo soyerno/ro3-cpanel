@@ -1,6 +1,6 @@
 # Gift Codes
 
-The **Gift Codes** tab creates, lists, disables and re-enables the redeemable codes of your RO3Emu server. Players
+The **Gift Codes** tab creates, lists, edits, disables and re-enables the redeemable codes of your RO3Emu server. Players
 redeem them in the game client (Settings > Redemption Code); the panel never redeems anything and stays admin-only.
 
 ## Requirements
@@ -15,6 +15,7 @@ redeem them in the game client (Settings > Redemption Code); the panel never red
 | Action | Effect |
 |---|---|
 | Create | Inserts one row in `gift_code`. The code is trimmed, 1 to 64 characters, unique ignoring case. |
+| Edit | Rewrites the rewards, max uses, uses per account, start, expiry and note of one row (`POST /api/admin/gift-codes/update`, same rules as create). The code itself, its creator, creation time and disabled flag never change, and `gift_code_redemption` is not touched. |
 | Disable / Enable | Sets `gift_code.disabled` to `1` / `0`. A disabled code stops working at once but keeps its history. |
 | List | Reads `gift_code` and counts uses from `gift_code_redemption` (read-only). |
 
@@ -33,10 +34,17 @@ A code has:
 
 The status column shows `Active`, `Disabled`, `Scheduled`, `Expired` or `Exhausted`.
 
+## Editing a code
+
+**Edit** on a row opens the create dialog filled with that code. The code is read-only: RO3Emu records each
+redemption under it, so renaming would detach the history. To use a different code, create a new one and disable the
+old one. Max uses may be set below the uses already counted; the code then shows `Exhausted` and accepts no more
+redemptions, and past redemptions stay as they are. Dates are shown and entered in your browser's local time.
+
 ## Audit log
 
-Every create, disable and enable is recorded in the audit log (`gift_code_create`, `gift_code_disable`,
-`gift_code_enable`). Redemptions are written by RO3Emu into `gift_code_redemption`; the panel does not log them.
+Every create, edit, disable and enable is recorded in the audit log (`gift_code_create`, `gift_code_update`,
+`gift_code_disable`, `gift_code_enable`). Redemptions are written by RO3Emu into `gift_code_redemption`; the panel does not log them.
 
 ## Deleting a code
 

@@ -198,6 +198,84 @@ class TestGiftCodeItemTypeahead(unittest.TestCase):
                 self.assertIn(selector, css)
 
 
+class TestGiftCodeEdit(unittest.TestCase):
+    """Edit reuses the create modal: the code is read-only and the request goes to /update."""
+
+    def setUp(self):
+        self.js = _read("admin.js")
+        self.html = _read("index.html")
+
+    def section(self, start, end):
+        i = self.js.index(start)
+        return self.js[i:self.js.index(end, i)]
+
+    def test_each_row_has_an_escaped_edit_button(self):
+        table = self.section("function renderGiftCodesTable(", "function loadGiftCodes(")
+        self.assertIn("btn-giftcode-edit\" data-code=\"' + escapeHtml(c.code) + '\"", table)
+        self.assertIn("escapeHtml(t('Edit'))", table)
+        self.assertIn("giftCodesByCode[c.code] = c", table)
+
+    def test_edit_click_is_delegated(self):
+        self.assertIn("e.target.closest('button.btn-giftcode-edit')", self.js)
+        self.assertIn("showEditGiftCode(editCode)", self.js)
+
+    def test_edit_mode_locks_the_code_and_relabels_the_modal(self):
+        mode = self.section("function setGiftCodeModalMode(", "function showCreateGiftCode(")
+        self.assertIn("codeInput.readOnly = editing", mode)
+        # Literal keys (the i18n tests forbid dynamic t() keys); data-i18n keeps a language switch in sync.
+        self.assertIn("t('🎁 Edit Gift Code')", mode)
+        self.assertIn("t('Save changes')", mode)
+        self.assertIn("title.setAttribute('data-i18n', editing ? '🎁 Edit Gift Code' : '🎁 Create Gift Code')", mode)
+        self.assertIn("submit.setAttribute('data-i18n', editing ? 'Save changes' : 'Create Gift Code')", mode)
+
+    def test_create_resets_edit_mode(self):
+        create = self.section("function showCreateGiftCode(", "function showEditGiftCode(")
+        self.assertIn("setGiftCodeModalMode(null)", create)
+
+    def test_edit_prefills_fields_and_picked_reward_rows(self):
+        edit = self.section("function showEditGiftCode(", "function parseWholeNumber(")
+        for needle in ("setGiftCodeModalMode(c.code)", "unixToDatetimeLocal(c.starts_utc)",
+                       "unixToDatetimeLocal(c.expires_utc)", "addGiftCodeItemRow(item)", "c.note || ''"):
+            with self.subTest(needle=needle):
+                self.assertIn(needle, edit)
+        row = self.section("function addGiftCodeItemRow(", "function setGiftCodeModalMode(")
+        for needle in (".giftcode-item-entry').value = String(prefill.entry)",
+                       ".item-combobox__input').value = prefill.name || String(prefill.entry)",
+                       "chosen.innerHTML = itemChipHtml(prefill)"):
+            with self.subTest(needle=needle):
+                self.assertIn(needle, row)
+        # The add-reward button must not pass its click event as a prefill.
+        self.assertIn("addEventListener('click', function () { addGiftCodeItemRow(); })", self.js)
+
+    def test_datetime_local_inverse_uses_local_time(self):
+        inverse = self.section("function unixToDatetimeLocal(", "function handleCreateGiftCode(")
+        self.assertIn("new Date(seconds * 1000)", inverse)
+        for getter in ("getFullYear()", "getMonth() + 1", "getDate()", "getHours()", "getMinutes()"):
+            with self.subTest(getter=getter):
+                self.assertIn(getter, inverse)
+        self.assertNotIn("UTC", inverse)
+
+    def test_submit_posts_to_update_with_the_original_code(self):
+        submit = self.section("function handleCreateGiftCode(", "// --- Web Market")
+        self.assertIn("editing ? '/api/admin/gift-codes/update' : '/api/admin/gift-codes'", submit)
+        self.assertIn("code: editing ? giftCodeEditing : code", submit)
+        self.assertIn("closeModal(els.modalGiftCode)", submit)
+        self.assertIn("loadGiftCodes()", submit)
+
+    def test_read_only_hint_markup_and_styles(self):
+        self.assertRegex(self.html, r'<p id="giftcode-code-hint" class="form-hint"[^>]*\bhidden\b')
+        css = _read("admin.css")
+        for selector in (".giftcode-actions {", ".form-hint {"):
+            with self.subTest(selector=selector):
+                self.assertIn(selector, css)
+
+    def test_csp_safe_no_inline_styles_or_handlers(self):
+        block = self.section("// Codes from the last list load", "// --- Web Market")
+        self.assertNotRegex(block, r"\bstyle=")
+        self.assertNotRegex(block, r"\son[a-z]+=")
+        self.assertNotIn(".style.", block)
+
+
 class TestGiftCodesLocale(unittest.TestCase):
     def test_new_strings_have_spanish_translations(self):
         with open(os.path.join(PUBLIC, "locales", "es.json"), encoding="utf-8") as f:
@@ -205,7 +283,9 @@ class TestGiftCodesLocale(unittest.TestCase):
         for key in ("Gift Codes", "Create Gift Code", "Rewards", "Scheduled", "Exhausted", "unlimited",
                     "Search item by name or ID", "Searching items...", "No items found",
                     "Error searching items: {message}", "Items",
-                    "Pick an item from the list for every reward, or type its numeric ID."):
+                    "Pick an item from the list for every reward, or type its numeric ID.",
+                    "🎁 Edit Gift Code", "Edit", "Save changes",
+                    "The code cannot be changed: redemptions are recorded under it."):
             with self.subTest(key=key):
                 self.assertIn(key, es)
 

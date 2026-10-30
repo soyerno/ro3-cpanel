@@ -3199,6 +3199,11 @@
     return escapeHtml(formatDate(seconds * 1000));
   }
 
+  // Codes from the last list load, by code, so "Edit" can prefill the modal without another request.
+  var giftCodesByCode = {};
+  // The code being edited, or null while the modal creates a new code.
+  var giftCodeEditing = null;
+
   function renderGiftCodesTable(codes) {
     if (!els.giftCodesTbody) return;
     if (!codes.length) {
@@ -3206,7 +3211,9 @@
       return;
     }
     var html = '';
+    giftCodesByCode = {};
     codes.forEach(function (c) {
+      giftCodesByCode[c.code] = c;
       var limit = c.max_uses > 0 ? formatNumber(c.max_uses) : t('unlimited');
       var isDisabled = c.status === 'disabled' || c.disabled === true;
       var toggleLabel = isDisabled ? t('Enable') : t('Disable');
@@ -3221,7 +3228,10 @@
         '<td>' + giftCodeStatusBadge(c.status) + '</td>' +
         '<td>' + (c.created_by ? escapeHtml(c.created_by) : '—') + '</td>' +
         '<td>' + (c.note ? escapeHtml(c.note) : '—') + '</td>' +
-        '<td><button type="button" class="btn ' + toggleClass + ' btn-sm btn-giftcode-toggle" data-code="' + escapeHtml(c.code) + '" data-action="' + (isDisabled ? 'enable' : 'disable') + '">' + escapeHtml(toggleLabel) + '</button></td>' +
+        '<td><div class="giftcode-actions">' +
+          '<button type="button" class="btn btn-secondary btn-sm btn-giftcode-edit" data-code="' + escapeHtml(c.code) + '">' + escapeHtml(t('Edit')) + '</button>' +
+          '<button type="button" class="btn ' + toggleClass + ' btn-sm btn-giftcode-toggle" data-code="' + escapeHtml(c.code) + '" data-action="' + (isDisabled ? 'enable' : 'disable') + '">' + escapeHtml(toggleLabel) + '</button>' +
+        '</div></td>' +
       '</tr>';
     });
     els.giftCodesTbody.innerHTML = html;
@@ -3447,7 +3457,8 @@
     });
   }
 
-  function addGiftCodeItemRow() {
+  // prefill is an optional reward from the list ({entry, count, name, icon, quality}) shown as already picked.
+  function addGiftCodeItemRow(prefill) {
     if (!els.giftCodeItems) return;
     var listId = 'giftcode-item-listbox-' + (++itemComboboxSeq);
     var row = document.createElement('div');
@@ -3466,11 +3477,42 @@
       '<button type="button" class="btn btn-secondary btn-sm btn-giftcode-remove-item" title="Remove reward" data-i18n-title="Remove reward" aria-label="Remove reward" data-i18n-aria-label="Remove reward">&times;</button>';
     els.giftCodeItems.appendChild(row);
     applyI18n(row);
+    if (prefill) {
+      row.querySelector('.giftcode-item-entry').value = String(prefill.entry);
+      row.querySelector('.item-combobox__input').value = prefill.name || String(prefill.entry);
+      row.querySelector('.giftcode-item-count').value = String(prefill.count);
+      var chosen = row.querySelector('.item-combobox__chosen');
+      chosen.innerHTML = itemChipHtml(prefill);
+      chosen.hidden = false;
+    }
     initItemCombobox(row);
     updateGiftCodeRemoveButtons();
   }
 
+  // One modal serves both modes. The title and submit keep their data-i18n key so a language switch
+  // re-translates the label of the current mode.
+  function setGiftCodeModalMode(code) {
+    giftCodeEditing = code;
+    var editing = code !== null;
+    var codeInput = document.getElementById('giftcode-code');
+    codeInput.readOnly = editing;
+    codeInput.setAttribute('aria-readonly', editing ? 'true' : 'false');
+    var hint = document.getElementById('giftcode-code-hint');
+    if (hint) hint.hidden = !editing;
+    var title = document.getElementById('giftcode-modal-title');
+    var submit = document.getElementById('btn-giftcode-submit');
+    if (title) {
+      title.setAttribute('data-i18n', editing ? '🎁 Edit Gift Code' : '🎁 Create Gift Code');
+      title.textContent = editing ? t('🎁 Edit Gift Code') : t('🎁 Create Gift Code');
+    }
+    if (submit) {
+      submit.setAttribute('data-i18n', editing ? 'Save changes' : 'Create Gift Code');
+      submit.textContent = editing ? t('Save changes') : t('Create Gift Code');
+    }
+  }
+
   function showCreateGiftCode() {
+    setGiftCodeModalMode(null);
     document.getElementById('giftcode-code').value = '';
     document.getElementById('giftcode-max-uses').value = '0';
     document.getElementById('giftcode-per-account').value = '1';
@@ -3479,6 +3521,26 @@
     document.getElementById('giftcode-note').value = '';
     els.giftCodeItems.innerHTML = '';
     addGiftCodeItemRow();
+    setGiftCodeError('');
+    openModal(els.modalGiftCode);
+  }
+
+  function showEditGiftCode(code) {
+    var c = Object.prototype.hasOwnProperty.call(giftCodesByCode, code) ? giftCodesByCode[code] : null;
+    if (!c) return;
+    setGiftCodeModalMode(c.code);
+    document.getElementById('giftcode-code').value = c.code;
+    document.getElementById('giftcode-max-uses').value = String(c.max_uses || 0);
+    document.getElementById('giftcode-per-account').value = String(c.per_account || 1);
+    document.getElementById('giftcode-starts').value = unixToDatetimeLocal(c.starts_utc);
+    document.getElementById('giftcode-expires').value = unixToDatetimeLocal(c.expires_utc);
+    document.getElementById('giftcode-note').value = c.note || '';
+    els.giftCodeItems.innerHTML = '';
+    if (c.items && c.items.length) {
+      c.items.forEach(function (item) { addGiftCodeItemRow(item); });
+    } else {
+      addGiftCodeItemRow();
+    }
     setGiftCodeError('');
     openModal(els.modalGiftCode);
   }
@@ -3496,6 +3558,17 @@
     return isNaN(date.getTime()) ? NaN : Math.floor(date.getTime() / 1000);
   }
 
+  // Inverse of datetimeLocalToUnix: unix seconds to the local "YYYY-MM-DDTHH:MM" a datetime-local field shows.
+  function unixToDatetimeLocal(seconds) {
+    if (seconds === null || seconds === undefined) return '';
+    var date = new Date(seconds * 1000);
+    if (isNaN(date.getTime())) return '';
+    function pad(n) { return (n < 10 ? '0' : '') + n; }
+    return date.getFullYear() + '-' + pad(date.getMonth() + 1) + '-' + pad(date.getDate()) +
+      'T' + pad(date.getHours()) + ':' + pad(date.getMinutes());
+  }
+
+  // Creates a code, or saves the one being edited: same fields and checks; the code itself never changes.
   function handleCreateGiftCode(e) {
     e.preventDefault();
     var pending = document.getElementById('btn-giftcode-submit');
@@ -3558,10 +3631,11 @@
 
     var submit = document.getElementById('btn-giftcode-submit');
     setSubmitting(submit, true);
-    apiFetch('/api/admin/gift-codes', {
+    var editing = giftCodeEditing !== null;
+    apiFetch(editing ? '/api/admin/gift-codes/update' : '/api/admin/gift-codes', {
       method: 'POST',
       body: {
-        code: code,
+        code: editing ? giftCodeEditing : code,
         items: items,
         max_uses: maxUses,
         per_account: perAccount,
@@ -4021,7 +4095,7 @@
     }
     if (els.btnNewGiftCode) els.btnNewGiftCode.addEventListener('click', showCreateGiftCode);
     var btnGiftCodeAddItem = document.getElementById('btn-giftcode-add-item');
-    if (btnGiftCodeAddItem) btnGiftCodeAddItem.addEventListener('click', addGiftCodeItemRow);
+    if (btnGiftCodeAddItem) btnGiftCodeAddItem.addEventListener('click', function () { addGiftCodeItemRow(); });
     if (els.giftCodeItems) {
       els.giftCodeItems.addEventListener('click', function (e) {
         var target = e.target.closest('button.btn-giftcode-remove-item');
@@ -4037,6 +4111,12 @@
     if (formGiftCode) formGiftCode.addEventListener('submit', handleCreateGiftCode);
     if (els.giftCodesTbody) {
       els.giftCodesTbody.addEventListener('click', function (e) {
+        var edit = e.target.closest('button.btn-giftcode-edit');
+        if (edit) {
+          var editCode = edit.getAttribute('data-code');
+          if (editCode) showEditGiftCode(editCode);
+          return;
+        }
         var target = e.target.closest('button.btn-giftcode-toggle');
         if (!target) return;
         var code = target.getAttribute('data-code');
