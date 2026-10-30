@@ -1,6 +1,6 @@
 # Account Vault and Web Market
 
-Two read-only views of data that the **web player portal** (the Konsor `player_api`) keeps in the RO3Emu database. The panel only reads these tables. It never creates or alters them and never moves an item or any Zeny: an item must never exist twice, so every transfer stays inside the portal's own atomic code.
+Two read-only views of data that the **web player portal** (the Konsor `player_api`) keeps in the RO3Emu database. The panel only reads these tables, with one exception: the **VIP** checkbox of the [Account Screen](account-screen.md) upserts the account's `account_vip` row. It never moves an item or any Zeny: an item must never exist twice, so every transfer stays inside the portal's own atomic code.
 
 If a table does not exist yet (the portal creates them the first time it runs a vault or market feature), the view says so and nothing is written.
 

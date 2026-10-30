@@ -4,7 +4,7 @@ Pressing **Manage** on a row of the **Accounts** list opens that account on its 
 
 ## Layout
 
-- **Header:** breadcrumb (Accounts > name), a **Back to accounts** button, the account name with its badges (Active or Banned with reason and end date, GM or Admin, VIP) and its basics (registered, sessions).
+- **Header:** breadcrumb (Accounts > name), a **Back to accounts** button, the account name with its badges (Active or Banned with reason and end date, GM or Admin, VIP), a **VIP** checkbox, and its basics (registered, sessions). Ticking the checkbox grants the web portal VIP (permanent, or until a future end date the account already had); clearing it revokes it. Both ask for confirmation, write the portal's `account_vip` table (created with the portal's schema if it is missing) and leave a `vip_grant` / `vip_revoke` audit row. A revoked VIP stays as an `is_vip = 0` row, so the portal's login-streak reward does not grant it back. GM accounts are always VIP, so their checkbox is locked.
 - **Summary** (left, sticky on wide screens): number of characters, highest level, total Zeny, and the **GM administrative notes** with **Save Notes**, the only primary button on the screen.
 - **Tabs:**
   - **Characters:** one card per character with class, level, Zeny and other currencies, location, last login and stats, plus **View inventory**, **View mail** and the **GM tools** (teleport, unstuck, and, when `"quest"` is in `gm_allowed_commands`, the **Quests** debug section).
