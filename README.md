@@ -180,6 +180,7 @@ Only relational columns are read, as defined in `ro3emu-server` (`Accounts/Persi
 - [White-Label Customization Guide](docs/guide/white-label.md) (Theming, server branding, logo customization)
 - [Account Vault and Web Market](docs/guide/vault-market.md) (Read-only views of the web portal's vault and market)
 - [Gift Codes](docs/guide/gift-codes.md) (Create and manage redeemable codes from the panel)
+- [Website API](docs/guide/website-api.md) (Public status/rankings and player login for your own website, off by default)
 - [Language](docs/guide/language.md) (English by default, Spanish translation, switching from the panel)
 - [Career and Scene Names](docs/guide/names.md) (Class and map names, custom `names_file`)
 - [Security Architecture](docs/guide/security.md) (PBKDF2 hashing, session tokens, audit trail)

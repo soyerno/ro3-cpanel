@@ -21,5 +21,15 @@
   "item_names_file": "",
   "names_file": "",
   "login_max_failures": 5,
-  "login_window_minutes": 15
+  "login_window_minutes": 15,
+  "public_api_enabled": false,
+  "public_api_cache_seconds": 30,
+  "player_api_enabled": false,
+  "player_registration_enabled": false,
+  "player_register_per_ip_per_hour": 3,
+  "player_session_ttl_hours": 168,
+  "api_allowed_origins": [],
+  "player_cookie_secure": true,
+  "player_cookie_domain": "",
+  "turnstile_secret_key": ""
 }

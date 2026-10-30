@@ -51,7 +51,16 @@ DEFAULT_CONFIG = {
     "gm_allowed_commands": ["warp"],
     "gm_unstuck_scene": 10111,
     # Language of the panel when the browser has not chosen one: "en" (default) or "es".
-    "default_language": "en"
+    "default_language": "en",
+    # Website API (docs/guide/website-api.md). Everything is off until enabled.
+    "public_api_enabled": False,
+    "public_api_cache_seconds": 30,
+    "player_api_enabled": False,
+    "player_registration_enabled": False,
+    "api_allowed_origins": [],
+    "player_cookie_secure": True,
+    "player_cookie_domain": "",
+    "turnstile_secret_key": ""
 }
 
 def load_config():
@@ -275,6 +284,22 @@ ES_MESSAGES = {
     "Gift code '{code}' created successfully.": "Código de regalo '{code}' creado exitosamente.",
     "Gift code '{code}' disabled.": "Código de regalo '{code}' desactivado.",
     "Gift code '{code}' enabled.": "Código de regalo '{code}' activado.",
+    # Website API (/api/public/*, /api/player/*)
+    "The game database is not available right now.": "La base de datos del juego no está disponible en este momento.",
+    "This website is not allowed to use the player API.": "Este sitio web no tiene permiso para usar la API de jugadores.",
+    "Too many attempts. Try again in {seconds} seconds.": "Demasiados intentos. Inténtalo de nuevo en {seconds} segundos.",
+    "Sign in to continue.": "Inicia sesión para continuar.",
+    "Invalid username or password.": "Usuario o contraseña incorrectos.",
+    "Registration is closed.": "El registro está cerrado.",
+    "The username must be 3 to 32 letters, digits or underscores.":
+        "El usuario debe tener de 3 a 32 letras, dígitos o guiones bajos.",
+    "The password must be 6 to 128 characters.": "La contraseña debe tener de 6 a 128 caracteres.",
+    "Captcha verification failed. Try again.": "La verificación captcha falló. Inténtalo de nuevo.",
+    "That username is not available.": "Ese nombre de usuario no está disponible.",
+    "The current password is wrong.": "La contraseña actual es incorrecta.",
+    "Password changed. Other sessions were signed out.": "Contraseña cambiada. Se cerraron las demás sesiones.",
+    "Account created from the website": "Cuenta creada desde el sitio web",
+    "Password changed from the website": "Contraseña cambiada desde el sitio web",
 }
 
 
@@ -1994,6 +2019,236 @@ def account_vip_status(con, account):
     return none
 
 
+# --- Website API: public read-only data (/api/public/*) and player self-service (/api/player/*) ---
+# Both are off by default. They never share code paths, cookies or sessions with /api/admin/*, and a
+# player session only ever reads or changes the account it was opened for.
+
+PUBLIC_LIST_MAX_LIMIT = 50
+PLAYER_NAME_RE = re.compile(r'^[A-Za-z0-9_]{3,32}$')
+PLAYER_PASSWORD_MIN_LEN = 6
+PLAYER_PASSWORD_MAX_LEN = 128
+PLAYER_SESSION_COOKIE = "ro3_player_session"
+PLAYER_SESSION_TTL_SECONDS = _positive_int_config("player_session_ttl_hours", 168) * 3600
+PLAYER_LOGIN_THROTTLE = LoginThrottle(max_failures=LOGIN_MAX_FAILURES, window_seconds=LOGIN_WINDOW_SECONDS)
+# Counts registrations (and failed captchas or taken names) per IP over one hour.
+PLAYER_REGISTER_THROTTLE = LoginThrottle(
+    max_failures=_positive_int_config("player_register_per_ip_per_hour", 3), window_seconds=3600
+)
+TURNSTILE_VERIFY_URL = "https://challenges.cloudflare.com/turnstile/v0/siteverify"
+TURNSTILE_TIMEOUT_SECONDS = 5.0
+
+PLAYER_SESSION_TABLE_SQL = """
+    CREATE TABLE IF NOT EXISTS player_session (
+        token_hash TEXT PRIMARY KEY,
+        account TEXT NOT NULL,
+        ip_address TEXT DEFAULT '',
+        created_utc INTEGER NOT NULL,
+        expires_utc INTEGER NOT NULL
+    );
+"""
+
+
+def public_api_enabled():
+    return CONFIG.get("public_api_enabled") is True
+
+
+def player_api_enabled():
+    return CONFIG.get("player_api_enabled") is True
+
+
+def player_registration_enabled():
+    return player_api_enabled() and CONFIG.get("player_registration_enabled") is True
+
+
+def api_allowed_origins():
+    """Website origins (scheme://host[:port]) allowed to call the website API from a browser."""
+    origins = CONFIG.get("api_allowed_origins", [])
+    if not isinstance(origins, list):
+        return set()
+    return {o.strip().rstrip("/") for o in origins if isinstance(o, str) and o.strip()}
+
+
+def api_cors_headers(origin, with_credentials):
+    """CORS headers for a website API reply; empty when the Origin is not allowed.
+
+    "*" in api_allowed_origins only applies without credentials (the public API).
+    """
+    if not origin:
+        return {}
+    allowed = api_allowed_origins()
+    if origin.rstrip("/") in allowed:
+        headers = {"Access-Control-Allow-Origin": origin, "Vary": "Origin"}
+        if with_credentials:
+            headers["Access-Control-Allow-Credentials"] = "true"
+        return headers
+    if not with_credentials and "*" in allowed:
+        return {"Access-Control-Allow-Origin": "*"}
+    return {}
+
+
+class TtlCache:
+    """Small thread-safe cache so website traffic does not query the game DB on every page view."""
+
+    _MAX_ENTRIES = 512
+
+    def __init__(self, clock=time.monotonic):
+        self._clock = clock
+        self._entries = {}
+        self._lock = threading.Lock()
+
+    def get_or_compute(self, key, ttl_seconds, compute):
+        if ttl_seconds <= 0:
+            return compute()
+        now = self._clock()
+        with self._lock:
+            hit = self._entries.get(key)
+            if hit and hit[0] > now:
+                return hit[1]
+        value = compute()
+        with self._lock:
+            if len(self._entries) >= self._MAX_ENTRIES:
+                self._entries = {k: v for k, v in self._entries.items() if v[0] > now}
+            self._entries[key] = (now + ttl_seconds, value)
+        return value
+
+    def clear(self):
+        with self._lock:
+            self._entries.clear()
+
+
+PUBLIC_CACHE = TtlCache()
+
+
+def public_cache_seconds():
+    try:
+        return max(0, int(CONFIG.get("public_api_cache_seconds", 30)))
+    except (TypeError, ValueError):
+        return 30
+
+
+def probe_ro3_status():
+    """(online, players) from RO3Emu's status endpoint; (False, 0) when it does not answer."""
+    try:
+        req = urllib.request.Request(RO3_STATUS_URL, headers={'User-Agent': 'RO3AdminCPanel'})
+        with urllib.request.urlopen(req, timeout=2.0) as resp:
+            data = json.loads(resp.read().decode('utf-8'))
+            return bool(data.get("online")), int(data.get("players", 0))
+    except Exception:
+        return False, 0
+
+
+@contextmanager
+def player_session_db():
+    with get_db() as con:
+        con.execute(PLAYER_SESSION_TABLE_SQL)
+        yield con
+
+
+def create_player_session(con, token, account, ip_address):
+    now = int(time.time())
+    con.execute(PLAYER_SESSION_TABLE_SQL)
+    con.execute("DELETE FROM player_session WHERE expires_utc < ?", (now,))
+    con.execute(
+        "INSERT INTO player_session (token_hash, account, ip_address, created_utc, expires_utc) VALUES (?, ?, ?, ?, ?)",
+        (hash_session_token(token), account, ip_address or "", now, now + PLAYER_SESSION_TTL_SECONDS)
+    )
+
+
+def get_player_session(token):
+    """The live player session for `token` ({account, token_hash}), sliding its expiry; None otherwise."""
+    if not token:
+        return None
+    now = int(time.time())
+    token_hash = hash_session_token(token)
+    try:
+        with player_session_db() as con:
+            row = con.execute(
+                "SELECT s.account, s.expires_utc, a.name AS live_name FROM player_session s"
+                " LEFT JOIN account a ON a.name = s.account WHERE s.token_hash = ?",
+                (token_hash,)
+            ).fetchone()
+            if row is None:
+                return None
+            # A session dies when it expires or when its account is deleted.
+            if now > row["expires_utc"] or row["live_name"] is None:
+                con.execute("DELETE FROM player_session WHERE token_hash = ?", (token_hash,))
+                return None
+            expires = now + PLAYER_SESSION_TTL_SECONDS
+            if expires - row["expires_utc"] >= SESSION_SLIDE_MIN_SECONDS:
+                con.execute("UPDATE player_session SET expires_utc = ? WHERE token_hash = ?", (expires, token_hash))
+            return {"account": row["account"], "token_hash": token_hash}
+    except (FileNotFoundError, sqlite3.Error):
+        return None
+
+
+def delete_player_session(token):
+    if not token:
+        return
+    try:
+        with player_session_db() as con:
+            con.execute("DELETE FROM player_session WHERE token_hash = ?", (hash_session_token(token),))
+    except (FileNotFoundError, sqlite3.Error) as e:
+        if not isinstance(e, FileNotFoundError):
+            print(f"[Session Warning] Could not delete player session: {e}", file=sys.stderr)
+
+
+def revoke_player_sessions(con, account, keep_token_hash=None):
+    """Ends the website sessions of `account` except `keep_token_hash`, inside the caller's transaction."""
+    if not table_exists(con, "player_session"):
+        return
+    con.execute(
+        "DELETE FROM player_session WHERE account = ? AND token_hash IS NOT ?", (account, keep_token_hash)
+    )
+
+
+def delete_auth_tokens(con, account):
+    """Revokes the account's RO3Emu login tokens, when this database has the auth_token table."""
+    if table_exists(con, "auth_token"):
+        con.execute("DELETE FROM auth_token WHERE account=?", (account,))
+
+
+def verify_player_credentials(con, username, password):
+    """The exact account name when `password` is right, else None. Unknown names cost the same PBKDF2 work."""
+    row = con.execute("SELECT name, password_hash, salt FROM account WHERE name=?", (username,)).fetchone()
+    if row is None or not _usable_credential(row["password_hash"]) or not _usable_credential(row["salt"]):
+        hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), b"\0" * 16, 100000, 32)
+        return None
+    try:
+        if verify_ro3_password(password, bytes(row["password_hash"]), bytes(row["salt"])):
+            return row["name"]
+    except (TypeError, ValueError):
+        pass
+    return None
+
+
+def verify_turnstile(token, remote_ip):
+    """True when no turnstile_secret_key is configured, or when Cloudflare Turnstile accepts `token`."""
+    secret = str(CONFIG.get("turnstile_secret_key") or "").strip()
+    if not secret:
+        return True
+    if not isinstance(token, str) or not token or len(token) > 2048:
+        return False
+    data = urllib.parse.urlencode({"secret": secret, "response": token, "remoteip": remote_ip or ""}).encode("utf-8")
+    req = urllib.request.Request(TURNSTILE_VERIFY_URL, data=data, method="POST", headers={"User-Agent": "RO3AdminCPanel"})
+    try:
+        with urllib.request.urlopen(req, timeout=TURNSTILE_TIMEOUT_SECONDS) as resp:
+            result = json.loads(resp.read(65536).decode("utf-8"))
+    except Exception as e:
+        print(f"[Turnstile Warning] Verification request failed: {e}", file=sys.stderr)
+        return False
+    return isinstance(result, dict) and result.get("success") is True
+
+
+def player_cookie(token, max_age):
+    parts = [f"{PLAYER_SESSION_COOKIE}={token}", "Path=/api/player", "HttpOnly", "SameSite=Lax", f"Max-Age={max_age}"]
+    if CONFIG.get("player_cookie_secure", True) is not False:
+        parts.append("Secure")
+    domain = str(CONFIG.get("player_cookie_domain") or "").strip()
+    if domain:
+        parts.append(f"Domain={domain}")
+    return "; ".join(parts)
+
+
 class CPanelRequestHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         # Concise server log
@@ -2004,7 +2259,10 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
         self.send_response(status_code)
         self.send_header('Content-Type', 'application/json; charset=utf-8')
         self.send_header('Content-Length', str(len(payload)))
-        self.send_header('Cache-Control', 'no-store, no-cache, must-revalidate')
+        if not (extra_headers and 'Cache-Control' in extra_headers):
+            self.send_header('Cache-Control', 'no-store, no-cache, must-revalidate')
+        for k, v in getattr(self, 'cors_headers', {}).items():
+            self.send_header(k, v)
         if extra_headers:
             for k, v in extra_headers.items():
                 self.send_header(k, v)
@@ -2073,18 +2331,44 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
         set_language(header if header and header.strip().lower() in SUPPORTED_LANGUAGES else None)
 
     def do_OPTIONS(self):
+        raw_path = self.path.split('?')[0].rstrip('/')
         self.send_response(204)
+        if raw_path.startswith('/api/public/') or raw_path.startswith('/api/player/'):
+            cors = api_cors_headers(self.headers.get('Origin'), raw_path.startswith('/api/player/'))
+            for k, v in cors.items():
+                self.send_header(k, v)
+            if cors:
+                self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+                self.send_header('Access-Control-Allow-Headers', 'Content-Type, X-Panel-Lang')
+                self.send_header('Access-Control-Max-Age', '600')
+            self.send_header('Content-Length', '0')
+            self.end_headers()
+            return
         self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
         self.send_header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Panel-Lang')
         self.send_header('Access-Control-Allow-Credentials', 'true')
         self.end_headers()
 
+    def website_client_ip(self):
+        """Visitor IP behind Cloudflare (Tunnel or proxy) or nginx. Port 8095 must not be reachable directly,
+        or these headers can be forged."""
+        forwarded = (self.headers.get('X-Forwarded-For') or '').split(',')[0].strip()
+        return (self.headers.get('CF-Connecting-IP') or self.headers.get('X-Real-IP') or forwarded
+                or self.client_address[0]).strip()
+
     def do_GET(self):
         self.apply_request_language()
+        self.cors_headers = {}
         url_parts = self.path.split('?')
         raw_path = url_parts[0].rstrip('/')
         query_str = url_parts[1] if len(url_parts) > 1 else ''
         params = urllib.parse.parse_qs(query_str)
+
+        # 0. Website API (no admin session; each one is off unless enabled in config)
+        if raw_path.startswith('/api/public/'):
+            return self.route_public(raw_path, params)
+        if raw_path.startswith('/api/player/'):
+            return self.route_player('GET', raw_path)
 
         # 1. Static Files
         if raw_path in ['', '/admin', '/index.html', '/admin/index.html']:
@@ -2199,7 +2483,10 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         self.apply_request_language()
+        self.cors_headers = {}
         raw_path = self.path.split('?')[0].rstrip('/')
+        if raw_path.startswith('/api/player/'):
+            return self.route_player('POST', raw_path)
         client_ip = self.headers.get('X-Real-IP') or self.headers.get('X-Forwarded-For') or self.client_address[0]
 
         # 1. Login (Public)
@@ -2383,17 +2670,7 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
         }, extra_headers)
 
     def handle_stats(self):
-        server_online = False
-        online_players = 0
-        try:
-            req = urllib.request.Request(RO3_STATUS_URL, headers={'User-Agent': 'RO3AdminCPanel'})
-            with urllib.request.urlopen(req, timeout=2.0) as resp:
-                data = json.loads(resp.read().decode('utf-8'))
-                server_online = bool(data.get("online"))
-                online_players = int(data.get("players", 0))
-        except Exception:
-            server_online = False
-            online_players = 0
+        server_online, online_players = probe_ro3_status()
 
         with get_db() as con:
             total_accounts = con.execute("SELECT COUNT(*) FROM account").fetchone()[0]
@@ -2864,6 +3141,7 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
             # their own password keeps the session they are using.
             current = self.get_session_token() if username.lower() == str(admin_user).lower() else None
             revoke_admin_sessions(con, username, hash_session_token(current) if current else None)
+            revoke_player_sessions(con, username)
             con.commit()
 
         log_audit(admin_user, "update_password", username, "Password changed by admin", client_ip)
@@ -2908,6 +3186,7 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
                 (username, reason, now, until_utc, admin_user),
             )
             con.execute("DELETE FROM auth_token WHERE account=?", (username,))
+            revoke_player_sessions(con, username)
             insert_audit(con, admin_user, "ban_account", username, details, client_ip)
             con.commit()
 
@@ -2970,6 +3249,7 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
             con.execute("DELETE FROM auth_token WHERE account=?", (username,))
             con.execute("DELETE FROM admin_account_meta WHERE name=?", (username,))
             con.execute("UPDATE role SET deleted_time=? WHERE account=?", (int(time.time()), username))
+            revoke_player_sessions(con, username)
             con.commit()
 
         log_audit(admin_user, "delete_account", username, "Account deleted by admin", client_ip)
@@ -3387,6 +3667,291 @@ class CPanelRequestHandler(BaseHTTPRequestHandler):
             "value": r["member_count"]
         } for r in rows]
         return result, total
+
+    # --- Website API: public read-only data ---
+
+    def route_public(self, raw_path, params):
+        if not public_api_enabled():
+            return self.send_json(404, {"error": tr("Endpoint not found")})
+        self.cors_headers = api_cors_headers(self.headers.get('Origin'), with_credentials=False)
+        handlers = {
+            '/api/public/status': self.public_status,
+            '/api/public/rankings': self.public_rankings,
+            '/api/public/guilds': self.public_guilds,
+        }
+        handler = handlers.get(raw_path)
+        if handler is None:
+            return self.send_json(404, {"error": tr("Endpoint not found")})
+        ttl = public_cache_seconds()
+        try:
+            status, data = handler(params, ttl)
+        except (FileNotFoundError, sqlite3.Error) as e:
+            print(f"[Public API Warning] {raw_path}: {e}", file=sys.stderr)
+            return self.send_json(503, {"error": tr("The game database is not available right now.")})
+        cache = {'Cache-Control': f'public, max-age={ttl}'} if status == 200 and ttl > 0 else None
+        return self.send_json(status, data, cache)
+
+    def public_status(self, params, ttl):
+        def compute():
+            online, players = probe_ro3_status()
+            with get_db() as con:
+                open_read_only(con)
+                accounts = con.execute("SELECT COUNT(*) FROM account").fetchone()[0]
+                characters = con.execute("SELECT COUNT(*) FROM role WHERE deleted_time = 0").fetchone()[0]
+                guilds = con.execute("SELECT COUNT(*) FROM guild").fetchone()[0] if table_exists(con, 'guild') else 0
+            return {
+                "online": online,
+                "players_online": players,
+                "accounts": accounts,
+                "characters": characters,
+                "guilds": guilds,
+            }
+        return 200, PUBLIC_CACHE.get_or_compute(("status",), ttl, compute)
+
+    def public_rankings(self, params, ttl):
+        ranking_type = params.get('type', ['level'])[0].strip().lower() or 'level'
+        if ranking_type not in RANKING_TYPES:
+            return 400, {"error": tr("Invalid ranking type. Allowed values: {values}", values=", ".join(RANKING_TYPES))}
+        limit = parse_ranking_int(params, 'limit', 10, 1, PUBLIC_LIST_MAX_LIMIT)
+        page = parse_ranking_int(params, 'page', 1, 1, 1000)
+        offset = (page - 1) * limit
+
+        def compute():
+            with get_db() as con:
+                open_read_only(con)
+                if ranking_type == 'guilds':
+                    if not (table_exists(con, 'guild') and table_exists(con, 'guild_member')):
+                        return {"type": ranking_type, "page": page, "limit": limit, "total": 0,
+                                "available": False, "rankings": []}
+                    rows, total = self.rank_guilds(con, limit, offset)
+                elif ranking_type == 'level':
+                    rows, total = self.rank_by_level(con, limit, offset)
+                elif ranking_type == 'zeny':
+                    rows, total = self.rank_by_metric(con, 'currency', lambda v: currency_amount(v, ZENY_ITEM_ID), limit, offset)
+                else:
+                    rows, total = self.rank_by_metric(con, 'emblems', parse_power_total, limit, offset)
+            # Account names are sign-in names: never published.
+            public_rows = [{k: v for k, v in row.items() if k != "account"} for row in rows]
+            for index, row in enumerate(public_rows):
+                row["rank"] = offset + index + 1
+            return {"type": ranking_type, "page": page, "limit": limit, "total": total,
+                    "available": True, "rankings": public_rows}
+
+        return 200, PUBLIC_CACHE.get_or_compute(("rankings", ranking_type, limit, page), ttl, compute)
+
+    def public_guilds(self, params, ttl):
+        page = parse_int_param(params, 'page', 1, minimum=1, maximum=1000)
+        page_size = parse_int_param(params, 'page_size', 20, minimum=1, maximum=PUBLIC_LIST_MAX_LIMIT)
+
+        def compute():
+            with get_db() as con:
+                open_read_only(con)
+                if not (table_exists(con, 'guild') and table_exists(con, 'guild_member')):
+                    return {"available": False, "guilds": [], **paging(0, page, page_size)}
+                total = con.execute("SELECT COUNT(*) FROM guild").fetchone()[0]
+                rows = con.execute(
+                    f"{GUILD_SUMMARY_SQL} GROUP BY g.id ORDER BY member_count DESC, total_level DESC, g.id ASC"
+                    " LIMIT ? OFFSET ?",
+                    (page_size, (page - 1) * page_size),
+                ).fetchall()
+            return {"available": True, "guilds": [format_guild_summary(r) for r in rows], **paging(total, page, page_size)}
+
+        return 200, PUBLIC_CACHE.get_or_compute(("guilds", page, page_size), ttl, compute)
+
+    # --- Website API: player self-service ---
+
+    def route_player(self, method, raw_path):
+        if not player_api_enabled():
+            return self.send_json(404, {"error": tr("Endpoint not found")})
+        origin = self.headers.get('Origin')
+        self.cors_headers = api_cors_headers(origin, with_credentials=True)
+        # Browsers always send Origin on a cross-site POST: refuse any website that is not allowed (CSRF).
+        if method == 'POST' and origin and not self.cors_headers:
+            return self.send_json(403, {"error": tr("This website is not allowed to use the player API.")})
+        client_ip = self.website_client_ip()
+        routes = {
+            ('GET', '/api/player/session'): lambda: self.handle_player_session(),
+            ('GET', '/api/player/me'): lambda: self.handle_player_me(),
+            ('POST', '/api/player/login'): lambda: self.handle_player_login(client_ip),
+            ('POST', '/api/player/logout'): lambda: self.handle_player_logout(),
+            ('POST', '/api/player/register'): lambda: self.handle_player_register(client_ip),
+            ('POST', '/api/player/change-password'): lambda: self.handle_player_change_password(client_ip),
+        }
+        handler = routes.get((method, raw_path))
+        if handler is None:
+            return self.send_json(404, {"error": tr("Endpoint not found")})
+        try:
+            return handler()
+        except (FileNotFoundError, sqlite3.Error) as e:
+            print(f"[Player API Warning] {raw_path}: {e}", file=sys.stderr)
+            return self.send_json(503, {"error": tr("The game database is not available right now.")})
+
+    def player_session_token(self):
+        cookie_header = self.headers.get('Cookie')
+        if not cookie_header:
+            return None
+        cookie = SimpleCookie()
+        try:
+            cookie.load(cookie_header)
+        except Exception:
+            return None
+        return cookie[PLAYER_SESSION_COOKIE].value if PLAYER_SESSION_COOKIE in cookie else None
+
+    def player_throttled(self, retry_after):
+        return self.send_json(
+            429,
+            {"error": tr("Too many attempts. Try again in {seconds} seconds.", seconds=retry_after), "retry_after": retry_after},
+            {"Retry-After": str(retry_after)}
+        )
+
+    def player_signed_in(self, account, token, status=200):
+        return self.send_json(status, {"success": True, "account": account},
+                              {'Set-Cookie': player_cookie(token, PLAYER_SESSION_TTL_SECONDS)})
+
+    def handle_player_session(self):
+        session = get_player_session(self.player_session_token())
+        if not session:
+            return self.send_json(200, {"authenticated": False})
+        return self.send_json(200, {"authenticated": True, "account": session["account"]})
+
+    def handle_player_me(self):
+        session = get_player_session(self.player_session_token())
+        if not session:
+            return self.send_json(401, {"error": tr("Sign in to continue.")})
+        account = session["account"]
+        with get_db() as con:
+            open_read_only(con)
+            acc = con.execute("SELECT name, created_utc FROM account WHERE name=?", (account,)).fetchone()
+            if not acc:
+                return self.send_json(401, {"error": tr("Sign in to continue.")})
+            ban = active_ban(con, account, int(time.time()))
+            roles = [dict(r) for r in con.execute(
+                "SELECT * FROM role WHERE account=? AND deleted_time=0 ORDER BY id ASC", (account,)
+            ).fetchall()]
+        characters = []
+        for r in roles:
+            data = format_role(r, include_progress=True)
+            data.pop("pos", None)
+            data["currency"] = {"zeny": data["currency"]["zeny"]}
+            characters.append(data)
+        return self.send_json(200, {
+            "account": acc["name"],
+            "created_utc": acc["created_utc"],
+            "banned": ban is not None,
+            "ban_reason": ban["reason"] if ban else "",
+            "banned_until": ban_time_label(ban["until_utc"]) if ban else "",
+            "characters": characters,
+        })
+
+    def handle_player_login(self, client_ip):
+        body = self.read_json_body()
+        if not isinstance(body, dict):
+            return self.send_json(400, {"error": tr("Invalid request body")})
+        username, password = body.get("username"), body.get("password")
+        if not isinstance(username, str) or not isinstance(password, str) or not username.strip() or not password:
+            return self.send_json(400, {"error": tr("Enter a username and password")})
+        username = username.strip()
+        if len(username) > 32 or len(password) > PLAYER_PASSWORD_MAX_LEN:
+            return self.send_json(401, {"error": tr("Invalid username or password.")})
+
+        keys = ("ip:" + client_ip, "user:" + username.lower())
+        retry_after = PLAYER_LOGIN_THROTTLE.reserve(*keys)
+        if retry_after > 0:
+            return self.player_throttled(retry_after)
+
+        token = secrets.token_urlsafe(32)
+        with get_db() as con:
+            account = verify_player_credentials(con, username, password)
+            if account is None:
+                return self.send_json(401, {"error": tr("Invalid username or password.")})
+            create_player_session(con, token, account, client_ip)
+        PLAYER_LOGIN_THROTTLE.reset(*keys)
+        return self.player_signed_in(account, token)
+
+    def handle_player_logout(self):
+        delete_player_session(self.player_session_token())
+        return self.send_json(200, {"success": True}, {'Set-Cookie': player_cookie("", 0)})
+
+    def handle_player_register(self, client_ip):
+        if not player_registration_enabled():
+            return self.send_json(403, {"error": tr("Registration is closed.")})
+        body = self.read_json_body()
+        if not isinstance(body, dict):
+            return self.send_json(400, {"error": tr("Invalid request body")})
+        username, password = body.get("username"), body.get("password")
+        if not isinstance(username, str) or not PLAYER_NAME_RE.match(username.strip()):
+            return self.send_json(400, {"error": tr("The username must be 3 to 32 letters, digits or underscores.")})
+        username = username.strip()
+        if (not isinstance(password, str)
+                or not PLAYER_PASSWORD_MIN_LEN <= len(password) <= PLAYER_PASSWORD_MAX_LEN):
+            return self.send_json(400, {"error": tr("The password must be 6 to 128 characters.")})
+
+        ip_key = "ip:" + client_ip
+        retry_after = PLAYER_REGISTER_THROTTLE.retry_after(ip_key)
+        if retry_after > 0:
+            return self.player_throttled(retry_after)
+        if not verify_turnstile(body.get("turnstile_token"), client_ip):
+            PLAYER_REGISTER_THROTTLE.record_failure(ip_key)
+            return self.send_json(400, {"error": tr("Captcha verification failed. Try again.")})
+
+        if is_configured_admin(username):
+            PLAYER_REGISTER_THROTTLE.record_failure(ip_key)
+            return self.send_json(409, {"error": tr("That username is not available.")})
+
+        token = secrets.token_urlsafe(32)
+        pw_hash, salt = hash_ro3_password(password)
+        now_iso = datetime.now(timezone.utc).isoformat() + "Z"
+        with get_db() as con:
+            # Names that differ only by letter case would impersonate another player.
+            taken = con.execute("SELECT 1 FROM account WHERE LOWER(name)=?", (username.lower(),)).fetchone()
+            if not taken:
+                try:
+                    con.execute(
+                        "INSERT INTO account (name, password_hash, salt, created_utc) VALUES (?, ?, ?, ?)",
+                        (username, pw_hash, salt, now_iso)
+                    )
+                except sqlite3.IntegrityError:
+                    taken = True
+            if taken:
+                PLAYER_REGISTER_THROTTLE.record_failure(ip_key)
+                return self.send_json(409, {"error": tr("That username is not available.")})
+            create_player_session(con, token, username, client_ip)
+            insert_audit(con, "website", "player_register", username, "Account created from the website", client_ip)
+        PLAYER_REGISTER_THROTTLE.record_failure(ip_key)
+        return self.player_signed_in(username, token, status=201)
+
+    def handle_player_change_password(self, client_ip):
+        session = get_player_session(self.player_session_token())
+        if not session:
+            return self.send_json(401, {"error": tr("Sign in to continue.")})
+        account = session["account"]
+        body = self.read_json_body()
+        if not isinstance(body, dict):
+            return self.send_json(400, {"error": tr("Invalid request body")})
+        current, new = body.get("current_password"), body.get("new_password")
+        if not isinstance(current, str) or not current or len(current) > PLAYER_PASSWORD_MAX_LEN:
+            return self.send_json(400, {"error": tr("The current password is wrong.")})
+        if not isinstance(new, str) or not PLAYER_PASSWORD_MIN_LEN <= len(new) <= PLAYER_PASSWORD_MAX_LEN:
+            return self.send_json(400, {"error": tr("The password must be 6 to 128 characters.")})
+
+        keys = ("ip:" + client_ip, "user:" + account.lower())
+        retry_after = PLAYER_LOGIN_THROTTLE.reserve(*keys)
+        if retry_after > 0:
+            return self.player_throttled(retry_after)
+
+        with get_db() as con:
+            if verify_player_credentials(con, account, current) is None:
+                return self.send_json(400, {"error": tr("The current password is wrong.")})
+            pw_hash, salt = hash_ro3_password(new)
+            con.execute("UPDATE account SET password_hash=?, salt=? WHERE name=?", (pw_hash, salt, account))
+            # Same effect as an admin password change: game tokens, other website sessions and any
+            # panel session of this account end; the session making the change stays signed in.
+            delete_auth_tokens(con, account)
+            revoke_player_sessions(con, account, session["token_hash"])
+            revoke_admin_sessions(con, account)
+            insert_audit(con, "website", "player_change_password", account, "Password changed from the website", client_ip)
+        PLAYER_LOGIN_THROTTLE.reset(*keys)
+        return self.send_json(200, {"success": True, "message": tr("Password changed. Other sessions were signed out.")})
 
 
 def warn_plaintext_admin_passwords(admin_users, stream=None):
