@@ -429,5 +429,17 @@
   "Enter both levels and a percent from 1 to 10000, with the first level not above the second.": "Ingrese ambos niveles y un porcentaje de 1 a 10000, sin que el primer nivel supere al segundo.",
   "Hide mail": "Ocultar correo",
   "Currencies": "Monedas",
-  "Currency {id}": "Moneda {id}"
+  "Currency {id}": "Moneda {id}",
+  "Auto mode / Bonus Time": "Modo automático / Tiempo bonus",
+  "Applies to the account's connected character: it must be online, and the result appears in the player game chat. Each command (afkunlock, afkmode, afktime) must be enabled in gm_allowed_commands.": "Se aplica al personaje conectado de la cuenta: debe estar en línea y el resultado aparece en el chat del juego del jugador. Cada comando (afkunlock, afkmode, afktime) debe estar habilitado en gm_allowed_commands.",
+  "Unlock auto mode": "Desbloquear modo automático",
+  "Lock auto mode": "Bloquear modo automático",
+  "Bonus Time on": "Activar tiempo bonus",
+  "Bonus Time off": "Desactivar tiempo bonus",
+  "Minutes": "Minutos",
+  "Show Bonus Time": "Ver tiempo bonus",
+  "Set minutes": "Fijar minutos",
+  "Add minutes": "Sumar minutos",
+  "Enter whole minutes from 0 to 100000.": "Ingrese minutos enteros de 0 a 100000.",
+  "Enter whole minutes from -100000 to 100000.": "Ingrese minutos enteros de -100000 a 100000."
 }

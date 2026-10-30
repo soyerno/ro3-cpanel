@@ -112,6 +112,10 @@ bridged Docker container). Only commands listed in `gm_allowed_commands` (defaul
 panel builds every `!` line itself from validated numbers, and every attempt is written to the audit log.
 The **Field EXP rate** form (`"fieldexp"`, off by default) sets RO3Emu's `!fieldexp`: the EXP of open-field kills for the
 whole server by level range, kept in memory until RO3Emu restarts; it needs the account to have a connected character.
+The **Auto mode / Bonus Time** form sends the game server's WildAFK commands to the account's online character:
+`!afkunlock on|off` (permanent auto-mode unlock), `!afkmode on|off` (Bonus Time switch) and
+`!afktime info|set <minutes>|add <minutes>` (Bonus Time bank). Each is off unless `"afkunlock"`, `"afkmode"` or
+`"afktime"` is listed, and the reply appears in the player's in-game chat.
 See [Security Architecture](docs/guide/security.md#5-gm-tools).
 
 ### Account bans

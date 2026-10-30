@@ -411,5 +411,47 @@ class TestLocale(unittest.TestCase):
                 self.assertIn(key, self.es)
 
 
+class TestGmAfkTools(unittest.TestCase):
+    """GM Tools: the WildAFK auto mode / Bonus Time form (afkunlock, afkmode, afktime)."""
+
+    def setUp(self):
+        self.js = _read("admin.js")
+        self.panel = _function_body(self.js, "buildGmPanel")
+        self.es = json.loads(_read("locales", "es.json"))
+
+    def test_form_is_built_inside_the_gm_tools_panel(self):
+        self.assertIn('id="gm-afk-form"', self.panel)
+        self.assertIn('id="gm-afk-minutes"', self.panel)
+        self.assertIn('data-i18n="Auto mode / Bonus Time"', self.panel)
+
+    def test_note_says_the_character_must_be_online_and_the_result_is_in_game_chat(self):
+        note = re.search(r'id="gm-afk-note"[^>]*data-i18n="([^"]+)"', self.panel)
+        self.assertIsNotNone(note)
+        text = note.group(1)
+        self.assertIn("online", text)
+        self.assertIn("game chat", text)
+        self.assertIn("gm_allowed_commands", text)
+
+    def test_buttons_send_each_afk_command_with_validated_args(self):
+        for snippet in ("sendGmCommand('afkunlock', { state: 'on' })", "sendGmCommand('afkunlock', { state: 'off' })",
+                        "sendGmCommand('afkmode', { state: 'on' })", "sendGmCommand('afkmode', { state: 'off' })",
+                        "sendGmCommand('afktime', { action: 'info' })"):
+            with self.subTest(snippet=snippet):
+                self.assertIn(snippet, self.panel)
+        handler = _function_body(self.js, "handleGmAfkTime")
+        self.assertIn("parseGmInt('gm-afk-minutes')", handler)
+        self.assertIn("sendGmCommand('afktime', { action: action, minutes: minutes })", handler)
+        self.assertIn("100000", handler)
+
+    def test_minutes_input_is_cleared_with_the_panel(self):
+        self.assertIn("'gm-afk-minutes'", _function_body(self.js, "resetGmPanel"))
+
+    def test_afk_strings_are_translated(self):
+        for key in ("Auto mode / Bonus Time", "Unlock auto mode", "Lock auto mode", "Bonus Time on", "Bonus Time off",
+                    "Minutes", "Show Bonus Time", "Set minutes", "Add minutes"):
+            with self.subTest(key=key):
+                self.assertIn(key, self.es)
+
+
 if __name__ == "__main__":
     unittest.main()
