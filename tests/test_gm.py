@@ -323,6 +323,110 @@ class GmEndpointTest(unittest.TestCase):
             with self.subTest(args=args):
                 self.assert_rejected({"account": "player1", "command": "fieldexp", "args": args})
 
+    # --- WildAFK auto mode / Bonus Time ---
+
+    def test_afk_commands_are_off_unless_they_are_in_the_allowlist(self):
+        payloads = [
+            {"account": "player1", "command": "afkunlock", "args": {"state": "on"}},
+            {"account": "player1", "command": "afktime", "args": {"action": "info"}},
+            {"account": "player1", "command": "afkmode", "args": {"state": "off"}},
+        ]
+        for payload in payloads:
+            with self.subTest(command=payload["command"]):
+                self.assert_rejected(payload)
+        server.CONFIG["gm_allowed_commands"] = ["warp", "fieldexp"]
+        for payload in payloads:
+            with self.subTest(command=payload["command"], allowlist="warp,fieldexp"):
+                self.assert_rejected(payload)
+
+    def test_each_afk_allowlist_entry_enables_only_its_own_command(self):
+        server.CONFIG["gm_allowed_commands"] = ["afkunlock"]
+        self.assert_rejected({"account": "player1", "command": "afktime", "args": {"action": "info"}})
+        self.assert_rejected({"account": "player1", "command": "afkmode", "args": {"state": "on"}})
+        self.assert_rejected({"account": "player1", "command": "warp", "args": {"scene": 10100}})
+        server.CONFIG["gm_allowed_commands"] = ["afktime", "afkmode"]
+        self.assert_rejected({"account": "player1", "command": "afkunlock", "args": {"state": "on"}})
+
+    def test_afk_commands_send_the_exact_lines_to_the_loopback_endpoint(self):
+        server.CONFIG["gm_allowed_commands"] = ["afkunlock", "afktime", "afkmode"]
+        cases = [
+            ("afkunlock", {"state": "on"}, "!afkunlock on"),
+            ("afkunlock", {"state": "off"}, "!afkunlock off"),
+            ("afkmode", {"state": "on"}, "!afkmode on"),
+            ("afkmode", {"state": "off"}, "!afkmode off"),
+            ("afktime", {"action": "info"}, "!afktime info"),
+            ("afktime", {"action": "set", "minutes": 0}, "!afktime set 0"),
+            ("afktime", {"action": "set", "minutes": 120}, "!afktime set 120"),
+            ("afktime", {"action": "set", "minutes": 100000}, "!afktime set 100000"),
+            ("afktime", {"action": "add", "minutes": 30}, "!afktime add 30"),
+            ("afktime", {"action": "add", "minutes": -45}, "!afktime add -45"),
+            ("afktime", {"action": "add", "minutes": -100000}, "!afktime add -100000"),
+        ]
+        for command, args, line in cases:
+            with self.subTest(line=line):
+                code, data = self.gm({"account": "player1", "command": command, "args": args})
+                self.assertEqual(code, 200, data)
+                self.assertEqual(data["sent"], line)
+                self.assertEqual(self.fake.requests[-1]["body"], line)
+                self.assertEqual(self.fake.requests[-1]["query"], {"account": ["player1"]})
+        rows = self.audit_rows()
+        self.assertEqual(len(rows), len(cases), "every attempt is audit-logged")
+        self.assertEqual(rows[0]["admin_user"], ADMIN_USER)
+        self.assertEqual(rows[0]["target"], "player1")
+        self.assertIn("!afkunlock on", rows[0]["details"])
+        self.assertIn("!afktime add -100000", rows[-1]["details"])
+
+    def test_invalid_afk_switch_args_are_rejected(self):
+        server.CONFIG["gm_allowed_commands"] = ["afkunlock", "afkmode"]
+        bad_args = [
+            None,
+            {},
+            {"state": "ON"},
+            {"state": "yes"},
+            {"state": True},
+            {"state": 1},
+            {"state": ""},
+            {"state": "on "},
+            {"state": "on\n!zeny 999999"},
+            {"state": "on", "extra": 1},
+            ["on"],
+            "on",
+        ]
+        for command in ("afkunlock", "afkmode"):
+            for args in bad_args:
+                with self.subTest(command=command, args=args):
+                    self.assert_rejected({"account": "player1", "command": command, "args": args})
+
+    def test_invalid_afktime_args_are_rejected(self):
+        server.CONFIG["gm_allowed_commands"] = ["afktime"]
+        bad_args = [
+            None,
+            {},
+            {"action": "show"},
+            {"action": "INFO"},
+            {"action": "info", "minutes": 10},
+            {"action": "set"},
+            {"action": "add"},
+            {"action": "set", "minutes": -1},
+            {"action": "set", "minutes": 100001},
+            {"action": "add", "minutes": 100001},
+            {"action": "add", "minutes": -100001},
+            {"action": "set", "minutes": 10 ** 30},
+            {"action": "set", "minutes": 1.5},
+            {"action": "set", "minutes": 10.0},
+            {"action": "set", "minutes": True},
+            {"action": "add", "minutes": False},
+            {"action": "set", "minutes": "10"},
+            {"action": "set", "minutes": "10\n!zeny 999999"},
+            {"action": "set", "minutes": None},
+            {"action": "set", "minutes": [10]},
+            {"action": "add\n!zeny 999999", "minutes": 1},
+            {"action": "set", "minutes": 10, "extra": 1},
+        ]
+        for args in bad_args:
+            with self.subTest(args=args):
+                self.assert_rejected({"account": "player1", "command": "afktime", "args": args})
+
     def test_unstuck_rejects_arguments(self):
         self.assert_rejected({"account": "player1", "command": "unstuck", "args": {"scene": 10100}})
 

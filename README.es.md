@@ -110,7 +110,12 @@ desde un contenedor Docker en red bridge). Solo se envían los comandos listados
 (por defecto `["warp"]`), el panel arma cada línea `!` a partir de números validados y cada intento queda en
 el registro de auditoría. El formulario **Tasa de EXP de campo** (`"fieldexp"`, desactivado por defecto) usa el
 `!fieldexp` de RO3Emu: la EXP de las muertes en campo abierto para todo el servidor, por rango de nivel, en memoria
-hasta que RO3Emu se reinicie; requiere que la cuenta tenga un personaje conectado. La sección **Misiones**
+hasta que RO3Emu se reinicie; requiere que la cuenta tenga un personaje conectado. El formulario
+**Modo automático / Tiempo bonus** envía los comandos WildAFK del servidor de juego al personaje en línea de la
+cuenta: `!afkunlock on|off` (desbloqueo permanente del modo automático), `!afkmode on|off` (interruptor del tiempo
+bonus) y `!afktime info|set <minutos>|add <minutos>` (saldo de tiempo bonus). Cada uno está desactivado salvo que
+`"afkunlock"`, `"afkmode"` o `"afktime"` figure en la lista, y la respuesta aparece en el chat del juego del jugador.
+La sección **Misiones**
 (`"quest"`, desactivada por defecto) es una herramienta de depuración: busca en el catálogo de misiones de RO3Emu por
 nombre o número, muestra las misiones del personaje conectado (estado, progreso, veces completada) y permite aceptar,
 completar los objetivos, entregar, abandonar o repetir (abandonar y volver a aceptar) cualquiera de ellas con el

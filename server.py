@@ -243,6 +243,14 @@ ES_MESSAGES = {
         "Cada regla necesita exactamente 'min', 'max' y 'percent'.",
     "A rule's 'min' level cannot be above its 'max'.":
         "El nivel 'min' de una regla no puede ser mayor que su 'max'.",
+    "{command} requires 'state': on or off.":
+        "{command} requiere 'state': on u off.",
+    "afktime requires 'action': info, set or add.":
+        "afktime requiere 'action': info, set o add.",
+    "afktime info takes no 'minutes'.":
+        "afktime info no admite 'minutes'.",
+    "afktime {action} requires 'minutes'.":
+        "afktime {action} requiere 'minutes'.",
     "Invalid account.": "Cuenta inválida.",
     "Invalid account: it contains characters that are not allowed.":
         "Cuenta inválida: contiene caracteres no permitidos.",
@@ -2029,6 +2037,46 @@ def _build_fieldexp(args):
     return "!fieldexp set " + " ".join(str(n) for n in numbers)
 
 
+GM_AFKTIME_MINUTES_MAX = 100000
+
+
+def _gm_switch(command, args):
+    # A per-character on/off switch: the only argument is 'state', exactly "on" or "off".
+    args = _gm_args(args, ("state",))
+    state = args.get("state")
+    if state not in ("on", "off"):
+        raise GmRequestError(400, tr("{command} requires 'state': on or off.", command=command))
+    return f"!{command} {state}"
+
+
+def _build_afkunlock(args):
+    # Game server `!afkunlock on|off`: permanent per-character override that unlocks the WildAFK auto mode.
+    return _gm_switch("afkunlock", args)
+
+
+def _build_afkmode(args):
+    # Game server `!afkmode on|off`: the character's Bonus Time switch.
+    return _gm_switch("afkmode", args)
+
+
+def _build_afktime(args):
+    # Game server `!afktime info|set <minutes>|add <minutes>`: the character's Bonus Time bank, in minutes.
+    # "add" may be negative; the game server clamps the resulting bank to 0. The reply goes to the in-game chat.
+    args = _gm_args(args, ("action", "minutes"))
+    action = args.get("action")
+    if action not in ("info", "set", "add"):
+        raise GmRequestError(400, tr("afktime requires 'action': info, set or add."))
+    if action == "info":
+        if "minutes" in args:
+            raise GmRequestError(400, tr("afktime info takes no 'minutes'."))
+        return "!afktime info"
+    if "minutes" not in args:
+        raise GmRequestError(400, tr("afktime {action} requires 'minutes'.", action=action))
+    minimum = 0 if action == "set" else -GM_AFKTIME_MINUTES_MAX
+    minutes = _gm_int(args["minutes"], minimum, GM_AFKTIME_MINUTES_MAX, "minutes")
+    return f"!afktime {action} {minutes}"
+
+
 GM_QUEST_ID_MAX = 2 ** 31 - 1
 GM_QUEST_ACTIONS = ("accept", "finish", "done", "drop", "repeat")
 
@@ -2055,6 +2103,9 @@ GM_COMMANDS = {
     "warp": (("warp",), _build_warp),
     "unstuck": (("unstuck", "warp"), _build_unstuck),
     "fieldexp": (("fieldexp",), _build_fieldexp),
+    "afkunlock": (("afkunlock",), _build_afkunlock),
+    "afktime": (("afktime",), _build_afktime),
+    "afkmode": (("afkmode",), _build_afkmode),
     "quest": (("quest",), _build_quest),
 }
 
